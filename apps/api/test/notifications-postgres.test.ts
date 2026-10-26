@@ -5,7 +5,18 @@ import {
   foundationMigrations,
   migrate,
 } from '@signaldock/database';
-import type { DatabasePort } from '@signaldock/contracts';
+import type {
+  DatabasePort,
+  Principal,
+  AuthenticationPort,
+  NotificationAudiencePort,
+} from '@signaldock/contracts';
+import type {
+  RelayDeliveryPort,
+  RelayGrantInspection,
+} from '@signaldock/notification-sdk/server';
+import { identityMigrations } from '../src/modules/identity/identity.migrations.js';
+import { NotificationService } from '../src/modules/notifications/service.js';
 import { notificationMigrations } from '../src/modules/notifications/migrations.js';
 import {
   PostgresNotificationRepository,
@@ -27,6 +38,7 @@ describe.skipIf(!url)('notification PostgreSQL integrity', () => {
     });
     await migrate(database, [
       ...foundationMigrations,
+      ...identityMigrations,
       ...notificationMigrations,
     ]);
   });
@@ -53,6 +65,69 @@ describe.skipIf(!url)('notification PostgreSQL integrity', () => {
       frequencyHz: 145500000,
       expiresAt: new Date(Date.now() + 300000).toISOString(),
     };
+  }
+  async function seedSession(
+    value: { instanceId: string; userId: string; sessionId: string },
+    options: { refreshExpiresAt?: string; accessExpiresAt?: string } = {},
+  ) {
+    const now = new Date().toISOString(),
+      future = new Date(Date.now() + 3600000).toISOString();
+    await database.query(
+      "INSERT INTO sd_users(instance_id,id,username,password_hash,role,created_at,updated_at) VALUES($1,$2,$3,'unused','listener',$4,$4) ON CONFLICT DO NOTHING",
+      [
+        value.instanceId,
+        value.userId,
+        `u${value.userId.replaceAll('-', '')}`,
+        now,
+      ],
+    );
+    await database.query(
+      "INSERT INTO sd_sessions(instance_id,id,user_id,access_token_hash,csrf_token_hash,mode,access_expires_at,refresh_expires_at,created_at,last_seen_at) VALUES($1,$2,$3,$4,'unused','token',$5,$6,$7,$7)",
+      [
+        value.instanceId,
+        value.sessionId,
+        value.userId,
+        randomUUID(),
+        options.accessExpiresAt ?? future,
+        options.refreshExpiresAt ?? future,
+        now,
+      ],
+    );
+  }
+  function serviceFixture(principal: Principal, relay: RelayDeliveryPort) {
+    const repository = new PostgresNotificationRepository(database);
+    const auth: AuthenticationPort = {
+      authenticate: async () => principal,
+      authorize: async () => undefined,
+    };
+    const { sessionId: _session, ...audienceUser } = principal;
+    const audience: NotificationAudiencePort = {
+      resolveUser: async () => audienceUser,
+      authorizeUser: async () => undefined,
+    };
+    return new NotificationService(repository, auth, audience, relay);
+  }
+  function enrollment() {
+    const principal: Principal = {
+      instanceId: randomUUID(),
+      userId: randomUUID(),
+      sessionId: randomUUID(),
+      username: 'listener',
+      role: 'listener',
+      radioPermissions: [],
+    };
+    const grant: RelayGrantInspection = {
+      grantId: randomUUID(),
+      installationId: randomUUID(),
+      instanceId: principal.instanceId,
+      instancePublicKey: 'fixture',
+      subscriptionRef: principal.userId,
+      categories: ['communication'],
+      radioIds: [],
+      expiresAt: new Date(Date.now() + 3600000).toISOString(),
+      revokedAt: null,
+    };
+    return { principal, grant };
   }
   it('deduplicates concurrent events and commits their outbox atomically', async () => {
     const repository = new PostgresNotificationRepository(database);
@@ -125,6 +200,7 @@ describe.skipIf(!url)('notification PostgreSQL integrity', () => {
       expiresAt: input.expiresAt,
       revokedAt: null,
     };
+    await seedSession(subscription);
     await repository.saveSubscription(subscription);
     await repository.revokeSubscription(
       subscription.instanceId,
@@ -169,6 +245,7 @@ describe.skipIf(!url)('notification PostgreSQL integrity', () => {
       expiresAt: input.expiresAt,
       revokedAt: null,
     };
+    await seedSession(first);
     await repository.saveSubscription(first);
     const replacement = { ...first, id: randomUUID(), grantRef: randomUUID() };
     await repository.saveSubscription(replacement);
@@ -179,5 +256,135 @@ describe.skipIf(!url)('notification PostgreSQL integrity', () => {
       "SELECT payload FROM sd_event_outbox WHERE type='notification.subscription_revoked'",
     );
     expect(outbox.rows[0]?.payload.grantId).toBe(first.grantRef);
+  });
+  it('rejects enrollment when relay inspection returns after logout and its callback completed', async () => {
+    const { principal, grant } = enrollment();
+    await seedSession(principal);
+    let inspected!: () => void;
+    const inspectionStarted = new Promise<void>((resolve) => {
+      inspected = resolve;
+    });
+    let release!: () => void;
+    const inspectionGate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const service = serviceFixture(principal, {
+      inspect: async () => {
+        inspected();
+        await inspectionGate;
+        return grant;
+      },
+      send: async (payload) => ({
+        requestId: payload.requestId,
+        state: 'provider_accepted',
+      }),
+    });
+    const pending = service.subscribe(principal, {
+      deviceRef: grant.installationId,
+      grantRef: grant.grantId,
+    });
+    await inspectionStarted;
+    await database.query(
+      'UPDATE sd_sessions SET revoked_at=clock_timestamp() WHERE instance_id=$1 AND id=$2',
+      [principal.instanceId, principal.sessionId],
+    );
+    await service.revokeForUser(
+      principal.instanceId,
+      principal.userId,
+      principal.sessionId,
+    );
+    const rejected = expect(pending).rejects.toMatchObject({
+      code: 'UNAUTHORIZED',
+    });
+    release();
+    await rejected;
+    expect(
+      await new PostgresNotificationRepository(database).subscriptions(
+        principal.instanceId,
+        principal.userId,
+      ),
+    ).toHaveLength(0);
+  });
+  it('serializes subscription creation against an uncommitted session revocation', async () => {
+    const { principal, grant } = enrollment();
+    await seedSession(principal);
+    const repository = new PostgresNotificationRepository(database);
+    let revoked!: () => void;
+    const revocationLocked = new Promise<void>((resolve) => {
+      revoked = resolve;
+    });
+    let commit!: () => void;
+    const commitGate = new Promise<void>((resolve) => {
+      commit = resolve;
+    });
+    const revocation = database.transaction(async (tx) => {
+      await tx.query(
+        'UPDATE sd_sessions SET revoked_at=clock_timestamp() WHERE instance_id=$1 AND id=$2',
+        [principal.instanceId, principal.sessionId],
+      );
+      revoked();
+      await commitGate;
+    });
+    await revocationLocked;
+    const pending = repository.saveSubscription({
+      id: randomUUID(),
+      instanceId: principal.instanceId,
+      userId: principal.userId,
+      sessionId: principal.sessionId,
+      deviceRef: grant.installationId,
+      grantRef: grant.grantId,
+      categories: grant.categories,
+      radioIds: [],
+      expiresAt: grant.expiresAt,
+      revokedAt: null,
+    });
+    const rejected = expect(pending).rejects.toMatchObject({
+      code: 'UNAUTHORIZED',
+    });
+    commit();
+    await revocation;
+    await rejected;
+  });
+  it('rechecks revoked and absolute refresh expiry for delivery without requiring a fresh access token', async () => {
+    for (const mode of [
+      'access_expired',
+      'refresh_expired',
+      'revoked',
+    ] as const) {
+      const { principal, grant } = enrollment();
+      await seedSession(principal, {
+        accessExpiresAt: new Date(Date.now() - 60000).toISOString(),
+      });
+      let sends = 0;
+      const service = serviceFixture(principal, {
+        inspect: async () => grant,
+        send: async (payload) => {
+          sends++;
+          return { requestId: payload.requestId, state: 'provider_accepted' };
+        },
+      });
+      await service.subscribe(principal, {
+        deviceRef: grant.installationId,
+        grantRef: grant.grantId,
+      });
+      if (mode === 'refresh_expired')
+        await database.query(
+          "UPDATE sd_sessions SET refresh_expires_at=clock_timestamp()-interval '1 second' WHERE instance_id=$1 AND id=$2",
+          [principal.instanceId, principal.sessionId],
+        );
+      if (mode === 'revoked')
+        await database.query(
+          'UPDATE sd_sessions SET revoked_at=clock_timestamp() WHERE instance_id=$1 AND id=$2',
+          [principal.instanceId, principal.sessionId],
+        );
+      const notification = await service.publishForUser(principal.userId, {
+        instanceId: principal.instanceId,
+        eventId: randomUUID(),
+        category: 'communication',
+        occurredAt: new Date().toISOString(),
+      });
+      await service.deliver(principal.instanceId, notification!.id);
+      expect(sends).toBe(mode === 'access_expired' ? 1 : 0);
+    }
   });
 });

@@ -4,7 +4,7 @@ The current implementation supports durable instance history, preferences, autho
 
 ## Integration
 
-1. Add `notificationMigrations` after the database foundation migrations. The exported migration ID is `050_notifications`.
+1. Add `notificationMigrations` after the database foundation and identity migrations. The exported migration ID is `050_notifications`; subscription lifecycle requires the authoritative identity tables.
 2. Construct `PostgresNotificationRepository(database)` and `NotificationService(repository, authentication, audience, optionalRelay)`; mount `registerNotificationRoutes` under the application API prefix.
 3. Connect finalized domain events to `publishForUser`. Resolve recipients through enabled users with current radio permissions. Do not emit per audio frame or partial transcript.
 4. Convert outbox `notification.delivery_requested` to `notifications.deliver` and `notification.subscription_revoked` to `notifications.revoke`; use the exported worker handlers. Commit visible domain state before external delivery.
@@ -16,6 +16,8 @@ For private relay integration, use `SignedRelayClient` with the configured HTTPS
 ## Failure behavior
 
 History and outbox creation share a database transaction. Duplicate finalized events create one entry. Delivery reloads enabled-user state, radio grants, preferences, expiry, presence, and cooldown. Lost rights or disabled users stop delivery. Local unsubscribe commits before relay revocation is retried; device owners also have direct installation-key revocation independent of a station. Re-enrollment queues any superseded grant for revocation.
+
+Enrollment rechecks and locks the authoritative `sd_sessions` row after external grant inspection, inside the subscription upsert transaction. Source-session revocation and absolute refresh-family expiry are checked again in a short transaction before each push dispatch; expired access tokens alone do not stop an idle mobile device's notifications. No identity lock spans relay/provider network IO, preserving prompt core runtime revocation. A generic push already admitted for dispatch may complete in flight. Relay send/inspect reload the grant after acquiring the installation lock so concurrent grant revocation cannot leave a stale authorized snapshot.
 
 Each device attempt stores the exact signed request payload. A retry cannot refresh timestamps or extend its TTL. The relay's reserved request ID survives restart and cannot send a different payload. Ambiguous sends remain reserved rather than being sent again automatically. Delivery is at least once at the job boundary, idempotent at the application/relay boundary, and inherently uncertain after an external provider accepts it.
 

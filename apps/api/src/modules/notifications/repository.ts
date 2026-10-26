@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { SignalDockError } from '@signaldock/contracts';
 import type {
   DatabasePort,
   NotificationPreference,
@@ -76,6 +77,7 @@ export interface NotificationRepository {
     userId: string,
   ): Promise<DeviceSubscription[]>;
   saveSubscription(value: DeviceSubscription): Promise<void>;
+  isSubscriptionActive(value: DeviceSubscription): Promise<boolean>;
   revokeSubscription(
     instanceId: string,
     userId: string,
@@ -292,6 +294,16 @@ export class PostgresNotificationRepository implements NotificationRepository {
   }
   async saveSubscription(value: DeviceSubscription): Promise<void> {
     await this.database.transaction(async (tx) => {
+      // Same session row as identity's logout/revocation UPDATE. Never lock a user after this row.
+      const session = await tx.query<{ id: string }>(
+        'SELECT id FROM sd_sessions WHERE instance_id=$1 AND user_id=$2 AND id=$3 AND revoked_at IS NULL AND refresh_expires_at>clock_timestamp() FOR UPDATE',
+        [value.instanceId, value.userId, value.sessionId],
+      );
+      if (!session.rows[0])
+        throw new SignalDockError(
+          'UNAUTHORIZED',
+          'The enrolling session is no longer active.',
+        );
       // Serialize first-time enrollment and replacement for the same user/device.
       await tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [
         `${value.instanceId}:${value.userId}:${value.deviceRef}`,
@@ -324,6 +336,27 @@ export class PostgresNotificationRepository implements NotificationRepository {
             { grantId: old.rows[0].grant_ref },
           ],
         );
+    });
+  }
+  /** Fresh send admission. Never hold identity locks across optional push network IO. */
+  async isSubscriptionActive(value: DeviceSubscription): Promise<boolean> {
+    return this.database.transaction(async (tx) => {
+      const session = await tx.query<{ id: string }>(
+        'SELECT id FROM sd_sessions WHERE instance_id=$1 AND user_id=$2 AND id=$3 AND revoked_at IS NULL AND refresh_expires_at>clock_timestamp() FOR SHARE',
+        [value.instanceId, value.userId, value.sessionId],
+      );
+      if (!session.rows[0]) return false;
+      const active = await tx.query<{ id: string }>(
+        'SELECT id FROM sd_notification_subscriptions WHERE instance_id=$1 AND user_id=$2 AND id=$3 AND session_id=$4 AND grant_ref=$5 AND revoked_at IS NULL AND expires_at>clock_timestamp() FOR SHARE',
+        [
+          value.instanceId,
+          value.userId,
+          value.id,
+          value.sessionId,
+          value.grantRef,
+        ],
+      );
+      return !!active.rows[0];
     });
   }
   async revokeSubscription(

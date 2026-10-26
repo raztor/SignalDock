@@ -234,10 +234,14 @@ export class RelayService {
     this.fresh(request.sentAt);
     SignatureSchema.parse(input.signature);
     return this.store.transaction(async (tx) => {
-      const grant = await tx.getGrant(request.grantId);
+      let grant = await tx.getGrant(request.grantId);
       if (!grant || grant.instanceId !== request.instanceId)
         throw new RelayError('UNAUTHORIZED', 'The grant is not available.');
       const installation = await tx.getInstallation(grant.installationId);
+      // Revokers serialize on the installation. The grant read before this lock may be stale.
+      grant = await tx.getGrant(request.grantId);
+      if (!grant || grant.instanceId !== request.instanceId)
+        throw new RelayError('UNAUTHORIZED', 'The grant is not available.');
       this.active(grant, installation?.revokedAt ?? null, !!installation);
       verifyRelayPayload(
         'inspect',
@@ -269,10 +273,13 @@ export class RelayService {
       );
     const fingerprint = hashSecret(JSON.stringify(request));
     const prepared = await this.store.transaction(async (tx) => {
-      const grant = await tx.getGrant(request.grantId);
+      let grant = await tx.getGrant(request.grantId);
       if (!grant || grant.instanceId !== request.instanceId)
         throw new RelayError('UNAUTHORIZED', 'The grant is not available.');
       const installation = await tx.getInstallation(grant.installationId);
+      grant = await tx.getGrant(request.grantId);
+      if (!grant || grant.instanceId !== request.instanceId)
+        throw new RelayError('UNAUTHORIZED', 'The grant is not available.');
       this.active(grant, installation?.revokedAt ?? null, !!installation);
       verifyRelayPayload(
         'send',
@@ -427,10 +434,13 @@ export class RelayService {
     this.fresh(request.sentAt);
     SignatureSchema.parse(input.signature);
     await this.store.transaction(async (tx) => {
-      const grant = await tx.getGrant(request.grantId);
+      let grant = await tx.getGrant(request.grantId);
       if (!grant || grant.instanceId !== request.instanceId)
         throw new RelayError('UNAUTHORIZED', 'The grant is not available.');
       const installation = await tx.getInstallation(grant.installationId);
+      grant = await tx.getGrant(request.grantId);
+      if (!grant || grant.instanceId !== request.instanceId)
+        throw new RelayError('UNAUTHORIZED', 'The grant is not available.');
       if (!installation)
         throw new RelayError(
           'UNAUTHORIZED',

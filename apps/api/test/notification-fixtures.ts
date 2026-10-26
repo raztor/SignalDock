@@ -18,6 +18,7 @@ export class FixtureNotificationRepository implements NotificationRepository {
   readonly attempts: DeliveryAttempt[] = [];
   readonly preference = new Map<string, NotificationPreference>();
   listening = false;
+  originSessionActive = true;
   private key(instanceId: string, userId: string) {
     return `${instanceId}:${userId}`;
   }
@@ -132,6 +133,9 @@ export class FixtureNotificationRepository implements NotificationRepository {
     if (index >= 0)
       this.devices[index] = { ...value, id: this.devices[index]!.id };
     else this.devices.push(structuredClone(value));
+  }
+  async isSubscriptionActive(_value: DeviceSubscription): Promise<boolean> {
+    return this.originSessionActive;
   }
   async revokeSubscription(i: string, u: string, id: string, time: string) {
     const item = this.devices.find(

@@ -1,6 +1,7 @@
 import { generateKeyPairSync, randomBytes, randomUUID } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { PostgresDatabase } from '@signaldock/database';
+import type { DatabasePort } from '@signaldock/contracts';
 import {
   TokenVault,
   hashSecret,
@@ -128,4 +129,117 @@ describe.skipIf(!url)('persistent private relay', () => {
       }),
     ).rejects.toMatchObject({ code: 'REPLAY' });
   });
+  it.each(['send', 'inspect'] as const)(
+    'rechecks a grant revoked while %s waited on its installation lock',
+    async (mode) => {
+      const store = new PostgresRelayStore(database, schema),
+        push = new FixturePushTransport(),
+        device = keys(),
+        instance = keys();
+      const installationId = randomUUID(),
+        instanceId = randomUUID(),
+        grantId = randomUUID(),
+        now = new Date().toISOString(),
+        vault = new TokenVault(randomBytes(32));
+      await store.transaction(async (tx) => {
+        await tx.saveInstallation({
+          installationId,
+          publicKey: device.publicKey,
+          projectId: randomUUID(),
+          tokenCiphertext: vault.encrypt(
+            installationId,
+            'ExpoPushToken[fixture]',
+          ),
+          verifiedAt: now,
+          revokedAt: null,
+        });
+        await tx.saveGrant({
+          grantId,
+          installationId,
+          instanceId,
+          instancePublicKey: instance.publicKey,
+          subscriptionRef: randomUUID(),
+          categories: ['communication'],
+          radioIds: [],
+          expiresAt: new Date(Date.now() + 3600000).toISOString(),
+          revokedAt: null,
+        });
+      });
+      let locked!: () => void;
+      const revocationLocked = new Promise<void>((resolve) => {
+        locked = resolve;
+      });
+      let commit!: () => void;
+      const commitGate = new Promise<void>((resolve) => {
+        commit = resolve;
+      });
+      const revocation = store.transaction(async (tx) => {
+        await tx.getInstallation(installationId);
+        await tx.revokeGrants(
+          installationId,
+          new Date().toISOString(),
+          grantId,
+        );
+        locked();
+        await commitGate;
+      });
+      await revocationLocked;
+      let waiting!: () => void;
+      const lockRequested = new Promise<void>((resolve) => {
+        waiting = resolve;
+      });
+      const watch = (db: DatabasePort): DatabasePort => ({
+        query: (text, values) => {
+          if (
+            text.includes(`${schema}.installations`) &&
+            text.includes('FOR UPDATE')
+          )
+            waiting();
+          return db.query(text, values);
+        },
+        transaction: (action) => db.transaction((tx) => action(watch(tx))),
+      });
+      const service = new RelayService(
+        new PostgresRelayStore(watch(database), schema),
+        vault,
+        push,
+        {
+          mode: 'private-test',
+          projectId: randomUUID(),
+          enrollmentSecretHash: hashSecret('private'),
+        },
+      );
+      const payload = { grantId, instanceId, nonce: randomUUID(), sentAt: now };
+      const event: RelaySend = {
+        ...payload,
+        requestId: randomUUID(),
+        notificationId: randomUUID(),
+        eventId: randomUUID(),
+        category: 'communication',
+        expiresAt: new Date(Date.now() + 120000).toISOString(),
+      };
+      const pending =
+        mode === 'inspect'
+          ? service.inspectGrant({
+              payload,
+              signature: signRelayPayload(
+                'inspect',
+                payload,
+                instance.privateKey,
+              ),
+            })
+          : service.send({
+              payload: event,
+              signature: signRelayPayload('send', event, instance.privateKey),
+            });
+      const rejected = expect(pending).rejects.toMatchObject({
+        code: 'UNAUTHORIZED',
+      });
+      await lockRequested;
+      commit();
+      await revocation;
+      await rejected;
+      expect(push.messages).toHaveLength(0);
+    },
+  );
 });

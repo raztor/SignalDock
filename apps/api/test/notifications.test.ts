@@ -43,6 +43,14 @@ function context(withRelay = true) {
     radio?: string,
   ) => {
     if (
+      permission === 'notifications.manage' &&
+      subject.role !== 'administrator'
+    )
+      throw new SignalDockError(
+        'FORBIDDEN',
+        'Instance notification administration is restricted.',
+      );
+    if (
       permission === 'radio.listen' &&
       !subject.radioPermissions.some(
         (grant) =>
@@ -124,6 +132,25 @@ function context(withRelay = true) {
 }
 
 describe('durable station notifications', () => {
+  it.each(['listener', 'operator'] as const)(
+    'allows %s users to manage only their own notification preferences and subscriptions',
+    async (role) => {
+      const c = context();
+      c.principal.role = role;
+      await expect(
+        c.service.updatePreferences(
+          c.principal,
+          defaultNotificationPreference(),
+        ),
+      ).resolves.toMatchObject({ enabled: true });
+      const subscription = await c.service.subscribe(c.principal, {
+        deviceRef: c.inspection.installationId,
+        grantRef: c.inspection.grantId,
+      });
+      await c.service.unsubscribe(c.principal, subscription.id);
+      expect(c.repository.devices[0]?.revokedAt).toBeTruthy();
+    },
+  );
   it('creates one user-scoped notification/outbox request per finalized event without a relay', async () => {
     const c = context(false);
     const event = c.event();
@@ -167,6 +194,18 @@ describe('durable station notifications', () => {
     await c.service.deliver(c.instanceId, record!.id);
     expect(c.sent).toHaveLength(0);
     expect(c.repository.notifications[0]!.record.deliveryState).toBe('expired');
+  });
+  it('does not send when an origin session was revoked after the subscription was loaded', async () => {
+    const c = context();
+    await c.service.subscribe(c.principal, {
+      deviceRef: c.inspection.installationId,
+      grantRef: c.inspection.grantId,
+    });
+    const item = await c.service.publishForUser(c.userId, c.event());
+    c.repository.originSessionActive = false;
+    await c.service.deliver(c.instanceId, item!.id);
+    expect(c.sent).toHaveLength(0);
+    expect(c.repository.attempts[0]?.state).toBe('expired');
   });
   it('binds subscriptions to the current instance, user and installation', async () => {
     const c = context();
@@ -283,6 +322,29 @@ describe('durable station notifications', () => {
         (await app.inject('/station/api/v1/notifications')).statusCode,
       ).toBe(401);
       const headers = { authorization: 'Bearer valid' };
+      const updated = await app.inject({
+        method: 'PUT',
+        url: '/station/api/v1/notification-preferences',
+        headers,
+        payload: defaultNotificationPreference(),
+      });
+      expect(updated.statusCode).toBe(200);
+      const subscription = await app.inject({
+        method: 'POST',
+        url: '/station/api/v1/push/subscriptions',
+        headers,
+        payload: {
+          deviceRef: c.inspection.installationId,
+          grantRef: c.inspection.grantId,
+        },
+      });
+      expect(subscription.statusCode).toBe(201);
+      const revoked = await app.inject({
+        method: 'DELETE',
+        url: `/station/api/v1/push/subscriptions/${subscription.json().id}`,
+        headers,
+      });
+      expect(revoked.statusCode).toBe(204);
       const list = await app.inject({
         url: '/station/api/v1/notifications',
         headers,

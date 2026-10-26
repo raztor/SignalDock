@@ -99,7 +99,7 @@ export class NotificationService {
     principal: Principal,
     input: unknown,
   ): Promise<NotificationPreference> {
-    await this.auth.authorize(principal, 'notifications.manage');
+    await this.auth.authorize(principal, 'notifications.read');
     const value = parseNotificationPreference(input);
     for (const radioId of value.radioIds)
       await this.auth.authorize(principal, 'radio.listen', radioId);
@@ -272,6 +272,15 @@ export class NotificationService {
         continue;
       }
       try {
+        if (!(await this.repository.isSubscriptionActive(subscription))) {
+          await this.repository.completeAttempt(
+            instanceId,
+            attempt,
+            'expired',
+            'SessionInactive',
+          );
+          continue;
+        }
         const result = await this.relay.send(attempt.payload);
         await this.repository.completeAttempt(
           instanceId,
@@ -305,7 +314,7 @@ export class NotificationService {
     principal: Principal,
     input: unknown,
   ): Promise<DeviceSubscription> {
-    await this.auth.authorize(principal, 'notifications.manage');
+    await this.auth.authorize(principal, 'notifications.read');
     const request = SubscriptionInputSchema.parse(input);
     if (!this.relay)
       throw new SignalDockError(
@@ -348,7 +357,7 @@ export class NotificationService {
     ).find((value) => value.deviceRef === request.deviceRef)!;
   }
   async unsubscribe(principal: Principal, id: string): Promise<void> {
-    await this.auth.authorize(principal, 'notifications.manage');
+    await this.auth.authorize(principal, 'notifications.read');
     z.uuid().parse(id);
     await this.repository.revokeSubscription(
       principal.instanceId,

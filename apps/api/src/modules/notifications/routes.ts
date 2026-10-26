@@ -37,7 +37,7 @@ export function registerNotificationRoutes(
   );
   app.put(`${prefix}/notification-preferences`, async (request) =>
     service.updatePreferences(
-      await requirePrincipal(request, auth, 'notifications.manage'),
+      await requirePrincipal(request, auth, 'notifications.read'),
       request.body,
     ),
   );
@@ -62,7 +62,7 @@ export function registerNotificationRoutes(
       .code(201)
       .send(
         await service.subscribe(
-          await requirePrincipal(request, auth, 'notifications.manage'),
+          await requirePrincipal(request, auth, 'notifications.read'),
           request.body,
         ),
       ),
@@ -70,7 +70,7 @@ export function registerNotificationRoutes(
   app.delete(`${prefix}/push/subscriptions/:id`, async (request, reply) => {
     const { id } = z.object({ id: z.uuid() }).parse(request.params);
     await service.unsubscribe(
-      await requirePrincipal(request, auth, 'notifications.manage'),
+      await requirePrincipal(request, auth, 'notifications.read'),
       id,
     );
     return reply.code(204).send();
