@@ -1,5 +1,5 @@
 # openai-compatible
 
-Status: planned. Planned configurable-endpoint connector. Explicitly declare the supported protocol and capabilities; compatibility with one endpoint does not imply complete API parity.
+Implemented configurable HTTP connector. Select `protocol: "responses"` (default) or `"chat-completions"`; set `supportsJsonSchema: true` only when supported. Explicit connection capabilities describe actual server behavior. An absent key is permitted only for this generic connector.
 
-Contract: [Processing Connector SDK](../../../packages/processing-sdk/README.md). This folder has no executable implementation or package manifest yet.
+Registered tasks normalize structured JSON and verify evidence. Optional STT uploads an authorized artifact; optional TTS stores a private WAV preview. Local endpoints require `allowPrivateNetwork: true` and can run with `allowCloud: false`. There is no fallback to another endpoint. See the [SDK](../../../packages/processing-sdk/README.md) and [configuration guide](../../../docs/implementation/processing.md).

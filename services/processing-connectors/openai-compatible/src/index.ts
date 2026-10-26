@@ -19,7 +19,7 @@ export class OpenAICompatibleConnector implements ProcessingConnector {
       const protocol = context.configuration['protocol'] ?? 'responses';
       if (protocol !== 'responses' && protocol !== 'chat-completions') throw new SignalDockError('INVALID_ARGUMENT', 'Select Responses or Chat Completions explicitly.');
       const format = context.configuration['supportsJsonSchema'] === true && context.task.outputSchema ?
-        { type: 'json_schema', name: 'signaldock_result', strict: true, schema: context.task.outputSchema } : undefined;
+        { type: 'json_schema', name: 'signaldock_result', strict: false, schema: context.task.outputSchema } : undefined;
       const body = protocol === 'responses' ? { model: profile.model, instructions: taskInstruction(context),
         input: [{ role: 'user', content: input.input.text }], store: false, stream: false,
         ...(format ? { text: { format } } : {}) } : { model: profile.model, messages: [

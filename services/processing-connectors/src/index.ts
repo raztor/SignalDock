@@ -7,3 +7,4 @@ export { OllamaConnector } from '../ollama/src/index.js';
 export { ProviderRequestError } from './http.js';
 export { CredentialVault, type CredentialScope, type CredentialEnvelope } from './vault.js';
 export { createProcessingRegistry } from './registry.js';
+export { ProcessingRuntime, type ProcessingRuntimeOptions, type ProcessingActor, type CreateProcessingConnection } from './runtime.js';

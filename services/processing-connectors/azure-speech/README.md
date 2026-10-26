@@ -1,5 +1,5 @@
 # azure-speech
 
-Status: planned. Planned optional STT/TTS connector with its own supported locales, credentials, and batch/streaming capability declarations.
+Implemented recorded STT through fast transcription REST API `2025-10-15`, multipart `audio`/`definition`, and explicit `language` locale. Streaming transcription is not advertised.
 
-Contract: [Processing Connector SDK](../../../packages/processing-sdk/README.md). This folder has no executable implementation or package manifest yet.
+The connection endpoint is the transcription base. Configure `ttsEndpoint` separately, for example `https://REGION.tts.speech.microsoft.com`. Synthesis requires `language` and `voice`, escapes text in SSML and requests `riff-24khz-16bit-mono-pcm`. Both use the encrypted resource key. Actual account, region and locale availability require external acceptance. See the [implementation guide](../../../docs/implementation/processing.md).
