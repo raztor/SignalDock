@@ -10,6 +10,7 @@ Composition exports:
 - `CredentialVault(activeKeyId, keys)` with persistent operator-managed 32-byte encryption keys.
 - `OpenAISubscriptionOAuth(hostId)` with a persistent server host ID, separate from keys and tokens.
 - `ProcessingRuntime({db,auth,artifacts,queue,registry,vault,subscriptionOAuth,validateInputs,onCompleted?,authorizeBackgroundUser?})`.
+- `createHistoryProcessingHooks(history,authorizeActor,{onTranscriptCommitted?})` supplies source authorization and transcript persistence. The optional callback receives the terminal transaction, actor, updated communication and transcript; it may enqueue analysis/outbox work in that transaction, without external IO. Those writes become visible atomically with the transcript.
 - `registerProcessingRoutes(app,{prefix,auth,processing,transmitPreparedSpeech?})`.
 - `registerProcessingHandlers(queue,processing)`.
 - `ProcessingScreen({session,radioId?,onTransmitSpeech?})`.

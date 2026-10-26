@@ -8,3 +8,4 @@ export { ProviderRequestError } from './http.js';
 export { CredentialVault, type CredentialScope, type CredentialEnvelope } from './vault.js';
 export { createProcessingRegistry } from './registry.js';
 export { ProcessingRuntime, type ProcessingRuntimeOptions, type ProcessingActor, type CreateProcessingConnection } from './runtime.js';
+export { createHistoryProcessingHooks, type ProcessingHistoryPort } from './history.js';
