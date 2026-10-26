@@ -1,6 +1,6 @@
 # VGC / benlink radio module
 
-This module owns VGC-specific integration for SignalDock. Its existing tools validate the VR-N7500 over BLE and Bluetooth Classic; the production adapter for the manufacturer-independent Radio Driver API remains planned.
+This module owns the experimental VGC implementation of SignalDock's private Radio Driver API. The Python service uses benlink for BLE control and Bluetooth Classic framing, continuous FFmpeg SBC conversion, and platform-specific audio transport. It supports memories, tuning/readback, streamed RX/TX, and locally supervised audio-coupled PTT. Existing physical validation tools are preserved separately.
 
 ## Credits
 
@@ -14,12 +14,16 @@ Upstream repository: [github.com/khusmann/benlink](https://github.com/khusmann/b
 vgc-benlink/
   README.md
   requirements-validation-macos.lock.txt
-  src/                   Production driver implementation boundary (planned)
+  pyproject.toml         Python service and dependency declarations
+  manifest.json          Driver identity, configuration schema, and capabilities
+  Dockerfile             Linux service image (repository-root build context)
+  src/vgc_benlink/        Service, control, codec, recovery, and transports
+  test/                  Fake hardware, real codec, and Unix gRPC tests
   transports/macos/      Native development transport and launcher
   validation/            Existing discovery, tuning, RX conversion, and TX tools
 ```
 
-The Python production driver belongs under `src`; it will implement the [Radio Driver SDK](../../../packages/radio-driver-sdk/README.md). Bluetooth identifiers, device quirks, codec handling, and Mac/Linux transport choices stay inside this module. Product clients and backend domain modules use generic radio contracts.
+The service implements the [Radio Driver SDK](../../../packages/radio-driver-sdk/README.md). Bluetooth identifiers, device quirks, codec handling, and Mac/Linux transport choices stay inside this module. Product clients and backend domain modules use generic radio contracts. See the [implementation and acceptance guide](../../../docs/implementation/vgc.md) for installation, service configuration, safety behavior, recovery, and remaining gates.
 
 ## Validation commands
 
@@ -38,4 +42,4 @@ All validation outputs remain in the repository-root `results/` directory, which
 
 ## Environment and status
 
-macOS is the current development/test environment. The native helper is a local transport shim. Linux/BlueZ/RFCOMM packaging, sustained operation, physical cancellation/release conformance, and production gRPC integration still require their acceptance gates. The Mac validation lock is not a Linux production dependency list.
+macOS is the current development/test environment. Linux uses BlueZ BLE and the kernel RFCOMM socket transport; Mac uses a small IOBluetooth helper. Automated checks exercise fake radio hardware, actual FFmpeg conversion, and the actual private gRPC service. They do not establish physical streaming or Linux hardware acceptance. Streaming TX stays disabled unless explicitly enabled for a coordinated hardware test. The Mac validation lock is not a Linux production dependency list.

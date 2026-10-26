@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "signaldock-vgc-benlink"
+version = "0.1.0"
+description = "VGC benlink driver for the private SignalDock Radio Driver API"
+requires-python = ">=3.13"
+license = "AGPL-3.0-only"
+dependencies = [
+  "benlink @ git+https://github.com/khusmann/benlink.git@c4b9d22112402ea193d376f412bc028d1778fdb4",
+  "grpcio>=1.85.0,<2",
+  "protobuf>=7.36.2,<8",
+]
+
+[project.scripts]
+signaldock-vgc = "vgc_benlink.server:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
