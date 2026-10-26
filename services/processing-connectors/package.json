@@ -1,0 +1,9 @@
+{
+  "name": "@signaldock/processing-connectors",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "AGPL-3.0-only",
+  "exports": { ".": { "types": "./dist/src/index.d.ts", "default": "./dist/src/index.js" } },
+  "dependencies": { "@signaldock/contracts": "*", "@signaldock/processing-sdk": "*", "jose": "6.2.13" }
+}
