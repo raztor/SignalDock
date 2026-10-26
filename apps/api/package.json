@@ -12,6 +12,8 @@
     "zod": "4.6.7",
     "@signaldock/contracts": "*",
     "fastify": "5.12.7",
-    "@fastify/cors": "11.3.1"
+    "@fastify/cors": "11.3.1",
+    "@node-rs/argon2": "2.2.2",
+    "@signaldock/database": "*"
   }
 }
