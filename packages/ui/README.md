@@ -1,5 +1,5 @@
 # ui
 
-Status: planned. Shared design tokens and presentation primitives will live here when the client needs them. This reserved folder has no package manifest or implementation yet. Radio control, session ownership, and provider logic do not belong in presentation components.
+Shared presentation primitives and station-shell design tokens for Expo and web. `Action` provides accessible navigation/actions and `Panel` provides a consistent surface. Radio control, session ownership, and provider logic belong in their feature modules.
 
 See the [repository layout](../../docs/architecture/repository-layout.md) for dependency boundaries.

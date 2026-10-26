@@ -18,6 +18,8 @@
     "@signaldock/radio-runtime": "*",
     "@signaldock/radio-driver-sdk": "*",
     "@signaldock/media-gateway": "*",
-    "@signaldock/history": "*"
+    "@signaldock/history": "*",
+    "@signaldock/artifact-storage": "*",
+    "@signaldock/job-queue": "*"
   }
 }

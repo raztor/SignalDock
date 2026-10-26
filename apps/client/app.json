@@ -6,6 +6,18 @@
     "scheme": "signaldock",
     "orientation": "default",
     "userInterfaceStyle": "dark",
-    "web": { "bundler": "metro", "output": "single" }
+    "web": {
+      "bundler": "metro",
+      "output": "single"
+    },
+    "plugins": [
+      "expo-secure-store",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Allow SignalDock to transmit your voice to the selected radio."
+        }
+      ]
+    ]
   }
 }

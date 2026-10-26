@@ -3,6 +3,7 @@ import {
   APPLICATION_VERSION,
   ServerInfoSchema,
   toJsonSchema,
+  type ServerInfo,
 } from '@signaldock/contracts';
 import type { InstanceIdentity } from './identity-store.js';
 
@@ -12,6 +13,7 @@ export function registerInstanceRoutes(
   options: {
     identity: InstanceIdentity;
     displayName: string;
+    features?: ServerInfo['features'];
   },
 ): void {
   const info = ServerInfoSchema.parse({
@@ -21,7 +23,7 @@ export function registerInstanceRoutes(
     version: APPLICATION_VERSION,
     protocol: { min: 1, max: 1 },
     routes: { api: 'api/v1', events: 'api/v1/events', media: 'api/v1/media' },
-    features: {
+    features: options.features ?? {
       multiRadio: false,
       authentication: 'unavailable',
       radioControl: false,

@@ -24,6 +24,12 @@
     },
     {
       "path": "../../packages/history"
+    },
+    {
+      "path": "../../packages/artifact-storage"
+    },
+    {
+      "path": "../../packages/job-queue"
     }
   ]
 }
