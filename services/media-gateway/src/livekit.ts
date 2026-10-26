@@ -24,6 +24,7 @@ import {
   type TxGrant,
 } from '@signaldock/contracts';
 import { pcmBytes, pcmSamples } from './pcm.js';
+import { setListenerPermissions } from './subscription-permissions.js';
 
 export interface LiveKitConfiguration {
   serverUrl: string;
@@ -168,6 +169,7 @@ export class LiveKitRadioBridge {
     private readonly options: {
       instanceId: string;
       credentials: LiveKitCredentials;
+      listenerIdentities: (radioId: string) => readonly string[];
       authorizeParticipant: (
         radioId: string,
         identity: string,
@@ -270,6 +272,10 @@ export class LiveKitRadioBridge {
       if (this.closed)
         throw new Error('Media bridge closed during connection.');
       publication.source = TrackSource.SOURCE_MICROPHONE;
+      setListenerPermissions(
+        room.localParticipant!,
+        this.options.listenerIdentities(input.radioId),
+      );
       await room.localParticipant!.publishTrack(track, publication);
       if (this.closed)
         throw new Error('Media bridge closed during publication.');
@@ -420,6 +426,20 @@ export class LiveKitRadioBridge {
     await bridge.room.disconnect();
     await bridge.source.close();
     await bridge.track.close();
+  }
+  updateListeners(radioId: string): void {
+    const bridge = this.radios.get(radioId);
+    if (!bridge) return;
+    try {
+      setListenerPermissions(
+        bridge.room.localParticipant!,
+        this.options.listenerIdentities(radioId),
+      );
+    } catch (error) {
+      void bridge.room.disconnect();
+      void this.detachRadio(radioId).catch(() => undefined);
+      throw error;
+    }
   }
   async close(): Promise<void> {
     this.closed = true;

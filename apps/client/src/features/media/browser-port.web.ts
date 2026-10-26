@@ -81,6 +81,12 @@ export const browserMediaPort: BrowserMediaPort = {
     return {
       publish: async (microphone) => {
         if (closing) throw new Error('Media connection is closed.');
+        room.localParticipant.setTrackSubscriptionPermissions(false, [
+          {
+            participantIdentity: `bridge-${session.instanceId}-${session.radioId}`,
+            allowAll: true,
+          },
+        ]);
         await room.localParticipant.publishTrack(
           (microphone as BrowserMicrophone).track,
           { source: Track.Source.Microphone },

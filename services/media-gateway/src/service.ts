@@ -41,6 +41,7 @@ export class MediaService {
   private closed = false;
   private readonly pendingAdmissions = new Set<string>();
   private readonly pendingTxParticipants = new Set<string>();
+  private readonly sessionEpochs = new Map<string, number>();
   private readonly preparedSources = new Map<
     string,
     { controller: AbortController; sessionId: string }
@@ -60,6 +61,17 @@ export class MediaService {
     this.bridge = new LiveKitRadioBridge({
       instanceId: options.instanceId,
       credentials: options.credentials,
+      listenerIdentities: (radioId) =>
+        this.closed
+          ? []
+          : [...this.sessions.values()]
+              .filter(
+                (entry) =>
+                  entry.session.radioId === radioId &&
+                  entry.session.mode === 'listen' &&
+                  Date.parse(entry.session.expiresAt) > Date.now(),
+              )
+              .map((entry) => entry.session.participantIdentity),
       authorizeParticipant: (radioId, identity) =>
         this.authorizeParticipant(radioId, identity),
       sendTx: (grantId, frame) => options.supervisor.push(grantId, frame),
@@ -92,6 +104,7 @@ export class MediaService {
         'RADIO_UNAVAILABLE',
         'Media service is shutting down.',
       );
+    const epoch = this.sessionEpochs.get(principal.sessionId) ?? 0;
     if (principal.instanceId !== this.options.instanceId)
       throw new SignalDockError(
         'FORBIDDEN',
@@ -107,6 +120,12 @@ export class MediaService {
       input.mode === 'listen' ? 'radio.listen' : 'radio.transmit',
       input.radioId,
     );
+    this.assertAdmission(principal, epoch);
+    if (this.sessions.size + this.pendingAdmissions.size >= 512)
+      throw new SignalDockError(
+        'TX_LIMIT_REACHED',
+        'The media session limit has been reached.',
+      );
     if (input.mode === 'transmit') {
       if (!input.txGrantId)
         throw new SignalDockError(
@@ -142,8 +161,10 @@ export class MediaService {
     this.pendingAdmissions.add(admissionId);
     if (input.mode === 'transmit' && input.txGrantId)
       this.pendingTxParticipants.add(input.txGrantId);
+    let issued: MediaSession | undefined;
     try {
       await this.attachRadio(input.radioId);
+      this.assertAdmission(principal, epoch);
       if (input.mode === 'transmit' && input.txGrantId) {
         const current = this.options.supervisor.get(
           input.txGrantId,
@@ -168,13 +189,34 @@ export class MediaService {
         sessionId: principal.sessionId,
         mode: input.mode,
       });
+      issued = session;
+      const currentPrincipal = await this.freshPrincipal(
+        accessToken,
+        principal,
+        input.radioId,
+        input.mode,
+      );
+      this.assertAdmission(principal, epoch);
       this.sessions.set(session.id, {
         session,
-        principal,
+        principal: currentPrincipal,
         accessToken,
         ...(input.txGrantId ? { txGrantId: input.txGrantId } : {}),
       });
+      this.bridge.updateListeners(input.radioId);
       return session;
+    } catch (error) {
+      if (issued) {
+        const entry = this.sessions.get(issued.id);
+        if (entry) await this.remove(entry);
+        else
+          await bounded(
+            this.options.credentials.revoke(issued),
+            undefined,
+            2500,
+          ).catch(() => undefined);
+      }
+      throw error;
     } finally {
       this.pendingAdmissions.delete(admissionId);
       if (input.txGrantId) this.pendingTxParticipants.delete(input.txGrantId);
@@ -187,6 +229,7 @@ export class MediaService {
     accessToken: string,
   ): Promise<MediaSession> {
     const entry = this.requireSession(id, principal);
+    const epoch = this.sessionEpochs.get(principal.sessionId) ?? 0;
     await this.options.auth.authorize(
       principal,
       entry.session.mode === 'listen' ? 'radio.listen' : 'radio.transmit',
@@ -199,10 +242,33 @@ export class MediaService {
       sessionId: principal.sessionId,
       mode: entry.session.mode,
     });
-    entry.session = session;
-    entry.principal = principal;
-    entry.accessToken = accessToken;
-    return session;
+    try {
+      const currentPrincipal = await this.freshPrincipal(
+        accessToken,
+        principal,
+        entry.session.radioId,
+        entry.session.mode,
+      );
+      this.assertAdmission(principal, epoch);
+      if (this.sessions.get(id) !== entry)
+        throw new SignalDockError(
+          'UNAUTHORIZED',
+          'Media enrollment was removed.',
+        );
+      entry.session = session;
+      entry.principal = currentPrincipal;
+      entry.accessToken = accessToken;
+      return session;
+    } catch (error) {
+      if (this.sessions.get(id) === entry) await this.remove(entry);
+      else
+        await bounded(
+          this.options.credentials.revoke(session),
+          undefined,
+          2500,
+        ).catch(() => undefined);
+      throw error;
+    }
   }
 
   async removeSession(id: string, principal: Principal): Promise<void> {
@@ -277,19 +343,27 @@ export class MediaService {
     );
   }
   async revokeSession(sessionId: string): Promise<void> {
+    this.sessionEpochs.set(
+      sessionId,
+      (this.sessionEpochs.get(sessionId) ?? 0) + 1,
+    );
     for (const source of this.preparedSources.values()) {
       if (source.sessionId === sessionId)
         source.controller.abort(new Error('Session revoked.'));
     }
-    await this.options.supervisor.revokeSession(sessionId);
-    await Promise.all(
-      [...this.sessions.values()]
+    await Promise.all([
+      this.options.supervisor.revokeSession(sessionId),
+      ...[...this.sessions.values()]
         .filter((entry) => entry.principal.sessionId === sessionId)
         .map((entry) => this.remove(entry)),
-    );
+    ]);
   }
   async close(): Promise<void> {
     this.closed = true;
+    for (const radioId of new Set(
+      [...this.sessions.values()].map((entry) => entry.session.radioId),
+    ))
+      this.bridge.updateListeners(radioId);
     clearInterval(this.timer);
     for (const source of this.preparedSources.values())
       source.controller.abort(new Error('Media shutdown.'));
@@ -455,6 +529,11 @@ export class MediaService {
   }
   private async remove(entry: EnrolledSession): Promise<void> {
     this.sessions.delete(entry.session.id);
+    try {
+      this.bridge.updateListeners(entry.session.radioId);
+    } catch (error) {
+      this.options.onError?.(entry.session.radioId, error);
+    }
     if (entry.txGrantId)
       await this.options.supervisor.stop(
         entry.txGrantId,
@@ -465,6 +544,46 @@ export class MediaService {
       undefined,
       2500,
     ).catch(() => undefined);
+  }
+  private assertAdmission(principal: Principal, epoch: number): void {
+    if (this.closed)
+      throw new SignalDockError(
+        'RADIO_UNAVAILABLE',
+        'Media service is shutting down.',
+      );
+    if ((this.sessionEpochs.get(principal.sessionId) ?? 0) !== epoch)
+      throw new SignalDockError(
+        'UNAUTHORIZED',
+        'Media login session was revoked.',
+      );
+  }
+  private async freshPrincipal(
+    accessToken: string,
+    expected: Principal,
+    radioId: string,
+    mode: 'listen' | 'transmit',
+  ): Promise<Principal> {
+    const current = await bounded(
+      this.options.auth.authenticate(accessToken),
+      undefined,
+      2000,
+    );
+    if (
+      current.instanceId !== expected.instanceId ||
+      current.userId !== expected.userId ||
+      current.sessionId !== expected.sessionId
+    )
+      throw new SignalDockError('UNAUTHORIZED', 'Media identity changed.');
+    await bounded(
+      this.options.auth.authorize(
+        current,
+        mode === 'listen' ? 'radio.listen' : 'radio.transmit',
+        radioId,
+      ),
+      undefined,
+      2000,
+    );
+    return current;
   }
   private async revalidate(): Promise<void> {
     if (this.checking) return;

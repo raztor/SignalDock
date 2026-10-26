@@ -34,7 +34,8 @@ if (
 )
   throw new Error('This proof requires a loopback SFU.');
 const listener = new Room(),
-  publisher = new Room();
+  publisher = new Room(),
+  replay = new Room();
 let rxFrames = 0,
   txFrames = 0,
   rxEnergy = 0,
@@ -67,10 +68,18 @@ const grant = {
   maxUntil: Date.now() + 30000,
 };
 let active = true;
+let listeningAdmitted = false;
+let replaySubscriptions = 0;
+replay.on(RoomEvent.TrackSubscribed, (_track, _publication, participant) => {
+  if (participant.identity === `bridge-${instanceId}-${radioId}`)
+    replaySubscriptions++;
+});
 const readers = [];
 const bridge = new LiveKitRadioBridge({
   instanceId,
   credentials,
+  listenerIdentities: () =>
+    listeningAdmitted ? [listen.participantIdentity] : [],
   authorizeParticipant: (_radio, identity) =>
     active && identity === transmit.participantIdentity ? grant : undefined,
   sendTx: async (_id, frame) => {
@@ -141,6 +150,10 @@ try {
       }
     },
   });
+  await sleep(200);
+  assert.equal(rxFrames, 0, 'Unenrolled listener must receive no audio.');
+  listeningAdmitted = true;
+  bridge.updateListeners(radioId);
   await publisher.connect(credentials.config.serverUrl, transmit.token, {
     autoSubscribe: false,
   });
@@ -159,6 +172,21 @@ try {
     archived >= rxFrames,
     'RX capture must run independently of WebRTC delivery',
   );
+  listeningAdmitted = false;
+  bridge.updateListeners(radioId);
+  await credentials.revoke(listen);
+  await listener.disconnect();
+  await replay
+    .connect(credentials.config.serverUrl, listen.token, {
+      autoSubscribe: true,
+    })
+    .catch(() => undefined);
+  await sleep(350);
+  assert.equal(
+    replaySubscriptions,
+    0,
+    'A revoked JWT must not resubscribe to RX.',
+  );
   console.log(
     JSON.stringify({
       node: process.version,
@@ -170,6 +198,7 @@ try {
       txEnergy,
       archived,
       syntheticOnly: true,
+      revokedReplayBlocked: true,
     }),
   );
 } finally {
@@ -179,6 +208,7 @@ try {
     readers.map((reader) => reader.cancel().catch(() => undefined)),
   );
   await publisher.disconnect();
+  await replay.disconnect().catch(() => undefined);
   await listener.disconnect();
   await source.close();
   await track.close();

@@ -84,6 +84,7 @@ function fixture() {
     radioId,
     start,
     supervisor,
+    credentials,
     deny: () => {
       denied = true;
     },
@@ -180,5 +181,59 @@ describe('media enrollment', () => {
     ).rejects.toThrow('Profile revoked.');
     expect(checked).toBe(true);
     expect(admission).not.toHaveBeenCalled();
+  });
+  it.each(['shutdown', 'revocation'] as const)(
+    'rejects credential issuance completed after %s',
+    async (reason) => {
+      const f = fixture();
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const issue = f.credentials.issue.bind(f.credentials);
+      vi.spyOn(f.credentials, 'issue').mockImplementation(async (input) => {
+        const result = await issue(input);
+        await gate;
+        return result;
+      });
+      const pending = f.media.createSession(f.principal, 'token', {
+        radioId: f.radioId,
+        mode: 'listen',
+      });
+      const rejected = expect(pending).rejects.toMatchObject({
+        code: reason === 'shutdown' ? 'RADIO_UNAVAILABLE' : 'UNAUTHORIZED',
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      if (reason === 'shutdown') await f.media.close();
+      else await f.media.revokeSession(f.principal.sessionId);
+      release();
+      await rejected;
+      expect(f.credentials.revoke).toHaveBeenCalledOnce();
+    },
+  );
+  it('does not renew an enrollment removed while signing its next token', async () => {
+    const f = fixture();
+    const enrolled = await f.media.createSession(f.principal, 'token', {
+      radioId: f.radioId,
+      mode: 'listen',
+    });
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const issue = f.credentials.issue.bind(f.credentials);
+    vi.spyOn(f.credentials, 'issue').mockImplementation(async (input) => {
+      const result = await issue(input);
+      await gate;
+      return result;
+    });
+    const pending = f.media.renewSession(enrolled.id, f.principal, 'token');
+    const rejected = expect(pending).rejects.toMatchObject({
+      code: 'UNAUTHORIZED',
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await f.media.removeSession(enrolled.id, f.principal);
+    release();
+    await rejected;
   });
 });
