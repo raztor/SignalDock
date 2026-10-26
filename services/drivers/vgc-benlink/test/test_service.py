@@ -104,5 +104,38 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.driver.transmission.grant_id, grant)
         self.assertEqual(self.transport.writes, [])
 
+    async def test_cancelled_initial_connect_recovers_through_idle_handshake(self):
+        original_connect = self.control.connect
+        opening = asyncio.Event()
+        gate = asyncio.Event()
+        async def delayed_connect():
+            self.control.connected = True
+            opening.set()
+            await gate.wait()
+            return await self.control.observe()
+        self.control.connect = delayed_connect
+        generation = self.driver.state.generation
+        with self.assertRaises(grpc.aio.AioRpcError) as expired:
+            await self.stub.Connect(pb.RadioRequest(radio_id=RADIO), metadata=self.metadata, timeout=0.03)
+        self.assertEqual(expired.exception.code(), grpc.StatusCode.DEADLINE_EXCEEDED)
+        await opening.wait()
+        async def cleaned():
+            while self.driver.state.connection != "disconnected":
+                await asyncio.sleep(0.005)
+        await asyncio.wait_for(cleaned(), 1)
+        self.assertEqual(self.driver.state.tx_state, "stop_unconfirmed")
+        self.assertEqual(self.driver.state.generation, generation)
+        self.assertFalse(self.control.connected)
+        self.control.connect = original_connect
+        await self.stub.Disconnect(pb.RadioRequest(radio_id=RADIO), metadata=self.metadata, timeout=3)
+        self.assertEqual(self.driver.state.generation, generation)
+        state = await self.stub.Connect(pb.RadioRequest(radio_id=RADIO), metadata=self.metadata, timeout=3)
+        reconciled = await self.stub.Reconcile(pb.RadioRequest(radio_id=RADIO), metadata=self.metadata, timeout=3)
+        self.assertNotEqual(state.generation, generation)
+        self.assertEqual(reconciled.connection, "ready")
+        self.assertEqual(reconciled.tx_state, "idle")
+        self.assertEqual(self.control.tune_calls, 0)
+        self.assertEqual(self.transport.writes, [])
+
 
 if __name__ == "__main__": unittest.main()
