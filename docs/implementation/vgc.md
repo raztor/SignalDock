@@ -71,6 +71,8 @@ The automated suite uses fake BLE/RFCOMM ports, real synthetic PCM↔SBC convers
 
 Earlier Mac discovery, frequency, RX voice and two-tone TX results remain in [hardware validation](../hardware-validation.md). They validate the earlier proof tooling, not this continuous service/helper. Pending gates are sustained physical RX, browser microphone TX, observed carrier release, opening cancellation, process/network interruptions, memory restoration/recovery, native permission handling, clean Linux/ARM64 installation and physical Linux/Raspberry Pi validation. Only a coordinated prepared-observer test may access RF.
 
+On 2026-10-26, a read-only physical availability probe using the new `BenlinkControl` succeeded: BLE connection, device identity, status/settings read and clean disconnection. The radio reported `is_in_tx=false`. Its current settings did not establish verified single-watch selection, so the driver correctly returned unknown tuning and no selected memory. No tuning, memory/settings mutation, audio transport or transmission was attempted. This confirms control availability only; the continuous-audio gates above remain open. The detailed report stays in the ignored local results directory.
+
 ## Attribution and license
 
 This connector builds on [benlink by khusmann and contributors](https://github.com/khusmann/benlink), whose protocol research, Python API and audio framing make the implementation possible. Benlink is Apache-2.0; retain its license and notices in distribution. SignalDock and this original implementation remain under the repository's AGPL-3.0 license. No upstream source was copied into the connector.
