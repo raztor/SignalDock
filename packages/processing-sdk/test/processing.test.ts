@@ -55,6 +55,65 @@ function context() {
 }
 
 describe('processing registry boundaries', () => {
+  it('adds a versioned task and connector without changing registry dispatch', async () => {
+    const c = context();
+    c.registry.registerTask({
+      taskId: 'fixture.custom',
+      version: 1,
+      capability: 'text.structured',
+      validateInput(request) {
+        if (request.input.kind !== 'text') throw new Error('Text is required.');
+      },
+      validateOutput(_request, result) {
+        if (
+          result.output.kind !== 'extension' ||
+          result.output.schemaId !== 'fixture.custom' ||
+          result.output.schemaVersion !== 1 ||
+          typeof result.output.data['label'] !== 'string'
+        )
+          throw new Error('Invalid task output.');
+      },
+    });
+    c.registry.register({
+      describe: () => ({
+        ...new FixtureTextConnector().describe(),
+        connectorId: 'fixture.custom-provider',
+      }),
+      execute: async (request) => ({
+        jobId: request.jobId,
+        connectorId: 'fixture.custom-provider',
+        profileRevision: request.profileRevision,
+        simulated: true,
+        output: {
+          kind: 'extension',
+          schemaId: 'fixture.custom',
+          schemaVersion: 1,
+          data: { label: 'Known fixture' },
+          evidenceIds: request.input.communicationIds,
+        },
+      }),
+    });
+    const result = await c.registry.execute(
+      { ...c.request, task: 'fixture.custom' },
+      { ...c.connection, connectorId: 'fixture.custom-provider' },
+      c.profile,
+      { instanceId: c.instanceId },
+      c.signal,
+    );
+    expect(result.output).toMatchObject({
+      kind: 'extension',
+      data: { label: 'Known fixture' },
+    });
+    await expect(
+      c.registry.execute(
+        { ...c.request, task: 'fixture.custom', taskVersion: 2 },
+        c.connection,
+        c.profile,
+        { instanceId: c.instanceId },
+        c.signal,
+      ),
+    ).rejects.toMatchObject({ code: 'CAPABILITY_UNSUPPORTED' });
+  });
   it('executes fixture connectors with different capabilities through the same registry', async () => {
     const c = context();
     const artifactId = crypto.randomUUID();

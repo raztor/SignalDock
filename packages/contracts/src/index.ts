@@ -236,35 +236,31 @@ export const ProcessingProfileSchema = z.strictObject({
   allowCloud: z.boolean(),
 });
 export type ProcessingProfile = z.infer<typeof ProcessingProfileSchema>;
-export const ProcessingRequestSchema = z
-  .strictObject({
-    instanceId: IdSchema,
-    jobId: IdSchema,
-    taskVersion: z.literal(1),
-    deadline: TimestampSchema,
-    profileId: IdSchema,
-    profileRevision: RevisionSchema,
-    task: z.enum(['conversation.summarize', 'speech.transcribe']),
-    input: z.discriminatedUnion('kind', [
-      z.strictObject({
-        kind: z.literal('text'),
-        text: z.string().min(1).max(64000),
-        communicationIds: z.array(IdSchema).min(1),
-      }),
-      z.strictObject({
-        kind: z.literal('audio'),
-        artifactId: IdSchema,
-        communicationIds: z.array(IdSchema).min(1),
-      }),
-    ]),
-  })
-  .refine(
-    (request) =>
-      request.task === 'speech.transcribe'
-        ? request.input.kind === 'audio'
-        : request.input.kind === 'text',
-    'Input does not match the task.',
-  );
+export const ProcessingRequestSchema = z.strictObject({
+  instanceId: IdSchema,
+  jobId: IdSchema,
+  taskVersion: z.number().int().positive(),
+  deadline: TimestampSchema,
+  profileId: IdSchema,
+  profileRevision: RevisionSchema,
+  task: z
+    .string()
+    .min(1)
+    .max(100)
+    .regex(/^[a-z][a-z0-9_-]*(\.[a-z][a-z0-9_-]*)+$/),
+  input: z.discriminatedUnion('kind', [
+    z.strictObject({
+      kind: z.literal('text'),
+      text: z.string().min(1).max(64000),
+      communicationIds: z.array(IdSchema).min(1),
+    }),
+    z.strictObject({
+      kind: z.literal('audio'),
+      artifactId: IdSchema,
+      communicationIds: z.array(IdSchema).min(1),
+    }),
+  ]),
+});
 export type ProcessingRequest = z.infer<typeof ProcessingRequestSchema>;
 export const ProcessingResultSchema = z.strictObject({
   jobId: IdSchema,
@@ -281,6 +277,13 @@ export const ProcessingResultSchema = z.strictObject({
       kind: z.literal('transcript'),
       text: z.string().min(1),
       artifactId: IdSchema,
+    }),
+    z.strictObject({
+      kind: z.literal('extension'),
+      schemaId: z.string().min(1).max(100),
+      schemaVersion: z.number().int().positive(),
+      data: z.record(z.string(), z.unknown()),
+      evidenceIds: z.array(IdSchema).min(1),
     }),
   ]),
 });

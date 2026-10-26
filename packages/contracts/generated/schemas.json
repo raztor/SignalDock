@@ -1015,8 +1015,9 @@
         "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
       },
       "taskVersion": {
-        "type": "number",
-        "const": 1
+        "type": "integer",
+        "exclusiveMinimum": 0,
+        "maximum": 9007199254740991
       },
       "deadline": {
         "type": "string",
@@ -1035,10 +1036,9 @@
       },
       "task": {
         "type": "string",
-        "enum": [
-          "conversation.summarize",
-          "speech.transcribe"
-        ]
+        "minLength": 1,
+        "maxLength": 100,
+        "pattern": "^[a-z][a-z0-9_-]*(\\.[a-z][a-z0-9_-]*)+$"
       },
       "input": {
         "oneOf": [
@@ -1187,6 +1187,49 @@
               "kind",
               "text",
               "artifactId"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "extension"
+              },
+              "schemaId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              },
+              "schemaVersion": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "data": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {}
+              },
+              "evidenceIds": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                }
+              }
+            },
+            "required": [
+              "kind",
+              "schemaId",
+              "schemaVersion",
+              "data",
+              "evidenceIds"
             ],
             "additionalProperties": false
           }

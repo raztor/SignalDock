@@ -8,12 +8,12 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.1.0
         with:
           node-version-file: .nvmrc
           cache: npm
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7.1.0
         with:
           python-version: '3.13'
       - run: npm ci
@@ -29,9 +29,9 @@ jobs:
     needs: verify
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
       - run: docker build --build-arg VCS_REF=${{ github.sha }} -f deploy/api.Dockerfile -t signaldock-api:test .
       - run: docker run -d --name signaldock-api-test --read-only --cap-drop=ALL --security-opt=no-new-privileges -p 127.0.0.1:3000:3000 signaldock-api:test
-      - run: curl --retry 10 --retry-connrefused --retry-delay 1 --fail http://127.0.0.1:3000/api/v1/health
+      - run: curl --silent --show-error --retry 10 --retry-all-errors --retry-delay 1 --max-time 5 --fail http://127.0.0.1:3000/api/v1/health
       - if: always()
         run: docker logs signaldock-api-test && docker rm -f signaldock-api-test

@@ -39,6 +39,8 @@ The client requires HTTPS outside loopback development. A phone needs a reachabl
 
 The runtime and fixture connectors are exercised by tests and the simulation command; they are not exposed through unauthenticated API routes. Simulator audio/PTT capabilities are disabled. Fixture transcripts are known text selected by artifact ID, not speech recognition. No external processing is called.
 
+Processing task definitions are registered separately from connectors. Each task/version declares its capability and validates input/output, including its extension payload schema. A custom task can use the versioned extension result envelope without changing registry dispatch or the radio/history domains. Unknown task versions fail before dispatch; all evidence references remain tied to the request's communications.
+
 The private driver protobuf describes future media/TX RPCs but no gRPC listener, TX supervisor, media engine, or VGC production adapter has been implemented. Generated interfaces are not evidence of an operational transport. The public OpenAPI document lists only implemented discovery and health routes. Other component schemas are provisional foundations, not public mutation endpoints.
 
 ## Configuration and identity

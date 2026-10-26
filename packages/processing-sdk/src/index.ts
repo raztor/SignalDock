@@ -11,6 +11,14 @@ import {
   type ProcessingRequest,
   type ProcessingResult,
 } from '@signaldock/contracts';
+import {
+  builtinProcessingTasks,
+  type ProcessingTaskDefinition,
+} from './tasks.js';
+export {
+  builtinProcessingTasks,
+  type ProcessingTaskDefinition,
+} from './tasks.js';
 
 export interface ProcessingConnector {
   describe(): ConnectorManifest;
@@ -25,6 +33,21 @@ export interface ProcessingConnector {
 /** Resolves ownership/profile/capability before delegating to an installed connector. */
 export class ProcessingRegistry {
   private readonly connectors = new Map<string, ProcessingConnector>();
+  private readonly tasks = new Map<string, ProcessingTaskDefinition>();
+  constructor(
+    tasks: readonly ProcessingTaskDefinition[] = builtinProcessingTasks(),
+  ) {
+    for (const task of tasks) this.registerTask(task);
+  }
+  registerTask(task: ProcessingTaskDefinition): void {
+    const key = `${task.taskId}@${task.version}`;
+    if (this.tasks.has(key))
+      throw new SignalDockError(
+        'OPERATION_CONFLICT',
+        'Task version is already registered.',
+      );
+    this.tasks.set(key, task);
+  }
   register(connector: ProcessingConnector): void {
     const manifest = ConnectorManifestSchema.parse(connector.describe());
     if (this.connectors.has(manifest.connectorId))
@@ -82,8 +105,14 @@ export class ProcessingRegistry {
         'FORBIDDEN',
         'This profile does not allow cloud processing.',
       );
-    const capability =
-      request.task === 'speech.transcribe' ? 'stt.batch' : 'text.structured';
+    const task = this.tasks.get(`${request.task}@${request.taskVersion}`);
+    if (!task)
+      throw new SignalDockError(
+        'CAPABILITY_UNSUPPORTED',
+        'The task version is not installed.',
+      );
+    task.validateInput(request);
+    const capability = task.capability;
     if (
       profile.capability !== capability ||
       !connector.describe().capabilities.includes(capability)
@@ -111,10 +140,7 @@ export class ProcessingRegistry {
       result.jobId !== request.jobId ||
       result.profileRevision !== profile.revision ||
       result.connectorId !== connection.connectorId ||
-      result.simulated !== connector.describe().simulated ||
-      (request.task === 'speech.transcribe'
-        ? result.output.kind !== 'transcript'
-        : result.output.kind !== 'summary')
+      result.simulated !== connector.describe().simulated
     ) {
       throw new SignalDockError(
         'PROVIDER_UNAVAILABLE',
@@ -122,7 +148,7 @@ export class ProcessingRegistry {
       );
     }
     if (
-      result.output.kind === 'summary' &&
+      'evidenceIds' in result.output &&
       result.output.evidenceIds.some(
         (id) => !request.input.communicationIds.includes(id),
       )
@@ -132,16 +158,7 @@ export class ProcessingRegistry {
         'Connector cited an unrelated communication.',
       );
     }
-    if (
-      result.output.kind === 'transcript' &&
-      request.input.kind === 'audio' &&
-      result.output.artifactId !== request.input.artifactId
-    ) {
-      throw new SignalDockError(
-        'PROVIDER_UNAVAILABLE',
-        'Connector returned another artifact.',
-      );
-    }
+    task.validateOutput(request, result);
     return result;
   }
 }

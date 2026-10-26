@@ -365,11 +365,11 @@ export interface ProcessingProfile {
 export interface ProcessingRequest {
   instanceId: string;
   jobId: string;
-  taskVersion: 1;
+  taskVersion: number;
   deadline: string;
   profileId: string;
   profileRevision: number;
-  task: "conversation.summarize" | "speech.transcribe";
+  task: string;
   input:
     | {
         kind: "text";
@@ -407,6 +407,18 @@ export interface ProcessingResult {
         kind: "transcript";
         text: string;
         artifactId: string;
+      }
+    | {
+        kind: "extension";
+        schemaId: string;
+        schemaVersion: number;
+        data: {
+          [k: string]: unknown;
+        };
+        /**
+         * @minItems 1
+         */
+        evidenceIds: [string, ...string[]];
       };
 }
 
