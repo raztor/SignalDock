@@ -1,4 +1,78 @@
 // Generated from contract schemas. Run npm run generate:contracts.
+export interface RecordingRecord {
+  id: string;
+  artifactId: string;
+  contentType: string;
+  sizeBytes: number;
+  sha256: string;
+  state: "available" | "deleted" | "gap";
+  gapReason?: string;
+}
+
+export interface TranscriptRevision {
+  id: string;
+  communicationId: string;
+  revision: number;
+  text: string;
+  language?: string;
+  source: "provider" | "human";
+  provenance: {
+    [k: string]: unknown;
+  };
+  createdAt: string;
+}
+
+export interface Conversation {
+  id: string;
+  instanceId: string;
+  radioId: string;
+  frequencyHz?: number;
+  attribution: "confirmed" | "inferred" | "unknown";
+  updatedAt: string;
+}
+
+export interface Communication {
+  id: string;
+  instanceId: string;
+  radioId: string;
+  conversationId: string;
+  kind: "received_voice" | "transmitted_voice" | "transmitted_tts" | "digital" | "note";
+  direction: "rx" | "tx" | "internal";
+  startedAt: string;
+  endedAt: string;
+  frequencyHz?: number;
+  frequencyAttribution: "confirmed" | "inferred" | "unknown";
+  context: {
+    [k: string]: unknown;
+  };
+  revision: number;
+  recording?: {
+    id: string;
+    artifactId: string;
+    contentType: string;
+    sizeBytes: number;
+    sha256: string;
+    state: "available" | "deleted" | "gap";
+    gapReason?: string;
+  };
+  transcripts: {
+    id: string;
+    communicationId: string;
+    revision: number;
+    text: string;
+    language?: string;
+    source: "provider" | "human";
+    provenance: {
+      [k: string]: unknown;
+    };
+    createdAt: string;
+  }[];
+  notes: string[];
+  tags: string[];
+  retentionHold: boolean;
+  deletedAt?: string;
+}
+
 export type Role = "listener" | "operator" | "administrator";
 
 export type Permission =
@@ -242,6 +316,11 @@ export interface Health {
 }
 
 export interface RadioCapabilities {
+  memories?: {
+    read: boolean;
+    write: boolean;
+    select: boolean;
+  };
   tuning: {
     writable: boolean;
     /**
@@ -271,6 +350,7 @@ export interface RadioCapabilities {
 }
 
 export interface RadioSnapshot {
+  selectedMemoryId?: string;
   radioId: string;
   generation: string;
   revision: number;
@@ -430,6 +510,11 @@ export interface RadioDescriptor {
         string
       ];
   capabilities: {
+    memories?: {
+      read: boolean;
+      write: boolean;
+      select: boolean;
+    };
     tuning: {
       writable: boolean;
       /**
@@ -461,6 +546,9 @@ export interface RadioDescriptor {
 
 export interface TuningCommand {
   context: {
+    fencing?: number;
+    ownerId?: string;
+    sessionId?: string;
     operationId: string;
     radioId: string;
     generation: string;
@@ -487,6 +575,7 @@ export interface RadioSnapshotEvent {
   payloadVersion: 1;
   correlationId?: string;
   payload: {
+    selectedMemoryId?: string;
     radioId: string;
     generation: string;
     revision: number;
@@ -537,6 +626,10 @@ export interface ProcessingConnection {
 }
 
 export interface ProcessingProfile {
+  task?: string;
+  settings?: {
+    [k: string]: unknown;
+  };
   profileId: string;
   revision: number;
   connectionId: string;
@@ -557,10 +650,7 @@ export interface ProcessingRequest {
     | {
         kind: "text";
         text: string;
-        /**
-         * @minItems 1
-         */
-        communicationIds: [string, ...string[]];
+        communicationIds: string[];
       }
     | {
         kind: "audio";
@@ -590,6 +680,13 @@ export interface ProcessingResult {
         kind: "transcript";
         text: string;
         artifactId: string;
+      }
+    | {
+        kind: "audio";
+        artifactId: string;
+        contentType: string;
+        byteLength: number;
+        durationSeconds?: number;
       }
     | {
         kind: "extension";

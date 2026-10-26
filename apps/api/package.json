@@ -9,6 +9,7 @@
     "start": "node dist/main.js"
   },
   "dependencies": {
+    "zod": "4.6.7",
     "@signaldock/contracts": "*",
     "fastify": "5.12.7",
     "@fastify/cors": "11.3.1"

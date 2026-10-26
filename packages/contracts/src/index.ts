@@ -96,6 +96,13 @@ export const HealthSchema = z.strictObject({
 
 export const RadioCapabilitiesSchema = z
   .strictObject({
+    memories: z
+      .strictObject({
+        read: z.boolean(),
+        write: z.boolean(),
+        select: z.boolean(),
+      })
+      .optional(),
     tuning: z.strictObject({
       writable: z.boolean(),
       ranges: z
@@ -134,6 +141,7 @@ export const TuningSchema = z.strictObject({
 });
 export type Tuning = z.infer<typeof TuningSchema>;
 export const RadioSnapshotSchema = z.strictObject({
+  selectedMemoryId: z.string().optional(),
   radioId: IdSchema,
   generation: IdSchema,
   revision: RevisionSchema,
@@ -167,6 +175,9 @@ export const RadioDescriptorSchema = z.strictObject({
 });
 export type RadioDescriptor = z.infer<typeof RadioDescriptorSchema>;
 export const OperationContextSchema = z.strictObject({
+  fencing: z.number().int().nonnegative().optional(),
+  ownerId: IdSchema.optional(),
+  sessionId: IdSchema.optional(),
   operationId: IdSchema,
   radioId: IdSchema,
   generation: IdSchema,
@@ -230,6 +241,8 @@ export const ProcessingConnectionSchema = z.strictObject({
 });
 export type ProcessingConnection = z.infer<typeof ProcessingConnectionSchema>;
 export const ProcessingProfileSchema = z.strictObject({
+  task: z.string().optional(),
+  settings: z.record(z.string(), z.unknown()).optional(),
   profileId: IdSchema,
   revision: RevisionSchema,
   connectionId: IdSchema,
@@ -254,7 +267,7 @@ export const ProcessingRequestSchema = z.strictObject({
     z.strictObject({
       kind: z.literal('text'),
       text: z.string().min(1).max(64000),
-      communicationIds: z.array(IdSchema).min(1),
+      communicationIds: z.array(IdSchema),
     }),
     z.strictObject({
       kind: z.literal('audio'),
@@ -277,8 +290,15 @@ export const ProcessingResultSchema = z.strictObject({
     }),
     z.strictObject({
       kind: z.literal('transcript'),
-      text: z.string().min(1),
+      text: z.string(),
       artifactId: IdSchema,
+    }),
+    z.strictObject({
+      kind: z.literal('audio'),
+      artifactId: IdSchema,
+      contentType: z.string().min(1),
+      byteLength: z.number().int().nonnegative(),
+      durationSeconds: z.number().nonnegative().optional(),
     }),
     z.strictObject({
       kind: z.literal('extension'),

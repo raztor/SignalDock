@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file signaldock/driver/v1/driver.proto.
  */
 export const file_signaldock_driver_v1_driver: GenFile = /*@__PURE__*/
-  fileDesc("CiFzaWduYWxkb2NrL2RyaXZlci92MS9kcml2ZXIucHJvdG8SFHNpZ25hbGRvY2suZHJpdmVyLnYxIhEKD0Rlc2NyaWJlUmVxdWVzdCK6AQoQRGVzY3JpYmVSZXNwb25zZRIRCglkcml2ZXJfaWQYASABKAkSDwoHdmVyc2lvbhgCIAEoCRIUCgxwcm90b2NvbF9taW4YAyABKA0SFAoMcHJvdG9jb2xfbWF4GAQgASgNEhcKD3ZlcmlmaWVkX21vZGVscxgFIAMoCRI9CgxjYXBhYmlsaXRpZXMYBiABKAsyJy5zaWduYWxkb2NrLmRyaXZlci52MS5SYWRpb0NhcGFiaWxpdGllcyIwCg5GcmVxdWVuY3lSYW5nZRIOCgZtaW5faHoYASABKAQSDgoGbWF4X2h6GAIgASgEIpUCChFSYWRpb0NhcGFiaWxpdGllcxIXCg90dW5pbmdfd3JpdGFibGUYASABKAgSOwoNdHVuaW5nX3JhbmdlcxgCIAMoCzIkLnNpZ25hbGRvY2suZHJpdmVyLnYxLkZyZXF1ZW5jeVJhbmdlEg0KBW1vZGVzGAMgAygJEhAKCHJ4X2F1ZGlvGAQgASgIEhAKCHR4X2F1ZGlvGAUgASgIEhUKDXB0dF9tZWNoYW5pc20YBiABKAkSHwoXcGh5c2ljYWxfdHhfb2JzZXJ2YXRpb24YByABKAgSKQohaW5kZXBlbmRlbnRseV9yZWNlaXZhYmxlX2NoYW5uZWxzGAggASgNEhQKDHZlcmlmaWNhdGlvbhgJIAEoCSIgCgxSYWRpb1JlcXVlc3QSEAoIcmFkaW9faWQYASABKAkiFAoSRGlzY29ubmVjdFJlc3BvbnNlIkMKBlR1bmluZxINCgVyeF9oehgBIAEoBBISCgV0eF9oehgCIAEoBEgAiAEBEgwKBG1vZGUYAyABKAlCCAoGX3R4X2h6IqYCCg1SYWRpb1NuYXBzaG90EhAKCHJhZGlvX2lkGAEgASgJEhIKCmdlbmVyYXRpb24YAiABKAkSEAoIcmV2aXNpb24YAyABKAQSEgoKY29ubmVjdGlvbhgEIAEoCRI6Cg9vYnNlcnZlZF90dW5pbmcYBSABKAsyHC5zaWduYWxkb2NrLmRyaXZlci52MS5UdW5pbmdIAIgBARI5Cg5kZXNpcmVkX3R1bmluZxgGIAEoCzIcLnNpZ25hbGRvY2suZHJpdmVyLnYxLlR1bmluZ0gBiAEBEhkKEXR1bmluZ19jb25maWRlbmNlGAcgASgJEhAKCHR4X3N0YXRlGAggASgJQhIKEF9vYnNlcnZlZF90dW5pbmdCEQoPX2Rlc2lyZWRfdHVuaW5nIpYBChBPcGVyYXRpb25Db250ZXh0EhQKDG9wZXJhdGlvbl9pZBgBIAEoCRIQCghyYWRpb19pZBgCIAEoCRISCgpnZW5lcmF0aW9uGAMgASgJEhkKEWV4cGVjdGVkX3JldmlzaW9uGAQgASgEEhQKDGRlYWRsaW5lX3V0YxgFIAEoCRIVCg1jb250cm9sX2dyYW50GAYgASgJInsKEkFwcGx5VHVuaW5nUmVxdWVzdBI3Cgdjb250ZXh0GAEgASgLMiYuc2lnbmFsZG9jay5kcml2ZXIudjEuT3BlcmF0aW9uQ29udGV4dBIsCgZ0dW5pbmcYAiABKAsyHC5zaWduYWxkb2NrLmRyaXZlci52MS5UdW5pbmciUgoSV2F0Y2hFdmVudHNSZXF1ZXN0EhAKCHJhZGlvX2lkGAEgASgJEhIKCmdlbmVyYXRpb24YAiABKAkSFgoOYWZ0ZXJfc2VxdWVuY2UYAyABKAQizQEKClJhZGlvRXZlbnQSGAoQcHJvdG9jb2xfdmVyc2lvbhgBIAEoDRIQCghldmVudF9pZBgCIAEoCRIQCghyYWRpb19pZBgDIAEoCRISCgpnZW5lcmF0aW9uGAQgASgJEhAKCHNlcXVlbmNlGAUgASgEEhcKD29jY3VycmVkX2F0X3V0YxgGIAEoCRI3CghzbmFwc2hvdBgHIAEoCzIjLnNpZ25hbGRvY2suZHJpdmVyLnYxLlJhZGlvU25hcHNob3RIAEIJCgdwYXlsb2FkIkkKC0F1ZGlvRm9ybWF0EhYKDnNhbXBsZV9yYXRlX2h6GAEgASgNEhAKCGNoYW5uZWxzGAIgASgNEhAKCGVuY29kaW5nGAMgASgJIk4KE09wZW5SeFN0cmVhbVJlcXVlc3QSEAoIcmFkaW9faWQYASABKAkSEgoKZ2VuZXJhdGlvbhgCIAEoCRIRCglzdHJlYW1faWQYAyABKAki3AEKCkF1ZGlvRnJhbWUSEQoJc3RyZWFtX2lkGAEgASgJEhAKCHNlcXVlbmNlGAIgASgEEhUKDW1lZGlhX3RpbWVfdXMYAyABKAQSMQoGZm9ybWF0GAQgASgLMiEuc2lnbmFsZG9jay5kcml2ZXIudjEuQXVkaW9Gb3JtYXQSDwoHcGF5bG9hZBgFIAEoDBIXCg90dW5pbmdfcmV2aXNpb24YBiABKAQSHgoWYXR0cmlidXRpb25fY29uZmlkZW5jZRgHIAEoCRIVCg1kaXNjb250aW51aXR5GAggASgIIrUBChpQcmVwYXJlVHJhbnNtaXNzaW9uUmVxdWVzdBI3Cgdjb250ZXh0GAEgASgLMiYuc2lnbmFsZG9jay5kcml2ZXIudjEuT3BlcmF0aW9uQ29udGV4dBITCgt0eF9ncmFudF9pZBgCIAEoCRIWCg5leHBpcmVzX2F0X3V0YxgDIAEoCRIxCgZmb3JtYXQYBCABKAsyIS5zaWduYWxkb2NrLmRyaXZlci52MS5BdWRpb0Zvcm1hdCJ8Cg5UeEF1ZGlvUmVxdWVzdBIQCghyYWRpb19pZBgBIAEoCRISCgpnZW5lcmF0aW9uGAIgASgJEhMKC3R4X2dyYW50X2lkGAMgASgJEi8KBWZyYW1lGAQgASgLMiAuc2lnbmFsZG9jay5kcml2ZXIudjEuQXVkaW9GcmFtZSJjChZFbmRUcmFuc21pc3Npb25SZXF1ZXN0EhAKCHJhZGlvX2lkGAEgASgJEhIKCmdlbmVyYXRpb24YAiABKAkSEwoLdHhfZ3JhbnRfaWQYAyABKAkSDgoGcmVhc29uGAQgASgJIlcKGk9ic2VydmVUcmFuc21pc3Npb25SZXF1ZXN0EhAKCHJhZGlvX2lkGAEgASgJEhIKCmdlbmVyYXRpb24YAiABKAkSEwoLdHhfZ3JhbnRfaWQYAyABKAkiewoRVHJhbnNtaXNzaW9uU3RhdGUSEAoIcmFkaW9faWQYASABKAkSEgoKZ2VuZXJhdGlvbhgCIAEoCRITCgt0eF9ncmFudF9pZBgDIAEoCRINCgVzdGF0ZRgEIAEoCRIcChRwaHlzaWNhbGx5X2NvbmZpcm1lZBgFIAEoCDK/CAoSUmFkaW9Ecml2ZXJTZXJ2aWNlElkKCERlc2NyaWJlEiUuc2lnbmFsZG9jay5kcml2ZXIudjEuRGVzY3JpYmVSZXF1ZXN0GiYuc2lnbmFsZG9jay5kcml2ZXIudjEuRGVzY3JpYmVSZXNwb25zZRJSCgdDb25uZWN0EiIuc2lnbmFsZG9jay5kcml2ZXIudjEuUmFkaW9SZXF1ZXN0GiMuc2lnbmFsZG9jay5kcml2ZXIudjEuUmFkaW9TbmFwc2hvdBJaCgpEaXNjb25uZWN0EiIuc2lnbmFsZG9jay5kcml2ZXIudjEuUmFkaW9SZXF1ZXN0Giguc2lnbmFsZG9jay5kcml2ZXIudjEuRGlzY29ubmVjdFJlc3BvbnNlElYKC0dldFNuYXBzaG90EiIuc2lnbmFsZG9jay5kcml2ZXIudjEuUmFkaW9SZXF1ZXN0GiMuc2lnbmFsZG9jay5kcml2ZXIudjEuUmFkaW9TbmFwc2hvdBJcCgtBcHBseVR1bmluZxIoLnNpZ25hbGRvY2suZHJpdmVyLnYxLkFwcGx5VHVuaW5nUmVxdWVzdBojLnNpZ25hbGRvY2suZHJpdmVyLnYxLlJhZGlvU25hcHNob3QSWwoLV2F0Y2hFdmVudHMSKC5zaWduYWxkb2NrLmRyaXZlci52MS5XYXRjaEV2ZW50c1JlcXVlc3QaIC5zaWduYWxkb2NrLmRyaXZlci52MS5SYWRpb0V2ZW50MAESXQoMT3BlblJ4U3RyZWFtEikuc2lnbmFsZG9jay5kcml2ZXIudjEuT3BlblJ4U3RyZWFtUmVxdWVzdBogLnNpZ25hbGRvY2suZHJpdmVyLnYxLkF1ZGlvRnJhbWUwARJwChNQcmVwYXJlVHJhbnNtaXNzaW9uEjAuc2lnbmFsZG9jay5kcml2ZXIudjEuUHJlcGFyZVRyYW5zbWlzc2lvblJlcXVlc3QaJy5zaWduYWxkb2NrLmRyaXZlci52MS5UcmFuc21pc3Npb25TdGF0ZRJeCgtQdXNoVHhBdWRpbxIkLnNpZ25hbGRvY2suZHJpdmVyLnYxLlR4QXVkaW9SZXF1ZXN0Gicuc2lnbmFsZG9jay5kcml2ZXIudjEuVHJhbnNtaXNzaW9uU3RhdGUoARJoCg9FbmRUcmFuc21pc3Npb24SLC5zaWduYWxkb2NrLmRyaXZlci52MS5FbmRUcmFuc21pc3Npb25SZXF1ZXN0Gicuc2lnbmFsZG9jay5kcml2ZXIudjEuVHJhbnNtaXNzaW9uU3RhdGUScAoTT2JzZXJ2ZVRyYW5zbWlzc2lvbhIwLnNpZ25hbGRvY2suZHJpdmVyLnYxLk9ic2VydmVUcmFuc21pc3Npb25SZXF1ZXN0Gicuc2lnbmFsZG9jay5kcml2ZXIudjEuVHJhbnNtaXNzaW9uU3RhdGViBnByb3RvMw");
+  fileDesc("CiFzaWduYWxkb2NrL2RyaXZlci92MS9kcml2ZXIucHJvdG8SFHNpZ25hbGRvY2suZHJpdmVyLnYxIhEKD0Rlc2NyaWJlUmVxdWVzdCK6AQoQRGVzY3JpYmVSZXNwb25zZRIRCglkcml2ZXJfaWQYASABKAkSDwoHdmVyc2lvbhgCIAEoCRIUCgxwcm90b2NvbF9taW4YAyABKA0SFAoMcHJvdG9jb2xfbWF4GAQgASgNEhcKD3ZlcmlmaWVkX21vZGVscxgFIAMoCRI9CgxjYXBhYmlsaXRpZXMYBiABKAsyJy5zaWduYWxkb2NrLmRyaXZlci52MS5SYWRpb0NhcGFiaWxpdGllcyIwCg5GcmVxdWVuY3lSYW5nZRIOCgZtaW5faHoYASABKAQSDgoGbWF4X2h6GAIgASgEItcCChFSYWRpb0NhcGFiaWxpdGllcxIXCg90dW5pbmdfd3JpdGFibGUYASABKAgSOwoNdHVuaW5nX3JhbmdlcxgCIAMoCzIkLnNpZ25hbGRvY2suZHJpdmVyLnYxLkZyZXF1ZW5jeVJhbmdlEg0KBW1vZGVzGAMgAygJEhAKCHJ4X2F1ZGlvGAQgASgIEhAKCHR4X2F1ZGlvGAUgASgIEhUKDXB0dF9tZWNoYW5pc20YBiABKAkSHwoXcGh5c2ljYWxfdHhfb2JzZXJ2YXRpb24YByABKAgSKQohaW5kZXBlbmRlbnRseV9yZWNlaXZhYmxlX2NoYW5uZWxzGAggASgNEhQKDHZlcmlmaWNhdGlvbhgJIAEoCRITCgttZW1vcnlfcmVhZBgKIAEoCBIUCgxtZW1vcnlfd3JpdGUYCyABKAgSFQoNbWVtb3J5X3NlbGVjdBgMIAEoCCIgCgxSYWRpb1JlcXVlc3QSEAoIcmFkaW9faWQYASABKAkiFAoSRGlzY29ubmVjdFJlc3BvbnNlIkMKBlR1bmluZxINCgVyeF9oehgBIAEoBBISCgV0eF9oehgCIAEoBEgAiAEBEgwKBG1vZGUYAyABKAlCCAoGX3R4X2h6It4CCg1SYWRpb1NuYXBzaG90EhAKCHJhZGlvX2lkGAEgASgJEhIKCmdlbmVyYXRpb24YAiABKAkSEAoIcmV2aXNpb24YAyABKAQSEgoKY29ubmVjdGlvbhgEIAEoCRI6Cg9vYnNlcnZlZF90dW5pbmcYBSABKAsyHC5zaWduYWxkb2NrLmRyaXZlci52MS5UdW5pbmdIAIgBARI5Cg5kZXNpcmVkX3R1bmluZxgGIAEoCzIcLnNpZ25hbGRvY2suZHJpdmVyLnYxLlR1bmluZ0gBiAEBEhkKEXR1bmluZ19jb25maWRlbmNlGAcgASgJEhAKCHR4X3N0YXRlGAggASgJEh8KEnNlbGVjdGVkX21lbW9yeV9pZBgJIAEoCUgCiAEBQhIKEF9vYnNlcnZlZF90dW5pbmdCEQoPX2Rlc2lyZWRfdHVuaW5nQhUKE19zZWxlY3RlZF9tZW1vcnlfaWQizQEKEE9wZXJhdGlvbkNvbnRleHQSFAoMb3BlcmF0aW9uX2lkGAEgASgJEhAKCHJhZGlvX2lkGAIgASgJEhIKCmdlbmVyYXRpb24YAyABKAkSGQoRZXhwZWN0ZWRfcmV2aXNpb24YBCABKAQSFAoMZGVhZGxpbmVfdXRjGAUgASgJEhUKDWNvbnRyb2xfZ3JhbnQYBiABKAkSDwoHZmVuY2luZxgHIAEoBBIQCghvd25lcl9pZBgIIAEoCRISCgpzZXNzaW9uX2lkGAkgASgJInsKEkFwcGx5VHVuaW5nUmVxdWVzdBI3Cgdjb250ZXh0GAEgASgLMiYuc2lnbmFsZG9jay5kcml2ZXIudjEuT3BlcmF0aW9uQ29udGV4dBIsCgZ0dW5pbmcYAiABKAsyHC5zaWduYWxkb2NrLmRyaXZlci52MS5UdW5pbmciVwoGTWVtb3J5EhEKCW1lbW9yeV9pZBgBIAEoCRIMCgRuYW1lGAIgASgJEiwKBnR1bmluZxgDIAEoCzIcLnNpZ25hbGRvY2suZHJpdmVyLnYxLlR1bmluZyJGChRMaXN0TWVtb3JpZXNSZXNwb25zZRIuCghtZW1vcmllcxgBIAMoCzIcLnNpZ25hbGRvY2suZHJpdmVyLnYxLk1lbW9yeSI4ChFSZWFkTWVtb3J5UmVxdWVzdBIQCghyYWRpb19pZBgBIAEoCRIRCgltZW1vcnlfaWQYAiABKAkiewoSV3JpdGVNZW1vcnlSZXF1ZXN0EjcKB2NvbnRleHQYASABKAsyJi5zaWduYWxkb2NrLmRyaXZlci52MS5PcGVyYXRpb25Db250ZXh0EiwKBm1lbW9yeRgCIAEoCzIcLnNpZ25hbGRvY2suZHJpdmVyLnYxLk1lbW9yeSJhChNTZWxlY3RNZW1vcnlSZXF1ZXN0EjcKB2NvbnRleHQYASABKAsyJi5zaWduYWxkb2NrLmRyaXZlci52MS5PcGVyYXRpb25Db250ZXh0EhEKCW1lbW9yeV9pZBgCIAEoCSJSChJXYXRjaEV2ZW50c1JlcXVlc3QSEAoIcmFkaW9faWQYASABKAkSEgoKZ2VuZXJhdGlvbhgCIAEoCRIWCg5hZnRlcl9zZXF1ZW5jZRgDIAEoBCLNAQoKUmFkaW9FdmVudBIYChBwcm90b2NvbF92ZXJzaW9uGAEgASgNEhAKCGV2ZW50X2lkGAIgASgJEhAKCHJhZGlvX2lkGAMgASgJEhIKCmdlbmVyYXRpb24YBCABKAkSEAoIc2VxdWVuY2UYBSABKAQSFwoPb2NjdXJyZWRfYXRfdXRjGAYgASgJEjcKCHNuYXBzaG90GAcgASgLMiMuc2lnbmFsZG9jay5kcml2ZXIudjEuUmFkaW9TbmFwc2hvdEgAQgkKB3BheWxvYWQiSQoLQXVkaW9Gb3JtYXQSFgoOc2FtcGxlX3JhdGVfaHoYASABKA0SEAoIY2hhbm5lbHMYAiABKA0SEAoIZW5jb2RpbmcYAyABKAkiTgoTT3BlblJ4U3RyZWFtUmVxdWVzdBIQCghyYWRpb19pZBgBIAEoCRISCgpnZW5lcmF0aW9uGAIgASgJEhEKCXN0cmVhbV9pZBgDIAEoCSLyAQoKQXVkaW9GcmFtZRIRCglzdHJlYW1faWQYASABKAkSEAoIc2VxdWVuY2UYAiABKAQSFQoNbWVkaWFfdGltZV91cxgDIAEoBBIxCgZmb3JtYXQYBCABKAsyIS5zaWduYWxkb2NrLmRyaXZlci52MS5BdWRpb0Zvcm1hdBIPCgdwYXlsb2FkGAUgASgMEhcKD3R1bmluZ19yZXZpc2lvbhgGIAEoBBIeChZhdHRyaWJ1dGlvbl9jb25maWRlbmNlGAcgASgJEhUKDWRpc2NvbnRpbnVpdHkYCCABKAgSFAoMZW5kX29mX2J1cnN0GAkgASgIIt0BChpQcmVwYXJlVHJhbnNtaXNzaW9uUmVxdWVzdBI3Cgdjb250ZXh0GAEgASgLMiYuc2lnbmFsZG9jay5kcml2ZXIudjEuT3BlcmF0aW9uQ29udGV4dBITCgt0eF9ncmFudF9pZBgCIAEoCRIWCg5leHBpcmVzX2F0X3V0YxgDIAEoCRIxCgZmb3JtYXQYBCABKAsyIS5zaWduYWxkb2NrLmRyaXZlci52MS5BdWRpb0Zvcm1hdBIVCg1tYXhfdW50aWxfdXRjGAUgASgJEg8KB2ZlbmNpbmcYBiABKAQijQEKDlR4QXVkaW9SZXF1ZXN0EhAKCHJhZGlvX2lkGAEgASgJEhIKCmdlbmVyYXRpb24YAiABKAkSEwoLdHhfZ3JhbnRfaWQYAyABKAkSLwoFZnJhbWUYBCABKAsyIC5zaWduYWxkb2NrLmRyaXZlci52MS5BdWRpb0ZyYW1lEg8KB2ZlbmNpbmcYBSABKAQidAoWRW5kVHJhbnNtaXNzaW9uUmVxdWVzdBIQCghyYWRpb19pZBgBIAEoCRISCgpnZW5lcmF0aW9uGAIgASgJEhMKC3R4X2dyYW50X2lkGAMgASgJEg4KBnJlYXNvbhgEIAEoCRIPCgdmZW5jaW5nGAUgASgEIlcKGk9ic2VydmVUcmFuc21pc3Npb25SZXF1ZXN0EhAKCHJhZGlvX2lkGAEgASgJEhIKCmdlbmVyYXRpb24YAiABKAkSEwoLdHhfZ3JhbnRfaWQYAyABKAkifgoYUmVuZXdUcmFuc21pc3Npb25SZXF1ZXN0EhAKCHJhZGlvX2lkGAEgASgJEhIKCmdlbmVyYXRpb24YAiABKAkSEwoLdHhfZ3JhbnRfaWQYAyABKAkSFgoOZXhwaXJlc19hdF91dGMYBCABKAkSDwoHZmVuY2luZxgFIAEoBCJ7ChFUcmFuc21pc3Npb25TdGF0ZRIQCghyYWRpb19pZBgBIAEoCRISCgpnZW5lcmF0aW9uGAIgASgJEhMKC3R4X2dyYW50X2lkGAMgASgJEg0KBXN0YXRlGAQgASgJEhwKFHBoeXNpY2FsbHlfY29uZmlybWVkGAUgASgIMu8MChJSYWRpb0RyaXZlclNlcnZpY2USWQoIRGVzY3JpYmUSJS5zaWduYWxkb2NrLmRyaXZlci52MS5EZXNjcmliZVJlcXVlc3QaJi5zaWduYWxkb2NrLmRyaXZlci52MS5EZXNjcmliZVJlc3BvbnNlElIKB0Nvbm5lY3QSIi5zaWduYWxkb2NrLmRyaXZlci52MS5SYWRpb1JlcXVlc3QaIy5zaWduYWxkb2NrLmRyaXZlci52MS5SYWRpb1NuYXBzaG90EloKCkRpc2Nvbm5lY3QSIi5zaWduYWxkb2NrLmRyaXZlci52MS5SYWRpb1JlcXVlc3QaKC5zaWduYWxkb2NrLmRyaXZlci52MS5EaXNjb25uZWN0UmVzcG9uc2USVgoLR2V0U25hcHNob3QSIi5zaWduYWxkb2NrLmRyaXZlci52MS5SYWRpb1JlcXVlc3QaIy5zaWduYWxkb2NrLmRyaXZlci52MS5SYWRpb1NuYXBzaG90ElQKCVJlY29uY2lsZRIiLnNpZ25hbGRvY2suZHJpdmVyLnYxLlJhZGlvUmVxdWVzdBojLnNpZ25hbGRvY2suZHJpdmVyLnYxLlJhZGlvU25hcHNob3QSXAoLQXBwbHlUdW5pbmcSKC5zaWduYWxkb2NrLmRyaXZlci52MS5BcHBseVR1bmluZ1JlcXVlc3QaIy5zaWduYWxkb2NrLmRyaXZlci52MS5SYWRpb1NuYXBzaG90El4KDExpc3RNZW1vcmllcxIiLnNpZ25hbGRvY2suZHJpdmVyLnYxLlJhZGlvUmVxdWVzdBoqLnNpZ25hbGRvY2suZHJpdmVyLnYxLkxpc3RNZW1vcmllc1Jlc3BvbnNlElMKClJlYWRNZW1vcnkSJy5zaWduYWxkb2NrLmRyaXZlci52MS5SZWFkTWVtb3J5UmVxdWVzdBocLnNpZ25hbGRvY2suZHJpdmVyLnYxLk1lbW9yeRJVCgtXcml0ZU1lbW9yeRIoLnNpZ25hbGRvY2suZHJpdmVyLnYxLldyaXRlTWVtb3J5UmVxdWVzdBocLnNpZ25hbGRvY2suZHJpdmVyLnYxLk1lbW9yeRJeCgxTZWxlY3RNZW1vcnkSKS5zaWduYWxkb2NrLmRyaXZlci52MS5TZWxlY3RNZW1vcnlSZXF1ZXN0GiMuc2lnbmFsZG9jay5kcml2ZXIudjEuUmFkaW9TbmFwc2hvdBJbCgtXYXRjaEV2ZW50cxIoLnNpZ25hbGRvY2suZHJpdmVyLnYxLldhdGNoRXZlbnRzUmVxdWVzdBogLnNpZ25hbGRvY2suZHJpdmVyLnYxLlJhZGlvRXZlbnQwARJdCgxPcGVuUnhTdHJlYW0SKS5zaWduYWxkb2NrLmRyaXZlci52MS5PcGVuUnhTdHJlYW1SZXF1ZXN0GiAuc2lnbmFsZG9jay5kcml2ZXIudjEuQXVkaW9GcmFtZTABEnAKE1ByZXBhcmVUcmFuc21pc3Npb24SMC5zaWduYWxkb2NrLmRyaXZlci52MS5QcmVwYXJlVHJhbnNtaXNzaW9uUmVxdWVzdBonLnNpZ25hbGRvY2suZHJpdmVyLnYxLlRyYW5zbWlzc2lvblN0YXRlEl4KC1B1c2hUeEF1ZGlvEiQuc2lnbmFsZG9jay5kcml2ZXIudjEuVHhBdWRpb1JlcXVlc3QaJy5zaWduYWxkb2NrLmRyaXZlci52MS5UcmFuc21pc3Npb25TdGF0ZSgBEmgKD0VuZFRyYW5zbWlzc2lvbhIsLnNpZ25hbGRvY2suZHJpdmVyLnYxLkVuZFRyYW5zbWlzc2lvblJlcXVlc3QaJy5zaWduYWxkb2NrLmRyaXZlci52MS5UcmFuc21pc3Npb25TdGF0ZRJsChFSZW5ld1RyYW5zbWlzc2lvbhIuLnNpZ25hbGRvY2suZHJpdmVyLnYxLlJlbmV3VHJhbnNtaXNzaW9uUmVxdWVzdBonLnNpZ25hbGRvY2suZHJpdmVyLnYxLlRyYW5zbWlzc2lvblN0YXRlEnAKE09ic2VydmVUcmFuc21pc3Npb24SMC5zaWduYWxkb2NrLmRyaXZlci52MS5PYnNlcnZlVHJhbnNtaXNzaW9uUmVxdWVzdBonLnNpZ25hbGRvY2suZHJpdmVyLnYxLlRyYW5zbWlzc2lvblN0YXRlYgZwcm90bzM");
 
 /**
  * @generated from message signaldock.driver.v1.DescribeRequest
@@ -137,6 +137,21 @@ export type RadioCapabilities = Message<"signaldock.driver.v1.RadioCapabilities"
    * @generated from field: string verification = 9;
    */
   verification: string;
+
+  /**
+   * @generated from field: bool memory_read = 10;
+   */
+  memoryRead: boolean;
+
+  /**
+   * @generated from field: bool memory_write = 11;
+   */
+  memoryWrite: boolean;
+
+  /**
+   * @generated from field: bool memory_select = 12;
+   */
+  memorySelect: boolean;
 };
 
 /**
@@ -246,6 +261,11 @@ export type RadioSnapshot = Message<"signaldock.driver.v1.RadioSnapshot"> & {
    * @generated from field: string tx_state = 8;
    */
   txState: string;
+
+  /**
+   * @generated from field: optional string selected_memory_id = 9;
+   */
+  selectedMemoryId?: string | undefined;
 };
 
 /**
@@ -288,6 +308,21 @@ export type OperationContext = Message<"signaldock.driver.v1.OperationContext"> 
    * @generated from field: string control_grant = 6;
    */
   controlGrant: string;
+
+  /**
+   * @generated from field: uint64 fencing = 7;
+   */
+  fencing: bigint;
+
+  /**
+   * @generated from field: string owner_id = 8;
+   */
+  ownerId: string;
+
+  /**
+   * @generated from field: string session_id = 9;
+   */
+  sessionId: string;
 };
 
 /**
@@ -320,6 +355,116 @@ export const ApplyTuningRequestSchema: GenMessage<ApplyTuningRequest> = /*@__PUR
   messageDesc(file_signaldock_driver_v1_driver, 9);
 
 /**
+ * @generated from message signaldock.driver.v1.Memory
+ */
+export type Memory = Message<"signaldock.driver.v1.Memory"> & {
+  /**
+   * @generated from field: string memory_id = 1;
+   */
+  memoryId: string;
+
+  /**
+   * @generated from field: string name = 2;
+   */
+  name: string;
+
+  /**
+   * @generated from field: signaldock.driver.v1.Tuning tuning = 3;
+   */
+  tuning?: Tuning | undefined;
+};
+
+/**
+ * Describes the message signaldock.driver.v1.Memory.
+ * Use `create(MemorySchema)` to create a new message.
+ */
+export const MemorySchema: GenMessage<Memory> = /*@__PURE__*/
+  messageDesc(file_signaldock_driver_v1_driver, 10);
+
+/**
+ * @generated from message signaldock.driver.v1.ListMemoriesResponse
+ */
+export type ListMemoriesResponse = Message<"signaldock.driver.v1.ListMemoriesResponse"> & {
+  /**
+   * @generated from field: repeated signaldock.driver.v1.Memory memories = 1;
+   */
+  memories: Memory[];
+};
+
+/**
+ * Describes the message signaldock.driver.v1.ListMemoriesResponse.
+ * Use `create(ListMemoriesResponseSchema)` to create a new message.
+ */
+export const ListMemoriesResponseSchema: GenMessage<ListMemoriesResponse> = /*@__PURE__*/
+  messageDesc(file_signaldock_driver_v1_driver, 11);
+
+/**
+ * @generated from message signaldock.driver.v1.ReadMemoryRequest
+ */
+export type ReadMemoryRequest = Message<"signaldock.driver.v1.ReadMemoryRequest"> & {
+  /**
+   * @generated from field: string radio_id = 1;
+   */
+  radioId: string;
+
+  /**
+   * @generated from field: string memory_id = 2;
+   */
+  memoryId: string;
+};
+
+/**
+ * Describes the message signaldock.driver.v1.ReadMemoryRequest.
+ * Use `create(ReadMemoryRequestSchema)` to create a new message.
+ */
+export const ReadMemoryRequestSchema: GenMessage<ReadMemoryRequest> = /*@__PURE__*/
+  messageDesc(file_signaldock_driver_v1_driver, 12);
+
+/**
+ * @generated from message signaldock.driver.v1.WriteMemoryRequest
+ */
+export type WriteMemoryRequest = Message<"signaldock.driver.v1.WriteMemoryRequest"> & {
+  /**
+   * @generated from field: signaldock.driver.v1.OperationContext context = 1;
+   */
+  context?: OperationContext | undefined;
+
+  /**
+   * @generated from field: signaldock.driver.v1.Memory memory = 2;
+   */
+  memory?: Memory | undefined;
+};
+
+/**
+ * Describes the message signaldock.driver.v1.WriteMemoryRequest.
+ * Use `create(WriteMemoryRequestSchema)` to create a new message.
+ */
+export const WriteMemoryRequestSchema: GenMessage<WriteMemoryRequest> = /*@__PURE__*/
+  messageDesc(file_signaldock_driver_v1_driver, 13);
+
+/**
+ * @generated from message signaldock.driver.v1.SelectMemoryRequest
+ */
+export type SelectMemoryRequest = Message<"signaldock.driver.v1.SelectMemoryRequest"> & {
+  /**
+   * @generated from field: signaldock.driver.v1.OperationContext context = 1;
+   */
+  context?: OperationContext | undefined;
+
+  /**
+   * @generated from field: string memory_id = 2;
+   */
+  memoryId: string;
+};
+
+/**
+ * Describes the message signaldock.driver.v1.SelectMemoryRequest.
+ * Use `create(SelectMemoryRequestSchema)` to create a new message.
+ */
+export const SelectMemoryRequestSchema: GenMessage<SelectMemoryRequest> = /*@__PURE__*/
+  messageDesc(file_signaldock_driver_v1_driver, 14);
+
+/**
  * @generated from message signaldock.driver.v1.WatchEventsRequest
  */
 export type WatchEventsRequest = Message<"signaldock.driver.v1.WatchEventsRequest"> & {
@@ -344,7 +489,7 @@ export type WatchEventsRequest = Message<"signaldock.driver.v1.WatchEventsReques
  * Use `create(WatchEventsRequestSchema)` to create a new message.
  */
 export const WatchEventsRequestSchema: GenMessage<WatchEventsRequest> = /*@__PURE__*/
-  messageDesc(file_signaldock_driver_v1_driver, 10);
+  messageDesc(file_signaldock_driver_v1_driver, 15);
 
 /**
  * @generated from message signaldock.driver.v1.RadioEvent
@@ -397,7 +542,7 @@ export type RadioEvent = Message<"signaldock.driver.v1.RadioEvent"> & {
  * Use `create(RadioEventSchema)` to create a new message.
  */
 export const RadioEventSchema: GenMessage<RadioEvent> = /*@__PURE__*/
-  messageDesc(file_signaldock_driver_v1_driver, 11);
+  messageDesc(file_signaldock_driver_v1_driver, 16);
 
 /**
  * @generated from message signaldock.driver.v1.AudioFormat
@@ -424,7 +569,7 @@ export type AudioFormat = Message<"signaldock.driver.v1.AudioFormat"> & {
  * Use `create(AudioFormatSchema)` to create a new message.
  */
 export const AudioFormatSchema: GenMessage<AudioFormat> = /*@__PURE__*/
-  messageDesc(file_signaldock_driver_v1_driver, 12);
+  messageDesc(file_signaldock_driver_v1_driver, 17);
 
 /**
  * @generated from message signaldock.driver.v1.OpenRxStreamRequest
@@ -451,7 +596,7 @@ export type OpenRxStreamRequest = Message<"signaldock.driver.v1.OpenRxStreamRequ
  * Use `create(OpenRxStreamRequestSchema)` to create a new message.
  */
 export const OpenRxStreamRequestSchema: GenMessage<OpenRxStreamRequest> = /*@__PURE__*/
-  messageDesc(file_signaldock_driver_v1_driver, 13);
+  messageDesc(file_signaldock_driver_v1_driver, 18);
 
 /**
  * @generated from message signaldock.driver.v1.AudioFrame
@@ -496,6 +641,11 @@ export type AudioFrame = Message<"signaldock.driver.v1.AudioFrame"> & {
    * @generated from field: bool discontinuity = 8;
    */
   discontinuity: boolean;
+
+  /**
+   * @generated from field: bool end_of_burst = 9;
+   */
+  endOfBurst: boolean;
 };
 
 /**
@@ -503,7 +653,7 @@ export type AudioFrame = Message<"signaldock.driver.v1.AudioFrame"> & {
  * Use `create(AudioFrameSchema)` to create a new message.
  */
 export const AudioFrameSchema: GenMessage<AudioFrame> = /*@__PURE__*/
-  messageDesc(file_signaldock_driver_v1_driver, 14);
+  messageDesc(file_signaldock_driver_v1_driver, 19);
 
 /**
  * @generated from message signaldock.driver.v1.PrepareTransmissionRequest
@@ -528,6 +678,16 @@ export type PrepareTransmissionRequest = Message<"signaldock.driver.v1.PrepareTr
    * @generated from field: signaldock.driver.v1.AudioFormat format = 4;
    */
   format?: AudioFormat | undefined;
+
+  /**
+   * @generated from field: string max_until_utc = 5;
+   */
+  maxUntilUtc: string;
+
+  /**
+   * @generated from field: uint64 fencing = 6;
+   */
+  fencing: bigint;
 };
 
 /**
@@ -535,7 +695,7 @@ export type PrepareTransmissionRequest = Message<"signaldock.driver.v1.PrepareTr
  * Use `create(PrepareTransmissionRequestSchema)` to create a new message.
  */
 export const PrepareTransmissionRequestSchema: GenMessage<PrepareTransmissionRequest> = /*@__PURE__*/
-  messageDesc(file_signaldock_driver_v1_driver, 15);
+  messageDesc(file_signaldock_driver_v1_driver, 20);
 
 /**
  * @generated from message signaldock.driver.v1.TxAudioRequest
@@ -560,6 +720,11 @@ export type TxAudioRequest = Message<"signaldock.driver.v1.TxAudioRequest"> & {
    * @generated from field: signaldock.driver.v1.AudioFrame frame = 4;
    */
   frame?: AudioFrame | undefined;
+
+  /**
+   * @generated from field: uint64 fencing = 5;
+   */
+  fencing: bigint;
 };
 
 /**
@@ -567,7 +732,7 @@ export type TxAudioRequest = Message<"signaldock.driver.v1.TxAudioRequest"> & {
  * Use `create(TxAudioRequestSchema)` to create a new message.
  */
 export const TxAudioRequestSchema: GenMessage<TxAudioRequest> = /*@__PURE__*/
-  messageDesc(file_signaldock_driver_v1_driver, 16);
+  messageDesc(file_signaldock_driver_v1_driver, 21);
 
 /**
  * @generated from message signaldock.driver.v1.EndTransmissionRequest
@@ -592,6 +757,11 @@ export type EndTransmissionRequest = Message<"signaldock.driver.v1.EndTransmissi
    * @generated from field: string reason = 4;
    */
   reason: string;
+
+  /**
+   * @generated from field: uint64 fencing = 5;
+   */
+  fencing: bigint;
 };
 
 /**
@@ -599,7 +769,7 @@ export type EndTransmissionRequest = Message<"signaldock.driver.v1.EndTransmissi
  * Use `create(EndTransmissionRequestSchema)` to create a new message.
  */
 export const EndTransmissionRequestSchema: GenMessage<EndTransmissionRequest> = /*@__PURE__*/
-  messageDesc(file_signaldock_driver_v1_driver, 17);
+  messageDesc(file_signaldock_driver_v1_driver, 22);
 
 /**
  * @generated from message signaldock.driver.v1.ObserveTransmissionRequest
@@ -626,7 +796,44 @@ export type ObserveTransmissionRequest = Message<"signaldock.driver.v1.ObserveTr
  * Use `create(ObserveTransmissionRequestSchema)` to create a new message.
  */
 export const ObserveTransmissionRequestSchema: GenMessage<ObserveTransmissionRequest> = /*@__PURE__*/
-  messageDesc(file_signaldock_driver_v1_driver, 18);
+  messageDesc(file_signaldock_driver_v1_driver, 23);
+
+/**
+ * @generated from message signaldock.driver.v1.RenewTransmissionRequest
+ */
+export type RenewTransmissionRequest = Message<"signaldock.driver.v1.RenewTransmissionRequest"> & {
+  /**
+   * @generated from field: string radio_id = 1;
+   */
+  radioId: string;
+
+  /**
+   * @generated from field: string generation = 2;
+   */
+  generation: string;
+
+  /**
+   * @generated from field: string tx_grant_id = 3;
+   */
+  txGrantId: string;
+
+  /**
+   * @generated from field: string expires_at_utc = 4;
+   */
+  expiresAtUtc: string;
+
+  /**
+   * @generated from field: uint64 fencing = 5;
+   */
+  fencing: bigint;
+};
+
+/**
+ * Describes the message signaldock.driver.v1.RenewTransmissionRequest.
+ * Use `create(RenewTransmissionRequestSchema)` to create a new message.
+ */
+export const RenewTransmissionRequestSchema: GenMessage<RenewTransmissionRequest> = /*@__PURE__*/
+  messageDesc(file_signaldock_driver_v1_driver, 24);
 
 /**
  * @generated from message signaldock.driver.v1.TransmissionState
@@ -663,7 +870,7 @@ export type TransmissionState = Message<"signaldock.driver.v1.TransmissionState"
  * Use `create(TransmissionStateSchema)` to create a new message.
  */
 export const TransmissionStateSchema: GenMessage<TransmissionState> = /*@__PURE__*/
-  messageDesc(file_signaldock_driver_v1_driver, 19);
+  messageDesc(file_signaldock_driver_v1_driver, 25);
 
 /**
  * Private protocol. Transport authentication and validation are required by hosts.
@@ -704,11 +911,51 @@ export const RadioDriverService: GenService<{
     output: typeof RadioSnapshotSchema;
   },
   /**
+   * @generated from rpc signaldock.driver.v1.RadioDriverService.Reconcile
+   */
+  reconcile: {
+    methodKind: "unary";
+    input: typeof RadioRequestSchema;
+    output: typeof RadioSnapshotSchema;
+  },
+  /**
    * @generated from rpc signaldock.driver.v1.RadioDriverService.ApplyTuning
    */
   applyTuning: {
     methodKind: "unary";
     input: typeof ApplyTuningRequestSchema;
+    output: typeof RadioSnapshotSchema;
+  },
+  /**
+   * @generated from rpc signaldock.driver.v1.RadioDriverService.ListMemories
+   */
+  listMemories: {
+    methodKind: "unary";
+    input: typeof RadioRequestSchema;
+    output: typeof ListMemoriesResponseSchema;
+  },
+  /**
+   * @generated from rpc signaldock.driver.v1.RadioDriverService.ReadMemory
+   */
+  readMemory: {
+    methodKind: "unary";
+    input: typeof ReadMemoryRequestSchema;
+    output: typeof MemorySchema;
+  },
+  /**
+   * @generated from rpc signaldock.driver.v1.RadioDriverService.WriteMemory
+   */
+  writeMemory: {
+    methodKind: "unary";
+    input: typeof WriteMemoryRequestSchema;
+    output: typeof MemorySchema;
+  },
+  /**
+   * @generated from rpc signaldock.driver.v1.RadioDriverService.SelectMemory
+   */
+  selectMemory: {
+    methodKind: "unary";
+    input: typeof SelectMemoryRequestSchema;
     output: typeof RadioSnapshotSchema;
   },
   /**
@@ -749,6 +996,14 @@ export const RadioDriverService: GenService<{
   endTransmission: {
     methodKind: "unary";
     input: typeof EndTransmissionRequestSchema;
+    output: typeof TransmissionStateSchema;
+  },
+  /**
+   * @generated from rpc signaldock.driver.v1.RadioDriverService.RenewTransmission
+   */
+  renewTransmission: {
+    methodKind: "unary";
+    input: typeof RenewTransmissionRequestSchema;
     output: typeof TransmissionStateSchema;
   },
   /**

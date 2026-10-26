@@ -55,9 +55,34 @@ class RadioDriverServiceStub:
                 request_serializer=signaldock_dot_driver_dot_v1_dot_driver__pb2.RadioRequest.SerializeToString,
                 response_deserializer=signaldock_dot_driver_dot_v1_dot_driver__pb2.RadioSnapshot.FromString,
                 _registered_method=True)
+        self.Reconcile = channel.unary_unary(
+                '/signaldock.driver.v1.RadioDriverService/Reconcile',
+                request_serializer=signaldock_dot_driver_dot_v1_dot_driver__pb2.RadioRequest.SerializeToString,
+                response_deserializer=signaldock_dot_driver_dot_v1_dot_driver__pb2.RadioSnapshot.FromString,
+                _registered_method=True)
         self.ApplyTuning = channel.unary_unary(
                 '/signaldock.driver.v1.RadioDriverService/ApplyTuning',
                 request_serializer=signaldock_dot_driver_dot_v1_dot_driver__pb2.ApplyTuningRequest.SerializeToString,
+                response_deserializer=signaldock_dot_driver_dot_v1_dot_driver__pb2.RadioSnapshot.FromString,
+                _registered_method=True)
+        self.ListMemories = channel.unary_unary(
+                '/signaldock.driver.v1.RadioDriverService/ListMemories',
+                request_serializer=signaldock_dot_driver_dot_v1_dot_driver__pb2.RadioRequest.SerializeToString,
+                response_deserializer=signaldock_dot_driver_dot_v1_dot_driver__pb2.ListMemoriesResponse.FromString,
+                _registered_method=True)
+        self.ReadMemory = channel.unary_unary(
+                '/signaldock.driver.v1.RadioDriverService/ReadMemory',
+                request_serializer=signaldock_dot_driver_dot_v1_dot_driver__pb2.ReadMemoryRequest.SerializeToString,
+                response_deserializer=signaldock_dot_driver_dot_v1_dot_driver__pb2.Memory.FromString,
+                _registered_method=True)
+        self.WriteMemory = channel.unary_unary(
+                '/signaldock.driver.v1.RadioDriverService/WriteMemory',
+                request_serializer=signaldock_dot_driver_dot_v1_dot_driver__pb2.WriteMemoryRequest.SerializeToString,
+                response_deserializer=signaldock_dot_driver_dot_v1_dot_driver__pb2.Memory.FromString,
+                _registered_method=True)
+        self.SelectMemory = channel.unary_unary(
+                '/signaldock.driver.v1.RadioDriverService/SelectMemory',
+                request_serializer=signaldock_dot_driver_dot_v1_dot_driver__pb2.SelectMemoryRequest.SerializeToString,
                 response_deserializer=signaldock_dot_driver_dot_v1_dot_driver__pb2.RadioSnapshot.FromString,
                 _registered_method=True)
         self.WatchEvents = channel.unary_stream(
@@ -83,6 +108,11 @@ class RadioDriverServiceStub:
         self.EndTransmission = channel.unary_unary(
                 '/signaldock.driver.v1.RadioDriverService/EndTransmission',
                 request_serializer=signaldock_dot_driver_dot_v1_dot_driver__pb2.EndTransmissionRequest.SerializeToString,
+                response_deserializer=signaldock_dot_driver_dot_v1_dot_driver__pb2.TransmissionState.FromString,
+                _registered_method=True)
+        self.RenewTransmission = channel.unary_unary(
+                '/signaldock.driver.v1.RadioDriverService/RenewTransmission',
+                request_serializer=signaldock_dot_driver_dot_v1_dot_driver__pb2.RenewTransmissionRequest.SerializeToString,
                 response_deserializer=signaldock_dot_driver_dot_v1_dot_driver__pb2.TransmissionState.FromString,
                 _registered_method=True)
         self.ObserveTransmission = channel.unary_unary(
@@ -120,7 +150,37 @@ class RadioDriverServiceServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def Reconcile(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def ApplyTuning(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ListMemories(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ReadMemory(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def WriteMemory(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def SelectMemory(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -156,6 +216,12 @@ class RadioDriverServiceServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def RenewTransmission(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def ObserveTransmission(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
@@ -185,9 +251,34 @@ def add_RadioDriverServiceServicer_to_server(servicer, server):
                     request_deserializer=signaldock_dot_driver_dot_v1_dot_driver__pb2.RadioRequest.FromString,
                     response_serializer=signaldock_dot_driver_dot_v1_dot_driver__pb2.RadioSnapshot.SerializeToString,
             ),
+            'Reconcile': grpc.unary_unary_rpc_method_handler(
+                    servicer.Reconcile,
+                    request_deserializer=signaldock_dot_driver_dot_v1_dot_driver__pb2.RadioRequest.FromString,
+                    response_serializer=signaldock_dot_driver_dot_v1_dot_driver__pb2.RadioSnapshot.SerializeToString,
+            ),
             'ApplyTuning': grpc.unary_unary_rpc_method_handler(
                     servicer.ApplyTuning,
                     request_deserializer=signaldock_dot_driver_dot_v1_dot_driver__pb2.ApplyTuningRequest.FromString,
+                    response_serializer=signaldock_dot_driver_dot_v1_dot_driver__pb2.RadioSnapshot.SerializeToString,
+            ),
+            'ListMemories': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListMemories,
+                    request_deserializer=signaldock_dot_driver_dot_v1_dot_driver__pb2.RadioRequest.FromString,
+                    response_serializer=signaldock_dot_driver_dot_v1_dot_driver__pb2.ListMemoriesResponse.SerializeToString,
+            ),
+            'ReadMemory': grpc.unary_unary_rpc_method_handler(
+                    servicer.ReadMemory,
+                    request_deserializer=signaldock_dot_driver_dot_v1_dot_driver__pb2.ReadMemoryRequest.FromString,
+                    response_serializer=signaldock_dot_driver_dot_v1_dot_driver__pb2.Memory.SerializeToString,
+            ),
+            'WriteMemory': grpc.unary_unary_rpc_method_handler(
+                    servicer.WriteMemory,
+                    request_deserializer=signaldock_dot_driver_dot_v1_dot_driver__pb2.WriteMemoryRequest.FromString,
+                    response_serializer=signaldock_dot_driver_dot_v1_dot_driver__pb2.Memory.SerializeToString,
+            ),
+            'SelectMemory': grpc.unary_unary_rpc_method_handler(
+                    servicer.SelectMemory,
+                    request_deserializer=signaldock_dot_driver_dot_v1_dot_driver__pb2.SelectMemoryRequest.FromString,
                     response_serializer=signaldock_dot_driver_dot_v1_dot_driver__pb2.RadioSnapshot.SerializeToString,
             ),
             'WatchEvents': grpc.unary_stream_rpc_method_handler(
@@ -213,6 +304,11 @@ def add_RadioDriverServiceServicer_to_server(servicer, server):
             'EndTransmission': grpc.unary_unary_rpc_method_handler(
                     servicer.EndTransmission,
                     request_deserializer=signaldock_dot_driver_dot_v1_dot_driver__pb2.EndTransmissionRequest.FromString,
+                    response_serializer=signaldock_dot_driver_dot_v1_dot_driver__pb2.TransmissionState.SerializeToString,
+            ),
+            'RenewTransmission': grpc.unary_unary_rpc_method_handler(
+                    servicer.RenewTransmission,
+                    request_deserializer=signaldock_dot_driver_dot_v1_dot_driver__pb2.RenewTransmissionRequest.FromString,
                     response_serializer=signaldock_dot_driver_dot_v1_dot_driver__pb2.TransmissionState.SerializeToString,
             ),
             'ObserveTransmission': grpc.unary_unary_rpc_method_handler(
@@ -341,6 +437,33 @@ class RadioDriverService:
             _registered_method=True)
 
     @staticmethod
+    def Reconcile(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/signaldock.driver.v1.RadioDriverService/Reconcile',
+            signaldock_dot_driver_dot_v1_dot_driver__pb2.RadioRequest.SerializeToString,
+            signaldock_dot_driver_dot_v1_dot_driver__pb2.RadioSnapshot.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
     def ApplyTuning(request,
             target,
             options=(),
@@ -356,6 +479,114 @@ class RadioDriverService:
             target,
             '/signaldock.driver.v1.RadioDriverService/ApplyTuning',
             signaldock_dot_driver_dot_v1_dot_driver__pb2.ApplyTuningRequest.SerializeToString,
+            signaldock_dot_driver_dot_v1_dot_driver__pb2.RadioSnapshot.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListMemories(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/signaldock.driver.v1.RadioDriverService/ListMemories',
+            signaldock_dot_driver_dot_v1_dot_driver__pb2.RadioRequest.SerializeToString,
+            signaldock_dot_driver_dot_v1_dot_driver__pb2.ListMemoriesResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ReadMemory(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/signaldock.driver.v1.RadioDriverService/ReadMemory',
+            signaldock_dot_driver_dot_v1_dot_driver__pb2.ReadMemoryRequest.SerializeToString,
+            signaldock_dot_driver_dot_v1_dot_driver__pb2.Memory.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def WriteMemory(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/signaldock.driver.v1.RadioDriverService/WriteMemory',
+            signaldock_dot_driver_dot_v1_dot_driver__pb2.WriteMemoryRequest.SerializeToString,
+            signaldock_dot_driver_dot_v1_dot_driver__pb2.Memory.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def SelectMemory(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/signaldock.driver.v1.RadioDriverService/SelectMemory',
+            signaldock_dot_driver_dot_v1_dot_driver__pb2.SelectMemoryRequest.SerializeToString,
             signaldock_dot_driver_dot_v1_dot_driver__pb2.RadioSnapshot.FromString,
             options,
             channel_credentials,
@@ -491,6 +722,33 @@ class RadioDriverService:
             target,
             '/signaldock.driver.v1.RadioDriverService/EndTransmission',
             signaldock_dot_driver_dot_v1_dot_driver__pb2.EndTransmissionRequest.SerializeToString,
+            signaldock_dot_driver_dot_v1_dot_driver__pb2.TransmissionState.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def RenewTransmission(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/signaldock.driver.v1.RadioDriverService/RenewTransmission',
+            signaldock_dot_driver_dot_v1_dot_driver__pb2.RenewTransmissionRequest.SerializeToString,
             signaldock_dot_driver_dot_v1_dot_driver__pb2.TransmissionState.FromString,
             options,
             channel_credentials,

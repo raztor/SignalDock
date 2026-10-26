@@ -53,6 +53,10 @@ export interface AuthenticationPort {
   ): Promise<void>;
 }
 export type AuthPort = AuthenticationPort;
+export type NotificationAudience = Omit<Principal, 'sessionId'>;
+export interface NotificationAudiencePort {
+  resolveUser(userId: string): Promise<NotificationAudience | null>;
+}
 export const LoginRequestSchema = z.strictObject({
   username: z.string().min(1).max(100),
   password: z.string().min(1).max(1024),
@@ -133,6 +137,11 @@ export interface JobInput {
   idempotencyKey: string;
   deadline: string;
   maxAttempts?: number;
+  source?: {
+    communicationId: string;
+    communicationRevision: number;
+    artifactId?: string;
+  };
 }
 export interface JobSnapshot {
   jobId: string;
@@ -350,7 +359,78 @@ export interface NotificationEvent {
   occurredAt: string;
 }
 
+export const AttributionSchema = z.enum(['confirmed', 'inferred', 'unknown']);
+export const RecordingRecordSchema = z.strictObject({
+  id,
+  artifactId: id,
+  contentType: z.string(),
+  sizeBytes: z.number().int().nonnegative(),
+  sha256: z.string(),
+  state: z.enum(['available', 'deleted', 'gap']),
+  gapReason: z.string().optional(),
+});
+export type RecordingRecord = z.infer<typeof RecordingRecordSchema>;
+export const TranscriptRevisionSchema = z.strictObject({
+  id,
+  communicationId: id,
+  revision: z.number().int().nonnegative(),
+  text: z.string(),
+  language: z.string().optional(),
+  source: z.enum(['provider', 'human']),
+  provenance: z.record(z.string(), z.unknown()),
+  createdAt: timestamp,
+});
+export type TranscriptRevision = z.infer<typeof TranscriptRevisionSchema>;
+export const ConversationSchema = z.strictObject({
+  id,
+  instanceId: id,
+  radioId: id,
+  frequencyHz: z.number().int().positive().optional(),
+  attribution: AttributionSchema,
+  updatedAt: timestamp,
+});
+export type Conversation = z.infer<typeof ConversationSchema>;
+export const CommunicationSchema = z.strictObject({
+  id,
+  instanceId: id,
+  radioId: id,
+  conversationId: id,
+  kind: z.enum([
+    'received_voice',
+    'transmitted_voice',
+    'transmitted_tts',
+    'digital',
+    'note',
+  ]),
+  direction: z.enum(['rx', 'tx', 'internal']),
+  startedAt: timestamp,
+  endedAt: timestamp,
+  frequencyHz: z.number().int().positive().optional(),
+  frequencyAttribution: AttributionSchema,
+  context: z.record(z.string(), z.unknown()),
+  revision: z.number().int().nonnegative(),
+  recording: RecordingRecordSchema.optional(),
+  transcripts: z.array(TranscriptRevisionSchema),
+  notes: z.array(z.string()),
+  tags: z.array(z.string()),
+  retentionHold: z.boolean(),
+  deletedAt: timestamp.optional(),
+});
+export type Communication = z.infer<typeof CommunicationSchema>;
+export interface HistoryQuery {
+  radioId?: string;
+  frequencyHz?: number;
+  search?: string;
+  direction?: 'rx' | 'tx' | 'internal';
+  before?: { startedAt: string; id: string };
+  limit?: number;
+}
+
 export const applicationSchemas = {
+  RecordingRecord: RecordingRecordSchema,
+  TranscriptRevision: TranscriptRevisionSchema,
+  Conversation: ConversationSchema,
+  Communication: CommunicationSchema,
   Role: RoleSchema,
   Permission: PermissionSchema,
   RadioPermissionGrant: RadioPermissionGrantSchema,
