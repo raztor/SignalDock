@@ -25,7 +25,8 @@
     "expo-audio": "58.0.10",
     "@signaldock/ui": "*",
     "@signaldock/processing-sdk": "*",
-    "maplibre-gl": "6.16.0"
+    "maplibre-gl": "6.16.0",
+    "@signaldock/notification-sdk": "*"
   },
   "devDependencies": {
     "@types/react": "19.3.0"

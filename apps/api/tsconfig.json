@@ -39,6 +39,9 @@
     },
     {
       "path": "../../services/digital-decoders"
+    },
+    {
+      "path": "../../packages/notification-sdk"
     }
   ]
 }

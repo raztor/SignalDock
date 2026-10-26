@@ -23,6 +23,7 @@
     "@signaldock/job-queue": "*",
     "@signaldock/processing-connectors": "*",
     "@signaldock/processing-tasks": "*",
-    "@signaldock/digital-decoders": "*"
+    "@signaldock/digital-decoders": "*",
+    "@signaldock/notification-sdk": "*"
   }
 }
