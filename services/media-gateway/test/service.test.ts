@@ -155,4 +155,30 @@ describe('media enrollment', () => {
       }),
     ).rejects.toMatchObject({ code: 'RADIO_UNAVAILABLE' });
   });
+  it('revalidates prepared source lifecycle after conversion and before radio admission', async () => {
+    const f = fixture();
+    const admission = vi.spyOn(f.supervisor, 'start');
+    let checked = false;
+    await expect(
+      f.media.transmitAudio(
+        f.principal,
+        {
+          radioId: f.radioId,
+          generation: crypto.randomUUID(),
+          controlGrant: crypto.randomUUID(),
+          expectedRevision: 1,
+        },
+        async function* () {
+          throw new Error('Audio must not be read.');
+        },
+        new AbortController().signal,
+        async () => {
+          checked = true;
+          throw new Error('Profile revoked.');
+        },
+      ),
+    ).rejects.toThrow('Profile revoked.');
+    expect(checked).toBe(true);
+    expect(admission).not.toHaveBeenCalled();
+  });
 });

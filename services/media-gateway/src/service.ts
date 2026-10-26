@@ -307,6 +307,7 @@ export class MediaService {
     >,
     artifact: { bytes: Uint8Array; contentType: string },
     signal: AbortSignal,
+    validateBeforeTransmit?: () => Promise<void>,
   ): Promise<TxStatus> {
     if (principal.instanceId !== this.options.instanceId)
       throw new SignalDockError(
@@ -325,6 +326,7 @@ export class MediaService {
       (transmitSignal) =>
         preparedPcmFrames(pcm, input.expectedRevision, transmitSignal),
       signal,
+      validateBeforeTransmit,
     );
   }
   async transmitAudio(
@@ -335,6 +337,7 @@ export class MediaService {
     >,
     frames: (signal: AbortSignal) => AsyncIterable<PcmAudioFrame>,
     signal: AbortSignal,
+    validateBeforeTransmit?: () => Promise<void>,
   ): Promise<TxStatus> {
     if (principal.instanceId !== this.options.instanceId)
       throw new SignalDockError(
@@ -346,6 +349,8 @@ export class MediaService {
       'radio.transmit',
       input.radioId,
     );
+    signal.throwIfAborted();
+    await validateBeforeTransmit?.();
     signal.throwIfAborted();
     const tx = await this.options.supervisor.start(
       {
