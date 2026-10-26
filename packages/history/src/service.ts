@@ -73,6 +73,14 @@ export interface RecordingContext {
 }
 export interface HistoryOptions {
   maxRecordingBytesPerRadio?: number;
+  onDeleteSource?: (
+    tx: DatabasePort,
+    source: {
+      instanceId: string;
+      communicationId: string;
+      artifactIds: string[];
+    },
+  ) => Promise<void>;
 }
 
 export class HistoryService {
@@ -338,6 +346,7 @@ export class HistoryService {
     transaction?: DatabasePort,
   ): Promise<TranscriptRevision> {
     if (
+      Buffer.byteLength(JSON.stringify(input.provenance)) > 65536 ||
       input.text.length > 100000 ||
       (input.language && input.language.length > 100)
     )
@@ -488,6 +497,11 @@ export class HistoryService {
         "UPDATE sd_jobs SET state='cancelled',cancelled_at=now(),updated_at=now() WHERE instance_id=$1 AND source->>'communicationId'=$2 AND state IN ('queued','running','retry_wait','requires_configuration')",
         [instanceId, id],
       );
+      await this.options.onDeleteSource?.(tx, {
+        instanceId,
+        communicationId: id,
+        artifactIds: recordings.rows.map((row) => row.artifact_id),
+      });
       await this.removeDerived(tx, instanceId, id);
       await tx.query(
         'DELETE FROM sd_transcript_revisions WHERE instance_id=$1 AND communication_id=$2',
@@ -557,9 +571,35 @@ export class HistoryService {
       policy.communicationsBefore,
     ])
       if (date) TimestampSchema.parse(date);
+    const values: unknown[] = [instanceId];
+    const candidates: string[] = [];
+    const cutoff = (at: string, filter: string) => {
+      values.push(at);
+      candidates.push(`(c.ended_at<$${values.length}::timestamptz${filter})`);
+    };
+    if (policy.communicationsBefore) cutoff(policy.communicationsBefore, '');
+    if (policy.audioBefore)
+      cutoff(
+        policy.audioBefore,
+        " AND EXISTS(SELECT 1 FROM sd_recordings r WHERE r.instance_id=c.instance_id AND r.communication_id=c.id AND r.state='available')",
+      );
+    if (policy.transcriptsBefore)
+      cutoff(
+        policy.transcriptsBefore,
+        ' AND EXISTS(SELECT 1 FROM sd_transcript_revisions t WHERE t.instance_id=c.instance_id AND t.communication_id=c.id)',
+      );
+    if (!candidates.length)
+      return { audio: 0, transcripts: 0, communications: 0 };
+    const incidentFilter = (await this.table(
+      this.database,
+      'sd_incident_evidence',
+    ))
+      ? ' AND NOT EXISTS(SELECT 1 FROM sd_incident_evidence e JOIN sd_incidents i ON i.instance_id=e.instance_id AND i.id=e.incident_id WHERE e.instance_id=c.instance_id AND e.communication_id=c.id AND i.retention_hold=true)'
+      : '';
+    values.push(Math.max(1, Math.min(policy.limit ?? 100, 1000)));
     const rows = await this.database.query<{ id: string }>(
-      'SELECT id FROM sd_communications WHERE instance_id=$1 AND deleted_at IS NULL ORDER BY ended_at LIMIT $2',
-      [instanceId, Math.max(1, Math.min(policy.limit ?? 100, 1000))],
+      `SELECT c.id FROM sd_communications c WHERE c.instance_id=$1 AND c.deleted_at IS NULL AND c.retention_hold=false AND (${candidates.join(' OR ')})${incidentFilter} ORDER BY c.ended_at,c.id LIMIT $${values.length}`,
+      values,
     );
     const counts = { audio: 0, transcripts: 0, communications: 0 };
     for (const row of rows.rows) {
@@ -578,6 +618,11 @@ export class HistoryService {
               [instanceId, row.id],
             );
             artifactIds.push(...recordings.rows.map((r) => r.artifact_id));
+            await this.options.onDeleteSource?.(tx, {
+              instanceId,
+              communicationId: row.id,
+              artifactIds,
+            });
             counts.audio += recordings.rows.length;
           }
           if (older(policy.transcriptsBefore)) {
@@ -677,7 +722,21 @@ export class HistoryService {
     const row = await this.recording(instanceId, id);
     if (!row)
       throw new SignalDockError('NOT_FOUND', 'Recording is unavailable.');
-    return this.artifacts.read(instanceId, row.artifact_id, range);
+    const artifact = await this.artifacts.read(
+      instanceId,
+      row.artifact_id,
+      range,
+    );
+    if (
+      artifact.metadata.sha256 !== row.sha256 ||
+      artifact.totalBytes !== Number(row.size_bytes) ||
+      artifact.metadata.contentType !== row.content_type
+    )
+      throw new SignalDockError(
+        'INTERNAL_ERROR',
+        'Recording integrity verification failed.',
+      );
+    return artifact;
   }
   async validateJobSource(job: JobInput, tx: DatabasePort): Promise<boolean> {
     if (!job.source) return true;
@@ -842,11 +901,37 @@ export class HistoryService {
         'DELETE FROM sd_analysis_results WHERE instance_id=$1 AND communication_id=$2',
         [instanceId, id],
       );
-    if (await this.table(tx, 'sd_incident_evidence'))
-      await tx.query(
-        'DELETE FROM sd_incident_evidence WHERE instance_id=$1 AND communication_id=$2',
+    if (await this.table(tx, 'sd_incident_evidence')) {
+      const removed = await tx.query<{ incident_id: string }>(
+        'DELETE FROM sd_incident_evidence WHERE instance_id=$1 AND communication_id=$2 RETURNING incident_id',
         [instanceId, id],
       );
+      for (const incidentId of [
+        ...new Set(removed.rows.map((row) => row.incident_id)),
+      ].sort()) {
+        const changed = await tx.query<{ revision: number; radio_id: string }>(
+          'UPDATE sd_incidents SET revision=revision+1,updated_at=now() WHERE instance_id=$1 AND id=$2 RETURNING revision,radio_id',
+          [instanceId, incidentId],
+        );
+        const incident = changed.rows[0];
+        if (!incident) continue;
+        await tx.query(
+          "INSERT INTO sd_incident_actions(instance_id,id,incident_id,kind,revision) VALUES($1,$2,$3,'source_removed',$4)",
+          [instanceId, randomUUID(), incidentId, incident.revision],
+        );
+        await appendOutbox(tx, {
+          instanceId,
+          id: randomUUID(),
+          radioId: incident.radio_id,
+          type: 'incident.updated',
+          payload: {
+            incidentId,
+            revision: incident.revision,
+            reason: 'source_removed',
+          },
+        });
+      }
+    }
   }
   private async audit(
     tx: DatabasePort,

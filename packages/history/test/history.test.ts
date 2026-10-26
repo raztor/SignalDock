@@ -10,6 +10,7 @@ import {
   migrate,
 } from '@signaldock/database';
 import { FileArtifactStorage } from '@signaldock/artifact-storage';
+import { PostgresJobQueue } from '@signaldock/job-queue';
 import {
   HistoryService,
   historyMigrations,
@@ -146,7 +147,7 @@ describe.skipIf(!url)('PostgreSQL 18 communication lifecycle', () => {
     expect(page.nextCursor).toBeDefined();
     const next = await history.list(instanceId, {
       limit: 2,
-      before: page.nextCursor,
+      ...(page.nextCursor ? { before: page.nextCursor } : {}),
     });
     expect(next.items.some((x) => page.items.some((y) => x.id === y.id))).toBe(
       false,
@@ -257,4 +258,110 @@ describe.skipIf(!url)('PostgreSQL 18 communication lifecycle', () => {
     });
     expect(await history.get(instanceId, a.id)).toBeNull();
   });
+  it('fences actual transcript writes across deletion and commits a valid source revision atomically', async () => {
+    const bossSchema = `sd_history_boss_${randomUUID().replaceAll('-', '')}`;
+    const queue = new PostgresJobQueue(db, {
+      connectionString: url!,
+      schema: bossSchema,
+      validateSource: history.validateJobSource.bind(history),
+    });
+    let release: () => void = () => {},
+      started = false;
+    queue.register('history.test_late', async (job, _signal, execution) => {
+      started = true;
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return execution.commit((tx) =>
+        history.appendTranscript(
+          job.instanceId,
+          job.source!.communicationId,
+          {
+            text: 'must never persist',
+            source: 'provider',
+            provenance: {},
+            expectedRevision: job.source!.communicationRevision,
+          },
+          tx,
+        ),
+      );
+    });
+    queue.register('history.test_valid', async (job, _signal, execution) =>
+      execution.commit((tx) =>
+        history.appendTranscript(
+          job.instanceId,
+          job.source!.communicationId,
+          {
+            text: 'valid provider result',
+            source: 'provider',
+            provenance: {},
+            expectedRevision: job.source!.communicationRevision,
+          },
+          tx,
+        ),
+      ),
+    );
+    async function until(check: () => Promise<boolean>) {
+      const end = Date.now() + 15000;
+      while (Date.now() < end) {
+        if (await check()) return;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      throw new Error('History job did not finish.');
+    }
+    const job = (
+      communication: Awaited<ReturnType<HistoryService['ingest']>>,
+      kind: string,
+    ) => ({
+      instanceId,
+      jobId: randomUUID(),
+      kind,
+      payload: {},
+      idempotencyKey: randomUUID(),
+      deadline: new Date(Date.now() + 30000).toISOString(),
+      source: {
+        communicationId: communication.id,
+        communicationRevision: communication.revision,
+        artifactId: communication.recording!.artifactId,
+      },
+    });
+    try {
+      await queue.start();
+      const doomed = await history.ingest(capture(), audio);
+      const late = job(doomed, 'history.test_late');
+      await queue.enqueue(late);
+      await queue.publishPending();
+      await until(async () => started);
+      await history.delete(instanceId, doomed.id);
+      release();
+      await until(
+        async () =>
+          (await queue.get(instanceId, late.jobId))?.state === 'cancelled',
+      );
+      expect(
+        (
+          await db.query(
+            'SELECT id FROM sd_transcript_revisions WHERE instance_id=$1 AND communication_id=$2',
+            [instanceId, doomed.id],
+          )
+        ).rows,
+      ).toHaveLength(0);
+      const valid = await history.ingest(capture(), audio),
+        accepted = job(valid, 'history.test_valid');
+      await queue.enqueue(accepted);
+      await queue.publishPending();
+      await until(
+        async () =>
+          (await queue.get(instanceId, accepted.jobId))?.state === 'completed',
+      );
+      expect((await history.get(instanceId, valid.id))?.revision).toBe(2);
+      expect(
+        (await history.get(instanceId, valid.id))?.transcripts[0]?.text,
+      ).toBe('valid provider result');
+    } finally {
+      release();
+      await queue.stop();
+      await admin.query(`DROP SCHEMA IF EXISTS ${bossSchema} CASCADE`);
+    }
+  }, 25000);
 });
