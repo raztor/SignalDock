@@ -102,9 +102,18 @@ class MacNativeTransport:
                     raise DriverError("RADIO_UNAVAILABLE", "The native launcher exited before opening its private IPC connection (exit " + str(exited.result()) + ").")
                 raise DriverError("DEADLINE_EXCEEDED", "The native launcher did not connect before its opening deadline.")
             self.reader, self.writer = connected.result()
-            message = json.loads(await asyncio.wait_for(self.reader.readline(), self.config.audio_open_timeout))
+            line = await asyncio.wait_for(self.reader.readline(), self.config.audio_open_timeout)
+            if not line:
+                raise DriverError("RADIO_UNAVAILABLE", "The native helper closed before reporting its opening result.")
+            message = json.loads(line)
             if message.get("type") != "ready":
-                raise DriverError("RADIO_UNAVAILABLE", "The native helper did not open the configured radio.")
+                reason = message.get("reason")
+                allowed = {"device_unavailable", "audio_open_failed", "audio_open_timeout", "bluetooth_permission_denied", "bluetooth_powered_off", "bluetooth_unsupported"}
+                detail = reason if reason in allowed else "unknown_native_failure"
+                phase = message.get("phase")
+                if phase in {"permission_pending", "device_initialization", "rfcomm_open_pending", "authorization_0", "authorization_1", "authorization_2", "authorization_3", "central_state_0", "central_state_1"}:
+                    detail += " (" + phase + ")"
+                raise DriverError("RADIO_UNAVAILABLE", "The native helper did not open the configured radio: " + detail + ".")
         except BaseException:
             await self.close()
             raise

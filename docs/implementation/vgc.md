@@ -15,6 +15,8 @@ python3.13 -m venv .venv-driver
 
 An installed wheel needs `SIGNALDOCK_DRIVER_BINDINGS` pointing at `packages/radio-driver-sdk/generated/python`. An editable checkout discovers that directory automatically. On Mac, use the editable checkout because the native source and launcher stay inside this module. The Mac helper requires Xcode Command Line Tools and Bluetooth permission. It builds a locally signed temporary app without adding native dependencies to the product frontend/backend.
 
+The Mac helper keeps the bundle identity `org.signaldock.vgc.transport`. Its first use requests Bluetooth permission asynchronously; allow the expected macOS prompt. A late response can outlive the opening deadline, in which case retry after approval. CoreBluetooth authorization completes before explicit-address paired-device lookup and RFCOMM opening. Device initialization runs away from the main run loop so a framework coordinator wait cannot block cancellation or the native watchdog. Error details distinguish permission, device initialization and RFCOMM phases without exposing device identifiers.
+
 Example private JSON (replace every device identifier before connecting):
 
 ```json
@@ -78,6 +80,8 @@ On Mac, the suite fully compiles and links the native helper without launching i
 Earlier Mac discovery, frequency, RX voice and two-tone TX results remain in [hardware validation](../hardware-validation.md). They validate the earlier proof tooling, not this continuous service/helper. Pending gates are sustained physical RX, browser microphone TX, observed carrier release, opening cancellation, process/network interruptions, memory restoration/recovery, native permission handling, clean Linux/ARM64 installation and physical Linux/Raspberry Pi validation. Only a coordinated prepared-observer test may access RF.
 
 On 2026-10-26, a read-only physical availability probe using the new `BenlinkControl` succeeded: BLE connection, device identity, status/settings read and clean disconnection. The radio reported `is_in_tx=false`. Its current settings did not establish verified single-watch selection, so the driver correctly returned unknown tuning and no selected memory. No tuning, memory/settings mutation, audio transport or transmission was attempted. This confirms control availability only; the continuous-audio gates above remain open. The detailed report stays in the ignored local results directory.
+
+The same day, after the expected Mac Bluetooth permission was approved, the corrected native transport opened its private IPC and explicit RFCOMM channel in approximately 3.4 seconds, then closed cleanly. No TX grant was armed and no audio was sent. This establishes RX transport opening only; received voice, browser playback and transmitted microphone audio still require their separate acceptance tests.
 
 ## Attribution and license
 

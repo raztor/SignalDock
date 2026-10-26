@@ -1,10 +1,11 @@
 // Explicit-device, long-lived development transport. No discovery or automatic TX.
 import AppKit
+import CoreBluetooth
 import Darwin
 import Foundation
 import IOBluetooth
 
-final class StreamingTransport: NSObject, NSApplicationDelegate, IOBluetoothRFCOMMChannelDelegate {
+final class StreamingTransport: NSObject, NSApplicationDelegate, IOBluetoothRFCOMMChannelDelegate, CBCentralManagerDelegate {
     let ipcPath: String
     let address: String
     let channelNumber: UInt8
@@ -19,6 +20,9 @@ final class StreamingTransport: NSObject, NSApplicationDelegate, IOBluetoothRFCO
     var grantDeadline: TimeInterval = 0
     var absoluteDeadline: TimeInterval = 0
     var endingFrame = Data()
+    var permissionManager: CBCentralManager?
+    var deviceOpening = false
+    var openingPhase = "permission_pending"
 
     init(ipcPath: String, address: String, channelNumber: UInt8) {
         self.ipcPath = ipcPath
@@ -69,12 +73,60 @@ final class StreamingTransport: NSObject, NSApplicationDelegate, IOBluetoothRFCO
                 self.stopAndExit("expired")
             }
         }
-        guard let device = IOBluetoothDevice(addressString: address) else { stopAndExit("device_unavailable"); return }
-        let status = device.openRFCOMMChannelAsync(&channel, withChannelID: channelNumber, delegate: self)
-        if status != kIOReturnSuccess { stopAndExit("audio_open_failed") }
         DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [weak self] in
             guard let self = self, self.channel?.isOpen() != true else { return }
             self.stopAndExit("audio_open_timeout")
+        }
+        // Request permission asynchronously before IOBluetooth creates its own
+        // CoreBluetooth coordinator. Never block the main run loop during init.
+        openingPhase = "authorization_" + String(CBManager.authorization.rawValue)
+        if CBManager.authorization == .notDetermined {
+            NSApplication.shared.setActivationPolicy(.regular)
+            NSApplication.shared.activate(ignoringOtherApps: true)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in self?.requestPermission() }
+        } else {
+            requestPermission()
+        }
+    }
+
+    func requestPermission() {
+        guard !finished && !terminating && permissionManager == nil else { return }
+        permissionManager = CBCentralManager(delegate: self, queue: .main,
+            options: [CBCentralManagerOptionShowPowerAlertKey: false])
+    }
+
+    func centralManagerDidUpdateState(_ central: CBCentralManager) {
+        guard !finished && !terminating else { return }
+        openingPhase = "central_state_" + String(central.state.rawValue)
+        switch central.state {
+        case .poweredOn:
+            NSApplication.shared.setActivationPolicy(.accessory)
+            guard !deviceOpening else { return }
+            deviceOpening = true
+            openingPhase = "device_initialization"
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                guard let self = self else { return }
+                let normalized = self.address.replacingOccurrences(of: ":", with: "").replacingOccurrences(of: "-", with: "").uppercased()
+                let paired = (IOBluetoothDevice.pairedDevices() as? [IOBluetoothDevice] ?? []).first {
+                    ($0.addressString ?? "").replacingOccurrences(of: ":", with: "").replacingOccurrences(of: "-", with: "").uppercased() == normalized
+                }
+                let device = paired ?? IOBluetoothDevice(addressString: self.address)
+                DispatchQueue.main.async {
+                    guard !self.finished && !self.terminating else { return }
+                    guard let device = device else { self.stopAndExit("device_unavailable"); return }
+                    self.openingPhase = "rfcomm_open_pending"
+                    let status = device.openRFCOMMChannelAsync(&self.channel, withChannelID: self.channelNumber, delegate: self)
+                    if status != kIOReturnSuccess { self.stopAndExit("audio_open_failed") }
+                }
+            }
+        case .unauthorized:
+            stopAndExit("bluetooth_permission_denied")
+        case .poweredOff:
+            stopAndExit("bluetooth_powered_off")
+        case .unsupported:
+            stopAndExit("bluetooth_unsupported")
+        default:
+            break
         }
     }
 
@@ -150,7 +202,7 @@ final class StreamingTransport: NSObject, NSApplicationDelegate, IOBluetoothRFCO
         guard !terminating && !finished else { return }
         terminating = true
         stopAudio()
-        emit(["type": reason == "expired" ? "expired" : "error", "reason": reason])
+        emit(["type": reason == "expired" ? "expired" : "error", "reason": reason, "phase": openingPhase])
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) { [weak self] in self?.finish() }
     }
 
