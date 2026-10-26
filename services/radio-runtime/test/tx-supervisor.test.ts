@@ -272,4 +272,95 @@ describe('local TX supervisor', () => {
     ).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' });
     expect(f.supervisor.get(tx.grant.txGrantId).state).toBe('idle');
   });
+  it('requires a fresh current-epoch physical proof after reconnection', async () => {
+    const f = fixture();
+    const tx = await f.start();
+    f.uncertainEnd();
+    await f.supervisor.stop(tx.grant.txGrantId);
+    f.state.generation = crypto.randomUUID();
+    f.state.txState = 'idle';
+    f.driver.observe = async () => {
+      throw new Error('Old generation must not be observed.');
+    };
+    expect(await f.supervisor.reconcile(f.state.radioId)).toBe(false);
+    f.driver.observeCurrent = async (context) => ({
+      ...context,
+      state: 'idle',
+      physicallyConfirmed: false,
+    });
+    expect(await f.supervisor.reconcile(f.state.radioId)).toBe(false);
+    expect(f.releases).toEqual([false]);
+    f.state.txState = 'stop_unconfirmed';
+    f.driver.observeCurrent = async (context) => ({
+      ...context,
+      state: 'idle',
+      physicallyConfirmed: true,
+    });
+    expect(await f.supervisor.reconcile(f.state.radioId)).toBe(true);
+    expect(f.releases).toEqual([false, true]);
+    expect(f.supervisor.get(tx.grant.txGrantId).grant.generation).toBe(
+      tx.grant.generation,
+    );
+    expect((await f.supervisor.stop(tx.grant.txGrantId)).state).toBe('idle');
+  });
+  it('does not release across a changed or mismatched current-epoch observation', async () => {
+    const f = fixture();
+    const tx = await f.start();
+    f.uncertainEnd();
+    await f.supervisor.stop(tx.grant.txGrantId);
+    f.state.generation = crypto.randomUUID();
+    f.driver.observeCurrent = async (context) => {
+      f.state.generation = crypto.randomUUID();
+      return { ...context, state: 'idle', physicallyConfirmed: true };
+    };
+    expect(await f.supervisor.reconcile(f.state.radioId)).toBe(false);
+    f.driver.observeCurrent = async (context) => ({
+      ...context,
+      radioId: crypto.randomUUID(),
+      state: 'idle',
+      physicallyConfirmed: true,
+    });
+    await expect(f.supervisor.reconcile(f.state.radioId)).rejects.toMatchObject(
+      { code: 'STALE_GENERATION' },
+    );
+    expect(f.releases).toEqual([false]);
+  });
+  it('does not request a new-epoch proof until old admitted writes settle', async () => {
+    const f = fixture();
+    const tx = await f.start();
+    let finish!: () => void;
+    let proofs = 0;
+    f.driver.write = () =>
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+    const writing = f.supervisor.push(tx.grant.txGrantId, f.frame());
+    const rejected = expect(writing).rejects.toThrow();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await f.supervisor.stop(tx.grant.txGrantId);
+    await rejected;
+    f.state.generation = crypto.randomUUID();
+    f.driver.observeCurrent = async (context) => {
+      proofs++;
+      return { ...context, state: 'idle', physicallyConfirmed: true };
+    };
+    expect(await f.supervisor.reconcile(f.state.radioId)).toBe(false);
+    expect(proofs).toBe(0);
+    finish();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(await f.supervisor.reconcile(f.state.radioId)).toBe(true);
+    expect(proofs).toBe(1);
+  });
+  it('does not reuse an old-grant idle observation after its epoch changes during the read', async () => {
+    const f = fixture();
+    const tx = await f.start();
+    f.uncertainEnd();
+    await f.supervisor.stop(tx.grant.txGrantId);
+    f.driver.observe = async () => {
+      f.state.generation = crypto.randomUUID();
+      return { state: 'idle', physicallyConfirmed: true };
+    };
+    expect(await f.supervisor.reconcile(f.state.radioId)).toBe(false);
+    expect(f.releases).toEqual([false]);
+  });
 });

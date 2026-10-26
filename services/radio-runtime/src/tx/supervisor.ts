@@ -34,6 +34,10 @@ export interface TxObservation {
   state: 'idle' | 'transmitting' | 'unknown';
   physicallyConfirmed: boolean;
 }
+export interface TxCurrentObservation extends TxObservation {
+  radioId: string;
+  generation: string;
+}
 export interface TxDriverPort {
   prepare(
     grant: TxGrant,
@@ -48,6 +52,11 @@ export interface TxDriverPort {
   renew(grant: TxGrant, signal: AbortSignal): Promise<void>;
   end(grant: TxGrant, reason: string): Promise<TxObservation>;
   observe(grant: TxGrant): Promise<TxObservation>;
+  /** Fresh current-epoch hardware observation, never a cached/runtime overlay. */
+  observeCurrent?(context: {
+    radioId: string;
+    generation: string;
+  }): Promise<TxCurrentObservation>;
 }
 export interface TxStartInput {
   radioId: string;
@@ -411,6 +420,7 @@ export class TxSupervisor {
 
   stop(txGrantId: string, reason = 'released'): Promise<TxStatus> {
     const tx = this.require(txGrantId);
+    if (tx.state === 'idle') return Promise.resolve(this.status(tx));
     if (tx.stopPromise) return tx.stopPromise;
     tx.controller.abort(new Error(reason));
     tx.state = 'stopping';
@@ -476,11 +486,42 @@ export class TxSupervisor {
       tx.pendingOperations !== 0
     )
       return false;
-    const observed = await bounded(
-      tx.driver.observe({ ...tx.grant }),
-      undefined,
-      this.timeoutMs,
-    );
+    const before = this.options.runtime.snapshot(radioId);
+    const generation = before.generation;
+    if (before.connection !== 'ready') return false;
+    let observed: TxObservation;
+    if (generation === tx.grant.generation) {
+      observed = await bounded(
+        tx.driver.observe({ ...tx.grant }),
+        undefined,
+        this.timeoutMs,
+      );
+    } else {
+      const currentDriver = this.options.driver(radioId);
+      if (!currentDriver.observeCurrent) return false;
+      const proof = await bounded(
+        currentDriver.observeCurrent({
+          radioId,
+          generation,
+        }),
+        undefined,
+        this.timeoutMs,
+      );
+      if (proof.radioId !== radioId || proof.generation !== generation)
+        throw new SignalDockError(
+          'STALE_GENERATION',
+          'Current radio observation belongs to another context.',
+        );
+      observed = proof;
+    }
+    const after = this.options.runtime.snapshot(radioId);
+    if (
+      after.generation !== generation ||
+      after.connection !== 'ready' ||
+      this.byRadio.get(radioId) !== id ||
+      tx.state !== 'stop_unconfirmed'
+    )
+      return false;
     if (observed.state !== 'idle' || !observed.physicallyConfirmed)
       return false;
     tx.state = 'idle';

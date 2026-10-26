@@ -1,11 +1,60 @@
-import { describe, expect, it } from 'vitest';
-import type { PcmAudioFrame } from '@signaldock/contracts';
+import { describe, expect, it, vi } from 'vitest';
+import type {
+  PcmAudioFrame,
+  RadioDescriptor,
+  RadioSnapshot,
+} from '@signaldock/contracts';
 import { BoundedAudioQueue, pcmBytes, pcmSamples } from '../src/pcm.js';
 import { LiveKitCredentials, radioRoom } from '../src/livekit.js';
-import { normalizeWireAudio, safeWireInteger } from '../src/grpc.js';
+import {
+  normalizeWireAudio,
+  safeWireInteger,
+  createGrpcTxDriver,
+  type WireRadioAudioClient,
+} from '../src/grpc.js';
 import { decodePreparedAudio, preparedPcmFrames } from '../src/decode-audio.js';
 
 describe('media boundary', () => {
+  it('uses only capability-declared fresh raw reconciliation for current-epoch idle proof', async () => {
+    const radioId = crypto.randomUUID(),
+      generation = crypto.randomUUID();
+    const raw: RadioSnapshot = {
+      radioId,
+      generation,
+      revision: 1,
+      connection: 'ready',
+      tuningConfidence: 'unknown',
+      txState: 'idle',
+    };
+    const descriptor = {
+      radioId,
+      capabilities: { physicalTxObservation: false },
+    } as RadioDescriptor;
+    const reconcile = vi.fn(async () => raw);
+    const client = { descriptor, reconcile } as unknown as WireRadioAudioClient;
+    const adapter = createGrpcTxDriver(client);
+    expect(
+      await adapter.observeCurrent!({ radioId, generation }),
+    ).toMatchObject({ state: 'unknown', physicallyConfirmed: false });
+    expect(reconcile).not.toHaveBeenCalled();
+    descriptor.capabilities.physicalTxObservation = true;
+    expect(await adapter.observeCurrent!({ radioId, generation })).toEqual({
+      radioId,
+      generation,
+      state: 'idle',
+      physicallyConfirmed: true,
+    });
+    expect(reconcile).toHaveBeenCalledOnce();
+    raw.connection = 'degraded';
+    expect(
+      await adapter.observeCurrent!({ radioId, generation }),
+    ).toMatchObject({ state: 'unknown', physicallyConfirmed: false });
+    raw.connection = 'ready';
+    raw.generation = crypto.randomUUID();
+    await expect(
+      adapter.observeCurrent!({ radioId, generation }),
+    ).rejects.toMatchObject({ code: 'STALE_GENERATION' });
+  });
   it('preserves little-endian samples from a sliced buffer', () => {
     const source = new Uint8Array([55, 66, 0, 128, 255, 127, 255, 255, 77, 88]);
     const frame = {

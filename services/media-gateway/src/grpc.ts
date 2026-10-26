@@ -1,9 +1,12 @@
 import { create } from '@bufbuild/protobuf';
 import {
   SignalDockError,
+  RadioSnapshotSchema,
   type AudioFormat,
   type PcmAudioFrame,
   type TxGrant,
+  type RadioDescriptor,
+  type RadioSnapshot,
 } from '@signaldock/contracts';
 import {
   type TxDriverPort,
@@ -13,6 +16,9 @@ import * as wire from '@signaldock/radio-driver-sdk/wire';
 import { BoundedAudioQueue } from './pcm.js';
 
 export interface WireRadioAudioClient {
+  readonly descriptor?: RadioDescriptor;
+  /** Fresh private Reconcile RPC; implementations must physically observe TX. */
+  reconcile?(): Promise<RadioSnapshot>;
   prepareTransmission(
     input: wire.PrepareTransmissionRequest,
     signal?: AbortSignal,
@@ -277,6 +283,40 @@ export function createGrpcTxDriver(client: WireRadioAudioClient): TxDriverPort {
           }),
         ),
       );
+    },
+    async observeCurrent(context) {
+      const unknown = {
+        ...context,
+        state: 'unknown' as const,
+        physicallyConfirmed: false,
+      };
+      if (
+        !client.reconcile ||
+        client.descriptor?.radioId !== context.radioId ||
+        client.descriptor.capabilities.physicalTxObservation !== true
+      )
+        return unknown;
+      const raw = RadioSnapshotSchema.parse(await client.reconcile());
+      if (
+        raw.radioId !== context.radioId ||
+        raw.generation !== context.generation
+      )
+        throw new SignalDockError(
+          'STALE_GENERATION',
+          'Fresh driver reconciliation belongs to another epoch.',
+        );
+      if (raw.connection !== 'ready') return unknown;
+      return {
+        ...context,
+        state:
+          raw.txState === 'idle'
+            ? 'idle'
+            : raw.txState === 'transmitting'
+              ? 'transmitting'
+              : 'unknown',
+        physicallyConfirmed:
+          raw.txState === 'idle' || raw.txState === 'transmitting',
+      };
     },
   };
 }
