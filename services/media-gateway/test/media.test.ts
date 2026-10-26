@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
+import { createServer } from 'node:http';
+import { once } from 'node:events';
 import type {
   PcmAudioFrame,
   RadioDescriptor,
@@ -15,6 +17,68 @@ import {
 import { decodePreparedAudio, preparedPcmFrames } from '../src/decode-audio.js';
 
 describe('media boundary', () => {
+  it('keeps public browser credentials separate from internal Node and room-service traffic', async () => {
+    let route = '';
+    const server = createServer((request, response) => {
+      route = request.url ?? '';
+      request.resume();
+      response.writeHead(200, { 'Content-Type': 'application/json' });
+      response.end('{}');
+    });
+    server.listen(0, '127.0.0.1');
+    await once(server, 'listening');
+    const address = server.address();
+    if (!address || typeof address === 'string')
+      throw new Error('Missing test listener.');
+    try {
+      const internalServerUrl = `ws://127.0.0.1:${address.port}`;
+      const credentials = new LiveKitCredentials({
+        serverUrl: 'wss://public-media.example.invalid',
+        internalServerUrl,
+        apiKey: 'test',
+        apiSecret: 'synthetic-secret-for-tests',
+      });
+      const session = await credentials.issue({
+        id: crypto.randomUUID(),
+        instanceId: crypto.randomUUID(),
+        radioId: crypto.randomUUID(),
+        sessionId: crypto.randomUUID(),
+        mode: 'listen',
+      });
+      expect(session.serverUrl).toBe('wss://public-media.example.invalid');
+      expect(credentials.bridgeUrl).toBe(`${internalServerUrl}/`);
+      await credentials.revoke(session);
+      expect(route).toContain('RoomService/RemoveParticipant');
+      expect(
+        new LiveKitCredentials({
+          serverUrl: 'wss://public-media.example.invalid',
+          internalServerUrl: 'ws://livekit:7880',
+          apiKey: 'test',
+          apiSecret: 'synthetic-secret-for-tests',
+        }).bridgeUrl,
+      ).toBe('ws://livekit:7880/');
+      for (const invalid of [
+        'https://livekit:7880',
+        'ws://user:pass@livekit:7880',
+        'ws://livekit:7880?token=bad',
+        'ws://livekit:7880#fragment',
+      ])
+        expect(
+          () =>
+            new LiveKitCredentials({
+              serverUrl: 'wss://public-media.example.invalid',
+              internalServerUrl: invalid,
+              apiKey: 'test',
+              apiSecret: 'synthetic-secret-for-tests',
+            }),
+        ).toThrow();
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve())),
+      );
+    }
+  });
   it('uses only capability-declared fresh raw reconciliation for current-epoch idle proof', async () => {
     const radioId = crypto.randomUUID(),
       generation = crypto.randomUUID();

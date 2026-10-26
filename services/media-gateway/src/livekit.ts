@@ -28,6 +28,7 @@ import { setListenerPermissions } from './subscription-permissions.js';
 
 export interface LiveKitConfiguration {
   serverUrl: string;
+  internalServerUrl?: string;
   apiKey: string;
   apiSecret: string;
 }
@@ -37,6 +38,7 @@ export function radioRoom(instanceId: string, radioId: string): string {
 
 export class LiveKitCredentials {
   private readonly rooms: RoomServiceClient;
+  readonly bridgeUrl: string;
   constructor(readonly config: LiveKitConfiguration) {
     const url = new URL(config.serverUrl);
     if (
@@ -58,8 +60,21 @@ export class LiveKitCredentials {
         'REQUIRES_CONFIGURATION',
         'Configure a media API key and a secret of at least 16 characters.',
       );
-    const serviceUrl = new URL(url);
-    serviceUrl.protocol = url.protocol === 'wss:' ? 'https:' : 'http:';
+    const internalUrl = new URL(config.internalServerUrl ?? url.href);
+    if (
+      internalUrl.username ||
+      internalUrl.password ||
+      internalUrl.search ||
+      internalUrl.hash ||
+      !['ws:', 'wss:'].includes(internalUrl.protocol)
+    )
+      throw new SignalDockError(
+        'INVALID_ARGUMENT',
+        'Internal media URL requires WS or WSS without credentials, query parameters or fragments.',
+      );
+    this.bridgeUrl = internalUrl.href;
+    const serviceUrl = new URL(internalUrl);
+    serviceUrl.protocol = internalUrl.protocol === 'wss:' ? 'https:' : 'http:';
     this.rooms = new RoomServiceClient(
       serviceUrl.href,
       config.apiKey,
@@ -257,7 +272,7 @@ export class LiveKitRadioBridge {
     });
     try {
       await room.connect(
-        this.options.credentials.config.serverUrl,
+        this.options.credentials.bridgeUrl,
         await this.options.credentials.bridgeToken(
           this.options.instanceId,
           input.radioId,
