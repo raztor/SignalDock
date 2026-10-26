@@ -1,4 +1,29 @@
 // Generated from contract schemas. Run npm run generate:contracts.
+export interface IncidentEvidence {
+  communicationId: string;
+  transcriptRevisionId?: string;
+  quote?: string;
+}
+
+export interface IncidentRecord {
+  id: string;
+  instanceId: string;
+  radioId: string;
+  state: "new" | "acknowledged" | "in_progress" | "resolved" | "dismissed";
+  priority: "low" | "medium" | "high" | "critical";
+  title: string;
+  ownerUserId?: string;
+  retentionHold: boolean;
+  evidence: {
+    communicationId: string;
+    transcriptRevisionId?: string;
+    quote?: string;
+  }[];
+  revision: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface CreateUserRequest {
   username: string;
   password: string;

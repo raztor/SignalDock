@@ -5,7 +5,65 @@ import {
   SignalDockError,
   type RecentServer,
   type ServerInfo,
+  type ClientSession,
+  ApiErrorSchema,
 } from '@signaldock/contracts';
+
+/** Authenticated calls remain inside the selected instance's API prefix. */
+export async function apiFetch(
+  session: ClientSession,
+  path: string,
+  init: RequestInit = {},
+): Promise<Response> {
+  const routePath = path.split('?')[0]!;
+  if (
+    !/^[a-zA-Z0-9][a-zA-Z0-9/_?=&.%:-]*$/.test(path) ||
+    routePath.includes('..') ||
+    path.includes('://') ||
+    /%2[fFeE]/i.test(routePath)
+  ) {
+    throw new SignalDockError(
+      'INVALID_ARGUMENT',
+      'Invalid relative API route.',
+    );
+  }
+  const baseUrl = normalizeServerUrl(session.baseUrl);
+  const url = new URL(`api/v1/${path}`, baseUrl);
+  const headers = new Headers(init.headers);
+  headers.set('Accept', 'application/json');
+  headers.set('Authorization', `Bearer ${session.accessToken}`);
+  if (typeof init.body === 'string' && !headers.has('Content-Type'))
+    headers.set('Content-Type', 'application/json');
+  const response = await globalThis.fetch(url, {
+    ...init,
+    headers,
+    credentials: 'omit',
+    redirect: 'error',
+  });
+  if (!response.ok) {
+    if (response.status === 401) session.onUnauthorized?.();
+    const failure = ApiErrorSchema.safeParse(
+      await response.json().catch(() => null),
+    );
+    throw new SignalDockError(
+      failure.success ? failure.data.code : 'INTERNAL_ERROR',
+      failure.success
+        ? failure.data.message
+        : `Request failed (HTTP ${response.status}).`,
+    );
+  }
+  return response;
+}
+
+export async function apiRequest<T>(
+  session: ClientSession,
+  path: string,
+  init: RequestInit = {},
+): Promise<T> {
+  const response = await apiFetch(session, path, init);
+  if (response.status === 204) return undefined as T;
+  return (await response.json()) as T;
+}
 
 export function normalizeServerUrl(input: string): string {
   let url: URL;

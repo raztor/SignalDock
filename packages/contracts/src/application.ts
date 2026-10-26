@@ -1,4 +1,9 @@
 import { z } from 'zod';
+import type {
+  ProcessingCapability,
+  ProcessingConnection,
+  ProcessingResult,
+} from './index.js';
 
 const id = z.uuid();
 const timestamp = z.iso.datetime();
@@ -56,6 +61,11 @@ export type AuthPort = AuthenticationPort;
 export type NotificationAudience = Omit<Principal, 'sessionId'>;
 export interface NotificationAudiencePort {
   resolveUser(userId: string): Promise<NotificationAudience | null>;
+  authorizeUser(
+    userId: string,
+    permission: Permission,
+    radioId?: string,
+  ): Promise<void>;
 }
 export const LoginRequestSchema = z.strictObject({
   username: z.string().min(1).max(100),
@@ -193,12 +203,19 @@ export interface JobSnapshot {
   attempts: number;
   error?: string;
 }
+export interface JobExecutionContext {
+  commit<T>(write: (transaction: DatabasePort) => Promise<T>): Promise<T>;
+}
 export type JobHandler = (
   job: JobInput,
   signal: AbortSignal,
+  execution: JobExecutionContext,
 ) => Promise<unknown>;
 export interface JobQueuePort {
-  enqueue(input: JobInput): Promise<{ jobId: string; duplicate: boolean }>;
+  enqueue(
+    input: JobInput,
+    transaction?: DatabasePort,
+  ): Promise<{ jobId: string; duplicate: boolean }>;
   cancel(instanceId: string, jobId: string): Promise<void>;
   get(instanceId: string, jobId: string): Promise<JobSnapshot | null>;
   register(kind: string, handler: JobHandler): void;
@@ -310,25 +327,33 @@ export interface SourceTranscript {
 }
 export type IncidentState =
   'new' | 'acknowledged' | 'in_progress' | 'resolved' | 'dismissed';
-export interface IncidentEvidence {
-  communicationId: string;
-  transcriptRevisionId?: string;
-  quote?: string;
-}
-export interface IncidentRecord {
-  id: string;
-  instanceId: string;
-  radioId: string;
-  state: IncidentState;
-  priority: 'low' | 'medium' | 'high' | 'critical';
-  title: string;
-  ownerUserId?: string;
-  retentionHold: boolean;
-  evidence: IncidentEvidence[];
-  revision: number;
-  createdAt: string;
-  updatedAt: string;
-}
+export const IncidentEvidenceSchema = z.strictObject({
+  communicationId: id,
+  transcriptRevisionId: id.optional(),
+  quote: z.string().optional(),
+});
+export type IncidentEvidence = z.infer<typeof IncidentEvidenceSchema>;
+export const IncidentRecordSchema = z.strictObject({
+  id,
+  instanceId: id,
+  radioId: id,
+  state: z.enum([
+    'new',
+    'acknowledged',
+    'in_progress',
+    'resolved',
+    'dismissed',
+  ]),
+  priority: z.enum(['low', 'medium', 'high', 'critical']),
+  title: z.string().min(1),
+  ownerUserId: id.optional(),
+  retentionHold: z.boolean(),
+  evidence: z.array(IncidentEvidenceSchema),
+  revision: z.number().int().nonnegative(),
+  createdAt: timestamp,
+  updatedAt: timestamp,
+});
+export type IncidentRecord = z.infer<typeof IncidentRecordSchema>;
 export type PacketSource = 'native' | 'recording' | 'aprs_is';
 export interface PositionRecord {
   positionId: string;
@@ -401,6 +426,31 @@ export interface NotificationEvent {
   category: NotificationCategory;
   occurredAt: string;
 }
+export interface ProcessingConnectionView {
+  connection: ProcessingConnection;
+  displayName: string;
+  endpoint: string;
+  capabilities: ProcessingCapability[];
+  configuration: Record<string, unknown>;
+  status:
+    | 'configured'
+    | 'connected'
+    | 'requires_configuration'
+    | 'expired'
+    | 'revoked';
+  hasCredentials: boolean;
+}
+export interface ProcessingJobView {
+  jobId: string;
+  instanceId: string;
+  profileId: string;
+  radioId?: string;
+  task: string;
+  state: JobState;
+  result?: ProcessingResult;
+  error?: string;
+  createdAt: string;
+}
 
 export const AttributionSchema = z.enum(['confirmed', 'inferred', 'unknown']);
 export const RecordingRecordSchema = z.strictObject({
@@ -470,6 +520,8 @@ export interface HistoryQuery {
 }
 
 export const applicationSchemas = {
+  IncidentEvidence: IncidentEvidenceSchema,
+  IncidentRecord: IncidentRecordSchema,
   CreateUserRequest: CreateUserRequestSchema,
   UpdateUserRequest: UpdateUserRequestSchema,
   ResetPasswordRequest: ResetPasswordRequestSchema,
