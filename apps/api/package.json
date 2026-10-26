@@ -1,0 +1,16 @@
+{
+  "name": "@signaldock/api",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch dist/main.js",
+    "start": "node dist/main.js"
+  },
+  "dependencies": {
+    "@signaldock/contracts": "*",
+    "fastify": "5.12.7",
+    "@fastify/cors": "11.3.1"
+  }
+}

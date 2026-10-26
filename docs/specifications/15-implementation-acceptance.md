@@ -2,7 +2,7 @@
 
 ## Current scope
 
-This task produces specifications, not the application scaffold or production deployment. Preserve the hardware proofs as evidence; do not treat their temporary tools as the finished backend.
+These specifications define the implementation sequence and acceptance gates. An initial foundation covers W0 contracts/simulators and W1 discovery; see [current development status](../development.md). Preserve the hardware proofs as evidence; do not treat their temporary tools as the finished backend. No complete operational or production gate is claimed by the foundation.
 
 ## Work packages
 

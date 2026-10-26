@@ -1,0 +1,1262 @@
+{
+  "ApiError": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "code": {
+        "type": "string",
+        "enum": [
+          "INVALID_ARGUMENT",
+          "UNAUTHORIZED",
+          "FORBIDDEN",
+          "NOT_FOUND",
+          "API_INCOMPATIBLE",
+          "INSTANCE_IDENTITY_CHANGED",
+          "CAPABILITY_UNSUPPORTED",
+          "CONTROL_BUSY",
+          "CONTROL_REQUIRED",
+          "STALE_REVISION",
+          "STALE_GENERATION",
+          "OPERATION_CONFLICT",
+          "DEADLINE_EXCEEDED",
+          "RADIO_UNAVAILABLE",
+          "RADIO_STATE_UNCERTAIN",
+          "TX_LIMIT_REACHED",
+          "PROVIDER_UNAVAILABLE",
+          "REQUIRES_CONFIGURATION",
+          "INTERNAL_ERROR"
+        ]
+      },
+      "message": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 500
+      },
+      "correlationId": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128
+      },
+      "retryable": {
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "code",
+      "message",
+      "correlationId",
+      "retryable"
+    ],
+    "additionalProperties": false
+  },
+  "ServerInfo": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "product": {
+        "type": "string",
+        "const": "SignalDock"
+      },
+      "instanceId": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "displayName": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 100
+      },
+      "version": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 100
+      },
+      "protocol": {
+        "type": "object",
+        "properties": {
+          "min": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "max": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "min",
+          "max"
+        ],
+        "additionalProperties": false
+      },
+      "identity": {
+        "type": "object",
+        "properties": {
+          "keyId": {
+            "type": "string",
+            "pattern": "^sha256:[a-f0-9]{64}$"
+          },
+          "publicKey": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          },
+          "algorithm": {
+            "type": "string",
+            "const": "Ed25519"
+          }
+        },
+        "required": [
+          "keyId",
+          "publicKey",
+          "algorithm"
+        ],
+        "additionalProperties": false
+      },
+      "routes": {
+        "type": "object",
+        "properties": {
+          "api": {
+            "type": "string",
+            "const": "api/v1"
+          },
+          "events": {
+            "type": "string",
+            "const": "api/v1/events"
+          },
+          "media": {
+            "type": "string",
+            "const": "api/v1/media"
+          }
+        },
+        "required": [
+          "api",
+          "events",
+          "media"
+        ],
+        "additionalProperties": false
+      },
+      "features": {
+        "type": "object",
+        "properties": {
+          "multiRadio": {
+            "type": "boolean"
+          },
+          "authentication": {
+            "type": "string",
+            "enum": [
+              "unavailable",
+              "local"
+            ]
+          },
+          "radioControl": {
+            "type": "boolean"
+          },
+          "liveAudio": {
+            "type": "boolean"
+          },
+          "pushRelay": {
+            "type": "string",
+            "enum": [
+              "unavailable",
+              "optional"
+            ]
+          }
+        },
+        "required": [
+          "multiRadio",
+          "authentication",
+          "radioControl",
+          "liveAudio",
+          "pushRelay"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "required": [
+      "product",
+      "instanceId",
+      "displayName",
+      "version",
+      "protocol",
+      "identity",
+      "routes",
+      "features"
+    ],
+    "additionalProperties": false
+  },
+  "Health": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "status": {
+        "type": "string",
+        "const": "ok"
+      },
+      "version": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "status",
+      "version"
+    ],
+    "additionalProperties": false
+  },
+  "RadioCapabilities": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "tuning": {
+        "type": "object",
+        "properties": {
+          "writable": {
+            "type": "boolean"
+          },
+          "ranges": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "minHz": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "maxHz": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "minHz",
+                "maxHz"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "modes": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "FM",
+                "AM",
+                "USB",
+                "LSB",
+                "CW",
+                "DIGITAL"
+              ]
+            }
+          }
+        },
+        "required": [
+          "writable",
+          "ranges",
+          "modes"
+        ],
+        "additionalProperties": false
+      },
+      "rxAudio": {
+        "type": "boolean"
+      },
+      "txAudio": {
+        "type": "boolean"
+      },
+      "ptt": {
+        "type": "string",
+        "enum": [
+          "explicit",
+          "audio_coupled",
+          "unsupported"
+        ]
+      },
+      "physicalTxObservation": {
+        "type": "boolean"
+      },
+      "independentlyReceivableChannels": {
+        "type": "integer",
+        "exclusiveMinimum": 0,
+        "maximum": 9007199254740991
+      },
+      "verification": {
+        "type": "string",
+        "enum": [
+          "simulated",
+          "experimental",
+          "hardware_verified"
+        ]
+      }
+    },
+    "required": [
+      "tuning",
+      "rxAudio",
+      "txAudio",
+      "ptt",
+      "physicalTxObservation",
+      "independentlyReceivableChannels",
+      "verification"
+    ],
+    "additionalProperties": false
+  },
+  "RadioSnapshot": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "radioId": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "generation": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "revision": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9007199254740991
+      },
+      "connection": {
+        "type": "string",
+        "enum": [
+          "disconnected",
+          "connecting",
+          "synchronizing",
+          "ready",
+          "degraded",
+          "recovering"
+        ]
+      },
+      "observedTuning": {
+        "type": "object",
+        "properties": {
+          "rxHz": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "txHz": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "FM",
+              "AM",
+              "USB",
+              "LSB",
+              "CW",
+              "DIGITAL"
+            ]
+          }
+        },
+        "required": [
+          "rxHz",
+          "mode"
+        ],
+        "additionalProperties": false
+      },
+      "desiredTuning": {
+        "type": "object",
+        "properties": {
+          "rxHz": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "txHz": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "FM",
+              "AM",
+              "USB",
+              "LSB",
+              "CW",
+              "DIGITAL"
+            ]
+          }
+        },
+        "required": [
+          "rxHz",
+          "mode"
+        ],
+        "additionalProperties": false
+      },
+      "tuningConfidence": {
+        "type": "string",
+        "enum": [
+          "confirmed",
+          "inferred",
+          "unknown"
+        ]
+      },
+      "txState": {
+        "type": "string",
+        "enum": [
+          "idle",
+          "preparing",
+          "transmitting",
+          "stopping",
+          "stop_unconfirmed",
+          "unknown"
+        ]
+      }
+    },
+    "required": [
+      "radioId",
+      "generation",
+      "revision",
+      "connection",
+      "tuningConfidence",
+      "txState"
+    ],
+    "additionalProperties": false
+  },
+  "RadioDescriptor": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "radioId": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "displayName": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 100
+      },
+      "driverId": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 100
+      },
+      "resourceGroupIds": {
+        "maxItems": 20,
+        "type": "array",
+        "items": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        }
+      },
+      "capabilities": {
+        "type": "object",
+        "properties": {
+          "tuning": {
+            "type": "object",
+            "properties": {
+              "writable": {
+                "type": "boolean"
+              },
+              "ranges": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "minHz": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "maxHz": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": [
+                    "minHz",
+                    "maxHz"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "modes": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "FM",
+                    "AM",
+                    "USB",
+                    "LSB",
+                    "CW",
+                    "DIGITAL"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "writable",
+              "ranges",
+              "modes"
+            ],
+            "additionalProperties": false
+          },
+          "rxAudio": {
+            "type": "boolean"
+          },
+          "txAudio": {
+            "type": "boolean"
+          },
+          "ptt": {
+            "type": "string",
+            "enum": [
+              "explicit",
+              "audio_coupled",
+              "unsupported"
+            ]
+          },
+          "physicalTxObservation": {
+            "type": "boolean"
+          },
+          "independentlyReceivableChannels": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "verification": {
+            "type": "string",
+            "enum": [
+              "simulated",
+              "experimental",
+              "hardware_verified"
+            ]
+          }
+        },
+        "required": [
+          "tuning",
+          "rxAudio",
+          "txAudio",
+          "ptt",
+          "physicalTxObservation",
+          "independentlyReceivableChannels",
+          "verification"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "required": [
+      "radioId",
+      "displayName",
+      "driverId",
+      "resourceGroupIds",
+      "capabilities"
+    ],
+    "additionalProperties": false
+  },
+  "TuningCommand": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "context": {
+        "type": "object",
+        "properties": {
+          "operationId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "radioId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "generation": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "deadline": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "controlGrant": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          }
+        },
+        "required": [
+          "operationId",
+          "radioId",
+          "generation",
+          "expectedRevision",
+          "deadline",
+          "controlGrant"
+        ],
+        "additionalProperties": false
+      },
+      "tuning": {
+        "type": "object",
+        "properties": {
+          "rxHz": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "txHz": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "FM",
+              "AM",
+              "USB",
+              "LSB",
+              "CW",
+              "DIGITAL"
+            ]
+          }
+        },
+        "required": [
+          "rxHz",
+          "mode"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "required": [
+      "context",
+      "tuning"
+    ],
+    "additionalProperties": false
+  },
+  "RadioSnapshotEvent": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "protocolVersion": {
+        "type": "number",
+        "const": 1
+      },
+      "eventId": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "instanceId": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "radioId": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "streamGeneration": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "sequence": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9007199254740991
+      },
+      "occurredAt": {
+        "type": "string",
+        "format": "date-time",
+        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+      },
+      "type": {
+        "type": "string",
+        "const": "radio.snapshot"
+      },
+      "payloadVersion": {
+        "type": "number",
+        "const": 1
+      },
+      "correlationId": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "payload": {
+        "type": "object",
+        "properties": {
+          "radioId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "generation": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "connection": {
+            "type": "string",
+            "enum": [
+              "disconnected",
+              "connecting",
+              "synchronizing",
+              "ready",
+              "degraded",
+              "recovering"
+            ]
+          },
+          "observedTuning": {
+            "type": "object",
+            "properties": {
+              "rxHz": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "txHz": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "FM",
+                  "AM",
+                  "USB",
+                  "LSB",
+                  "CW",
+                  "DIGITAL"
+                ]
+              }
+            },
+            "required": [
+              "rxHz",
+              "mode"
+            ],
+            "additionalProperties": false
+          },
+          "desiredTuning": {
+            "type": "object",
+            "properties": {
+              "rxHz": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "txHz": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "FM",
+                  "AM",
+                  "USB",
+                  "LSB",
+                  "CW",
+                  "DIGITAL"
+                ]
+              }
+            },
+            "required": [
+              "rxHz",
+              "mode"
+            ],
+            "additionalProperties": false
+          },
+          "tuningConfidence": {
+            "type": "string",
+            "enum": [
+              "confirmed",
+              "inferred",
+              "unknown"
+            ]
+          },
+          "txState": {
+            "type": "string",
+            "enum": [
+              "idle",
+              "preparing",
+              "transmitting",
+              "stopping",
+              "stop_unconfirmed",
+              "unknown"
+            ]
+          }
+        },
+        "required": [
+          "radioId",
+          "generation",
+          "revision",
+          "connection",
+          "tuningConfidence",
+          "txState"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "required": [
+      "protocolVersion",
+      "eventId",
+      "instanceId",
+      "radioId",
+      "streamGeneration",
+      "sequence",
+      "occurredAt",
+      "type",
+      "payloadVersion",
+      "payload"
+    ],
+    "additionalProperties": false
+  },
+  "ConnectorManifest": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "connectorId": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 100
+      },
+      "version": {
+        "type": "string",
+        "minLength": 1
+      },
+      "sdkVersion": {
+        "type": "number",
+        "const": 1
+      },
+      "capabilities": {
+        "minItems": 1,
+        "type": "array",
+        "items": {
+          "type": "string",
+          "enum": [
+            "stt.batch",
+            "stt.streaming",
+            "tts.synthesize",
+            "text.structured"
+          ]
+        }
+      },
+      "simulated": {
+        "type": "boolean"
+      },
+      "execution": {
+        "type": "string",
+        "enum": [
+          "local",
+          "cloud"
+        ]
+      }
+    },
+    "required": [
+      "connectorId",
+      "version",
+      "sdkVersion",
+      "capabilities",
+      "simulated",
+      "execution"
+    ],
+    "additionalProperties": false
+  },
+  "ProcessingConnection": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "connectionId": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "connectorId": {
+        "type": "string",
+        "minLength": 1
+      },
+      "instanceId": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "owner": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "instance"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "user"
+              },
+              "userId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              }
+            },
+            "required": [
+              "kind",
+              "userId"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "credentialRef": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "required": [
+      "connectionId",
+      "connectorId",
+      "instanceId",
+      "owner"
+    ],
+    "additionalProperties": false
+  },
+  "ProcessingProfile": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "profileId": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "revision": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9007199254740991
+      },
+      "connectionId": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "capability": {
+        "type": "string",
+        "enum": [
+          "stt.batch",
+          "stt.streaming",
+          "tts.synthesize",
+          "text.structured"
+        ]
+      },
+      "model": {
+        "type": "string",
+        "minLength": 1
+      },
+      "allowCloud": {
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "profileId",
+      "revision",
+      "connectionId",
+      "capability",
+      "model",
+      "allowCloud"
+    ],
+    "additionalProperties": false
+  },
+  "ProcessingRequest": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "instanceId": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "jobId": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "taskVersion": {
+        "type": "number",
+        "const": 1
+      },
+      "deadline": {
+        "type": "string",
+        "format": "date-time",
+        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+      },
+      "profileId": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "profileRevision": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9007199254740991
+      },
+      "task": {
+        "type": "string",
+        "enum": [
+          "conversation.summarize",
+          "speech.transcribe"
+        ]
+      },
+      "input": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "text"
+              },
+              "text": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64000
+              },
+              "communicationIds": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                }
+              }
+            },
+            "required": [
+              "kind",
+              "text",
+              "communicationIds"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "audio"
+              },
+              "artifactId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "communicationIds": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                }
+              }
+            },
+            "required": [
+              "kind",
+              "artifactId",
+              "communicationIds"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      }
+    },
+    "required": [
+      "instanceId",
+      "jobId",
+      "taskVersion",
+      "deadline",
+      "profileId",
+      "profileRevision",
+      "task",
+      "input"
+    ],
+    "additionalProperties": false
+  },
+  "ProcessingResult": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "jobId": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "connectorId": {
+        "type": "string",
+        "minLength": 1
+      },
+      "profileRevision": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9007199254740991
+      },
+      "simulated": {
+        "type": "boolean"
+      },
+      "output": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "summary"
+              },
+              "text": {
+                "type": "string",
+                "minLength": 1
+              },
+              "evidenceIds": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                }
+              }
+            },
+            "required": [
+              "kind",
+              "text",
+              "evidenceIds"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "transcript"
+              },
+              "text": {
+                "type": "string",
+                "minLength": 1
+              },
+              "artifactId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              }
+            },
+            "required": [
+              "kind",
+              "text",
+              "artifactId"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      }
+    },
+    "required": [
+      "jobId",
+      "connectorId",
+      "profileRevision",
+      "simulated",
+      "output"
+    ],
+    "additionalProperties": false
+  },
+  "RecentServer": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "baseUrl": {
+        "type": "string",
+        "format": "uri"
+      },
+      "alias": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 100
+      },
+      "instanceId": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "identity": {
+        "type": "object",
+        "properties": {
+          "keyId": {
+            "type": "string",
+            "pattern": "^sha256:[a-f0-9]{64}$"
+          },
+          "publicKey": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          },
+          "algorithm": {
+            "type": "string",
+            "const": "Ed25519"
+          }
+        },
+        "required": [
+          "keyId",
+          "publicKey",
+          "algorithm"
+        ],
+        "additionalProperties": false
+      },
+      "lastConnectedAt": {
+        "type": "string",
+        "format": "date-time",
+        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+      }
+    },
+    "required": [
+      "baseUrl",
+      "alias",
+      "instanceId",
+      "identity",
+      "lastConnectedAt"
+    ],
+    "additionalProperties": false
+  }
+}

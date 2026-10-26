@@ -1,0 +1,17 @@
+{
+  "name": "@signaldock/radio-runtime",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "dependencies": {
+    "@signaldock/contracts": "*",
+    "@signaldock/radio-driver-sdk": "*"
+  }
+}

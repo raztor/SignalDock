@@ -4,7 +4,19 @@ An open-source, self-hosted platform for operating multiple radios from configur
 
 Repository: [raztor/SignalDock](https://github.com/raztor/SignalDock). The project uses the existing [GNU Affero General Public License v3](LICENSE).
 
-The project is currently in the specification and hardware-validation stage. The application, public API, Docker deployment, mobile releases, and push relay have not been built yet.
+The project has a TypeScript/Expo foundation: shared contracts, radio/provider simulators, persistent server identity, discovery API, and a server selector with recent connections. Operational radio control, sign-in, live media, mobile releases, and the push relay remain planned work. See [development setup and current limitations](docs/development.md).
+
+## Start development
+
+```sh
+nvm use
+npm ci
+npm run check
+npm run simulate
+npm run dev:api
+```
+
+Run `npm run dev:client` in another terminal and open Expo's web client. Check `http://localhost:3000` to discover the local backend. Native device/media validation and production radio operation have separate acceptance gates. The [discovery container](deploy/compose.yaml) is the first Docker slice.
 
 ## Product specification
 

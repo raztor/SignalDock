@@ -1,0 +1,42 @@
+{
+  "name": "signaldock",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "engines": {
+    "node": ">=24.3.0 <25",
+    "npm": ">=11 <12"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "services/*"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck:client": "tsc -p apps/client/tsconfig.json --noEmit",
+    "typecheck:tests": "tsc -p tsconfig.tests.json",
+    "test": "npm run build && npm run test:unit",
+    "test:unit": "vitest run",
+    "check": "npm run build && npm run typecheck:client && npm run typecheck:tests && npm run test:unit && npm run format:check && npm run check:generated",
+    "format": "prettier --write \"{apps,packages,services,scripts,deploy,.github}/**/*.{ts,tsx,mjs,json,yml,yaml,md}\" \"*.{json,mjs}\"",
+    "format:check": "prettier --check \"{apps,packages,services,scripts,deploy,.github}/**/*.{ts,tsx,mjs,json,yml,yaml,md}\" \"*.{json,mjs}\"",
+    "generate:contracts": "npm run build && node scripts/generate-contracts.mjs",
+    "check:generated": "node scripts/generate-contracts.mjs --check",
+    "generate:driver": "node scripts/generate-driver.mjs",
+    "check:driver": "node scripts/check-driver-bindings.mjs",
+    "dev:api": "npm run build && npm run dev --workspace=@signaldock/api",
+    "dev:client": "npm run build && npm run dev --workspace=@signaldock/client",
+    "export:web": "npm run build && npm run export:web --workspace=@signaldock/client",
+    "simulate": "npm run build && node services/radio-runtime/dist/demo.js"
+  },
+  "devDependencies": {
+    "@bufbuild/protoc-gen-es": "2.16.0",
+    "@types/node": "24.19.2",
+    "json-schema-to-typescript": "16.0.0",
+    "prettier": "3.9.10",
+    "typescript": "6.0.3",
+    "vitest": "5.0.5"
+  }
+}

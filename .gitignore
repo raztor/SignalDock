@@ -4,3 +4,14 @@ results/
 __pycache__/
 build/
 .DS_Store
+node_modules/
+dist/
+web-build/
+.expo/
+coverage/
+*.tsbuildinfo
+.venv-codegen/
+.local/
+.env
+.env.*
+!.env.example

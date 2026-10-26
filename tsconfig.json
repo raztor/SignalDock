@@ -1,0 +1,11 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/contracts" },
+    { "path": "packages/client-sdk" },
+    { "path": "packages/radio-driver-sdk" },
+    { "path": "packages/processing-sdk" },
+    { "path": "services/radio-runtime" },
+    { "path": "apps/api" }
+  ]
+}

@@ -52,7 +52,7 @@ The VR-N7500 passed device/configuration reads, temporary RX-frequency write and
 
 Network microphone streaming, Expo/WebRTC, push delivery, digital decoding, reliable dual-watch attribution, multiple physical radios, and sustained Linux/Docker operation are not yet validated. Acceptance criteria describe required future tests.
 
-All `apps/`, `packages/`, `services/`, and `deploy/` paths below describe the proposed application layout. Only the specifications and hardware test tools currently exist.
+The initial workspace now implements contracts, simulators, persistent identity/discovery, an Expo server selector, and a discovery-container definition. See [development status](../development.md). Other `apps/`, `packages/`, `services/`, and `deploy/` responsibilities remain planned until their acceptance gates pass.
 
 ## Remaining decisions
 

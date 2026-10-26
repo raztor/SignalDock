@@ -1,0 +1,247 @@
+import {
+  ConnectorManifestSchema,
+  ProcessingConnectionSchema,
+  ProcessingProfileSchema,
+  ProcessingRequestSchema,
+  ProcessingResultSchema,
+  SignalDockError,
+  type ConnectorManifest,
+  type ProcessingConnection,
+  type ProcessingProfile,
+  type ProcessingRequest,
+  type ProcessingResult,
+} from '@signaldock/contracts';
+
+export interface ProcessingConnector {
+  describe(): ConnectorManifest;
+  execute(
+    request: ProcessingRequest,
+    connection: ProcessingConnection,
+    profile: ProcessingProfile,
+    signal: AbortSignal,
+  ): Promise<ProcessingResult>;
+}
+
+/** Resolves ownership/profile/capability before delegating to an installed connector. */
+export class ProcessingRegistry {
+  private readonly connectors = new Map<string, ProcessingConnector>();
+  register(connector: ProcessingConnector): void {
+    const manifest = ConnectorManifestSchema.parse(connector.describe());
+    if (this.connectors.has(manifest.connectorId))
+      throw new SignalDockError(
+        'OPERATION_CONFLICT',
+        'Connector is already registered.',
+      );
+    this.connectors.set(manifest.connectorId, connector);
+  }
+  async execute(
+    input: ProcessingRequest,
+    connectionInput: ProcessingConnection,
+    profileInput: ProcessingProfile,
+    actor: { instanceId: string; userId?: string },
+    signal: AbortSignal,
+  ): Promise<ProcessingResult> {
+    signal.throwIfAborted();
+    const request = ProcessingRequestSchema.parse(input);
+    const connection = ProcessingConnectionSchema.parse(connectionInput);
+    const profile = ProcessingProfileSchema.parse(profileInput);
+    if (
+      request.instanceId !== actor.instanceId ||
+      connection.instanceId !== actor.instanceId ||
+      (connection.owner.kind === 'user' &&
+        connection.owner.userId !== actor.userId)
+    ) {
+      throw new SignalDockError(
+        'FORBIDDEN',
+        'The processing connection belongs to another owner.',
+      );
+    }
+    if (
+      profile.connectionId !== connection.connectionId ||
+      profile.profileId !== request.profileId ||
+      profile.revision !== request.profileRevision
+    ) {
+      throw new SignalDockError(
+        'STALE_REVISION',
+        'The processing profile changed.',
+      );
+    }
+    if (Date.parse(request.deadline) <= Date.now())
+      throw new SignalDockError(
+        'DEADLINE_EXCEEDED',
+        'The processing job expired.',
+      );
+    const connector = this.connectors.get(connection.connectorId);
+    if (!connector)
+      throw new SignalDockError(
+        'PROVIDER_UNAVAILABLE',
+        'The connector is not installed.',
+      );
+    if (connector.describe().execution === 'cloud' && !profile.allowCloud)
+      throw new SignalDockError(
+        'FORBIDDEN',
+        'This profile does not allow cloud processing.',
+      );
+    const capability =
+      request.task === 'speech.transcribe' ? 'stt.batch' : 'text.structured';
+    if (
+      profile.capability !== capability ||
+      !connector.describe().capabilities.includes(capability)
+    ) {
+      throw new SignalDockError(
+        'CAPABILITY_UNSUPPORTED',
+        'The connector/profile does not support this task.',
+      );
+    }
+    const timeout = AbortSignal.timeout(
+      Math.max(
+        1,
+        Math.min(2147483647, Date.parse(request.deadline) - Date.now()),
+      ),
+    );
+    const combined = AbortSignal.any([signal, timeout]);
+    const result = ProcessingResultSchema.parse(
+      await withCancellation(
+        connector.execute(request, connection, profile, combined),
+        combined,
+      ),
+    );
+    combined.throwIfAborted();
+    if (
+      result.jobId !== request.jobId ||
+      result.profileRevision !== profile.revision ||
+      result.connectorId !== connection.connectorId ||
+      result.simulated !== connector.describe().simulated ||
+      (request.task === 'speech.transcribe'
+        ? result.output.kind !== 'transcript'
+        : result.output.kind !== 'summary')
+    ) {
+      throw new SignalDockError(
+        'PROVIDER_UNAVAILABLE',
+        'Connector returned a mismatched result.',
+      );
+    }
+    if (
+      result.output.kind === 'summary' &&
+      result.output.evidenceIds.some(
+        (id) => !request.input.communicationIds.includes(id),
+      )
+    ) {
+      throw new SignalDockError(
+        'PROVIDER_UNAVAILABLE',
+        'Connector cited an unrelated communication.',
+      );
+    }
+    if (
+      result.output.kind === 'transcript' &&
+      request.input.kind === 'audio' &&
+      result.output.artifactId !== request.input.artifactId
+    ) {
+      throw new SignalDockError(
+        'PROVIDER_UNAVAILABLE',
+        'Connector returned another artifact.',
+      );
+    }
+    return result;
+  }
+}
+
+async function withCancellation<T>(
+  work: Promise<T>,
+  signal: AbortSignal,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const abort = () => reject(signal.reason);
+    signal.addEventListener('abort', abort, { once: true });
+    if (signal.aborted) abort();
+    void work
+      .then(resolve, reject)
+      .finally(() => signal.removeEventListener('abort', abort));
+  });
+}
+
+/** Fixture behavior only: this does not perform semantic analysis. */
+export class FixtureTextConnector implements ProcessingConnector {
+  describe(): ConnectorManifest {
+    return {
+      connectorId: 'fixture.text',
+      version: '0.1.0',
+      sdkVersion: 1,
+      capabilities: ['text.structured'],
+      simulated: true,
+      execution: 'local',
+    };
+  }
+  async execute(
+    request: ProcessingRequest,
+    _connection: ProcessingConnection,
+    _profile: ProcessingProfile,
+    signal: AbortSignal,
+  ): Promise<ProcessingResult> {
+    signal.throwIfAborted();
+    if (
+      request.input.kind !== 'text' ||
+      request.task !== 'conversation.summarize'
+    )
+      throw new SignalDockError(
+        'CAPABILITY_UNSUPPORTED',
+        'Text fixture requires a summary request.',
+      );
+    return {
+      jobId: request.jobId,
+      connectorId: this.describe().connectorId,
+      profileRevision: request.profileRevision,
+      simulated: true,
+      output: {
+        kind: 'summary',
+        text: `[Fixture] ${request.input.text.slice(0, 120)}`,
+        evidenceIds: request.input.communicationIds,
+      },
+    };
+  }
+}
+
+/** Returns known transcripts by artifact ID; never opens files or decodes audio. */
+export class FixtureTranscriptionConnector implements ProcessingConnector {
+  constructor(private readonly transcripts: ReadonlyMap<string, string>) {}
+  describe(): ConnectorManifest {
+    return {
+      connectorId: 'fixture.stt',
+      version: '0.1.0',
+      sdkVersion: 1,
+      capabilities: ['stt.batch'],
+      simulated: true,
+      execution: 'local',
+    };
+  }
+  async execute(
+    request: ProcessingRequest,
+    _connection: ProcessingConnection,
+    _profile: ProcessingProfile,
+    signal: AbortSignal,
+  ): Promise<ProcessingResult> {
+    signal.throwIfAborted();
+    if (request.input.kind !== 'audio' || request.task !== 'speech.transcribe')
+      throw new SignalDockError(
+        'CAPABILITY_UNSUPPORTED',
+        'STT fixture requires an audio reference.',
+      );
+    const text = this.transcripts.get(request.input.artifactId);
+    if (!text)
+      throw new SignalDockError(
+        'NOT_FOUND',
+        'No transcript fixture exists for this artifact.',
+      );
+    return {
+      jobId: request.jobId,
+      connectorId: this.describe().connectorId,
+      profileRevision: request.profileRevision,
+      simulated: true,
+      output: {
+        kind: 'transcript',
+        text,
+        artifactId: request.input.artifactId,
+      },
+    };
+  }
+}

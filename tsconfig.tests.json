@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "composite": false,
+    "noEmit": true,
+    "declaration": false,
+    "declarationMap": false,
+    "types": ["node"]
+  },
+  "include": [
+    "packages/*/test/**/*.ts",
+    "services/*/test/**/*.ts",
+    "apps/api/test/**/*.ts"
+  ]
+}

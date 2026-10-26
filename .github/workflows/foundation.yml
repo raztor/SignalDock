@@ -1,0 +1,37 @@
+name: Foundation
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: npm ci
+      - run: python -m venv .venv-codegen
+      - run: .venv-codegen/bin/python -m pip install -r scripts/requirements-codegen.txt
+      - run: npm run generate:driver
+      - run: git diff --exit-code -- packages/radio-driver-sdk/src/generated packages/radio-driver-sdk/generated
+      - run: npm run check
+      - run: npm run check:driver
+      - run: npm run simulate
+      - run: npm run export:web
+  container:
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build --build-arg VCS_REF=${{ github.sha }} -f deploy/api.Dockerfile -t signaldock-api:test .
+      - run: docker run -d --name signaldock-api-test --read-only --cap-drop=ALL --security-opt=no-new-privileges -p 127.0.0.1:3000:3000 signaldock-api:test
+      - run: curl --retry 10 --retry-connrefused --retry-delay 1 --fail http://127.0.0.1:3000/api/v1/health
+      - if: always()
+        run: docker logs signaldock-api-test && docker rm -f signaldock-api-test
