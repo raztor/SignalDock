@@ -13,6 +13,7 @@ export {
 export {
   DigitalDecodingService,
   createDigitalDecodeHandler,
+  type DigitalActorAuthorizer,
   type RecordingDecodeContext,
   type RecordingContextResolver,
 } from './decoding.js';

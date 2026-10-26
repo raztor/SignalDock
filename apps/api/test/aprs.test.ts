@@ -65,6 +65,10 @@ describe.skipIf(!databaseUrl)(
         options: `-c search_path=${schema},public`,
       });
       await migrate(database, digitalMigrations);
+      // A fixture identity boundary: actual identity schema and sessionless grant logic belong to its own module.
+      await database.query(
+        `CREATE TABLE sd_decoder_test_grants(instance_id uuid,user_id uuid,radio_id uuid,enabled boolean,history_read boolean,aprs_read boolean,PRIMARY KEY(instance_id,user_id,radio_id))`,
+      );
       repository = new PostgresDigitalRepository(database);
       service = new AprsService(repository, auth, () =>
         Date.parse('2026-10-26T13:00:00Z'),
@@ -72,9 +76,26 @@ describe.skipIf(!databaseUrl)(
     });
     beforeEach(async () => {
       await database.query(
-        'TRUNCATE sd_digital_decoder_runs,sd_aprs_positions,sd_digital_packets CASCADE',
+        'TRUNCATE sd_decoder_test_grants,sd_digital_decoder_runs,sd_aprs_positions,sd_digital_packets CASCADE',
       );
     });
+    async function authorizeActor(
+      actorInstance: string,
+      actorId: string,
+      actorRadio: string,
+      db: import('@signaldock/contracts').DatabasePort,
+    ) {
+      const result = await db.query(
+        'SELECT enabled,history_read,aprs_read FROM sd_decoder_test_grants WHERE instance_id=$1 AND user_id=$2 AND radio_id=$3 FOR SHARE',
+        [actorInstance, actorId, actorRadio],
+      );
+      const grant = result.rows[0];
+      if (!grant?.['enabled'] || !grant['history_read'] || !grant['aprs_read'])
+        throw new SignalDockError(
+          'FORBIDDEN',
+          'Current decoder access was revoked.',
+        );
+    }
     afterAll(async () => {
       await database?.close();
       await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
@@ -190,7 +211,11 @@ describe.skipIf(!databaseUrl)(
       expect(next.items[0]?.packetId).not.toBe(page.items[0]?.packetId);
     });
 
-    function decoderFixture() {
+    async function decoderFixture() {
+      await database.query(
+        'INSERT INTO sd_decoder_test_grants VALUES($1,$2,$3,true,true,true) ON CONFLICT DO NOTHING',
+        [instanceId, principal.userId, radioId],
+      );
       const artifactId = crypto.randomUUID();
       const bytes = afskFixture().wav;
       const source: RecordingDecodeContext = {
@@ -250,7 +275,7 @@ describe.skipIf(!databaseUrl)(
       };
     }
     it('atomically schedules a recording decoder and commits real packets with source provenance', async () => {
-      const fixture = decoderFixture();
+      const fixture = await decoderFixture();
       const runId = crypto.randomUUID();
       await fixture.decoding.create(principal, {
         operationId: runId,
@@ -271,6 +296,7 @@ describe.skipIf(!databaseUrl)(
         database,
         storage: fixture.storage,
         resolveRecording: async () => fixture.source,
+        authorizeActor,
       });
       await handler(fixture.jobs[0]!, new AbortController().signal, {
         commit: (write) => database.transaction(write),
@@ -292,7 +318,7 @@ describe.skipIf(!databaseUrl)(
       expect((await service.listPackets(principal)).items).toHaveLength(1);
     });
     it('removes recording derivatives inside the source deletion transaction while retaining independent evidence', async () => {
-      const fixture = decoderFixture();
+      const fixture = await decoderFixture();
       const runId = crypto.randomUUID();
       await fixture.decoding.create(principal, {
         operationId: runId,
@@ -303,6 +329,7 @@ describe.skipIf(!databaseUrl)(
         database,
         storage: fixture.storage,
         resolveRecording: async () => fixture.source,
+        authorizeActor,
       });
       await handler(fixture.jobs[0]!, new AbortController().signal, {
         commit: (write) => database.transaction(write),
@@ -319,8 +346,86 @@ describe.skipIf(!databaseUrl)(
         fixture.decoding.get(principal, runId),
       ).rejects.toMatchObject({ code: 'NOT_FOUND' });
     });
+    it('rejects a queued job after its originating user access is revoked before reading audio', async () => {
+      const fixture = await decoderFixture();
+      const runId = crypto.randomUUID();
+      await fixture.decoding.create(principal, {
+        operationId: runId,
+        artifactId: fixture.artifactId,
+        mode: 'AFSK1200',
+      });
+      await database.query(
+        'UPDATE sd_decoder_test_grants SET enabled=false WHERE instance_id=$1 AND user_id=$2',
+        [instanceId, principal.userId],
+      );
+      let reads = 0;
+      const handler = createDigitalDecodeHandler({
+        database,
+        authorizeActor,
+        resolveRecording: async () => fixture.source,
+        storage: {
+          ...fixture.storage,
+          read: async (...args) => {
+            reads++;
+            return fixture.storage.read(...args);
+          },
+        },
+      });
+      await expect(
+        handler(fixture.jobs[0]!, new AbortController().signal, {
+          commit: (write) => database.transaction(write),
+        }),
+      ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+      expect(reads).toBe(0);
+      expect((await service.listPackets(principal)).items).toEqual([]);
+    });
+    it('rechecks current grants inside the terminal transaction after decoding', async () => {
+      const fixture = await decoderFixture();
+      const runId = crypto.randomUUID();
+      await fixture.decoding.create(principal, {
+        operationId: runId,
+        artifactId: fixture.artifactId,
+        mode: 'AFSK1200',
+      });
+      let checks = 0;
+      let terminalDatabase:
+        import('@signaldock/contracts').DatabasePort | undefined;
+      const handler = createDigitalDecodeHandler({
+        database,
+        storage: fixture.storage,
+        resolveRecording: async () => fixture.source,
+        authorizeActor: async (...args) => {
+          checks++;
+          if (checks === 2) terminalDatabase = args[3];
+          await authorizeActor(...args);
+        },
+      });
+      await expect(
+        handler(fixture.jobs[0]!, new AbortController().signal, {
+          commit: async (write) => {
+            await database.query(
+              'UPDATE sd_decoder_test_grants SET aprs_read=false WHERE instance_id=$1 AND user_id=$2',
+              [instanceId, principal.userId],
+            );
+            return database.transaction(write);
+          },
+        }),
+      ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+      expect(checks).toBe(2);
+      expect(terminalDatabase).toBeDefined();
+      expect(terminalDatabase).not.toBe(database);
+      expect((await service.listPackets(principal)).items).toEqual([]);
+      expect(
+        (
+          await database.query(
+            'SELECT result FROM sd_digital_decoder_runs WHERE instance_id=$1 AND run_id=$2',
+            [instanceId, runId],
+          )
+        ).rows[0]?.['result'],
+      ).toBeNull();
+    });
     it('does not reopen a cancelled decoder run', async () => {
-      const fixture = decoderFixture();
+      const fixture = await decoderFixture();
       const runId = crypto.randomUUID();
       await fixture.decoding.create(principal, {
         operationId: runId,
@@ -332,6 +437,7 @@ describe.skipIf(!databaseUrl)(
         database,
         storage: fixture.storage,
         resolveRecording: async () => fixture.source,
+        authorizeActor,
       });
       await expect(
         handler(fixture.jobs[0]!, new AbortController().signal, {
@@ -344,7 +450,7 @@ describe.skipIf(!databaseUrl)(
       expect((await service.listPackets(principal)).items).toEqual([]);
     });
     it('does not publish packets when the terminal source/cancellation guard refuses the commit', async () => {
-      const fixture = decoderFixture();
+      const fixture = await decoderFixture();
       const runId = crypto.randomUUID();
       await fixture.decoding.create(principal, {
         operationId: runId,
@@ -355,6 +461,7 @@ describe.skipIf(!databaseUrl)(
         database,
         storage: fixture.storage,
         resolveRecording: async () => fixture.source,
+        authorizeActor,
       });
       await expect(
         handler(fixture.jobs[0]!, new AbortController().signal, {

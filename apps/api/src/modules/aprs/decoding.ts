@@ -176,10 +176,22 @@ export class DigitalDecodingService {
   }
 }
 
+/** Checks the current enabled user and both history.read/aprs.read grants using only this database.
+ * When a terminal transaction is supplied, authorization reads must use it and hold relevant
+ * identity/grant rows against concurrent revocation until derivative writes commit.
+ */
+export type DigitalActorAuthorizer = (
+  instanceId: string,
+  userId: string,
+  radioId: string,
+  database: DatabasePort,
+) => Promise<void>;
+
 export function createDigitalDecodeHandler(deps: {
   database: DatabasePort;
   storage: ArtifactStoragePort;
   resolveRecording: RecordingContextResolver;
+  authorizeActor: DigitalActorAuthorizer;
 }): JobHandler {
   return async (job, signal, execution) => {
     IdSchema.parse(job.instanceId);
@@ -205,10 +217,30 @@ export function createDigitalDecodeHandler(deps: {
       );
     }
     const previous = await deps.database.query(
-      "SELECT result FROM sd_digital_decoder_runs WHERE instance_id=$1 AND run_id=$2 AND state='completed'",
+      'SELECT requested_by,radio_id,artifact_id,state,result FROM sd_digital_decoder_runs WHERE instance_id=$1 AND run_id=$2',
       [job.instanceId, job.jobId],
     );
-    if (previous.rows[0]?.['result']) return previous.rows[0]['result'];
+    const actorRun = previous.rows[0];
+    if (
+      !actorRun ||
+      actorRun['radio_id'] !== source.radioId ||
+      actorRun['artifact_id'] !== artifactId ||
+      actorRun['state'] === 'cancelled'
+    )
+      throw new SignalDockError(
+        'OPERATION_CONFLICT',
+        'Decoder run is missing, changed, or cancelled.',
+      );
+    const actorId = IdSchema.parse(actorRun['requested_by']);
+    await deps.authorizeActor(
+      job.instanceId,
+      actorId,
+      source.radioId,
+      deps.database,
+    );
+    signal.throwIfAborted();
+    if (actorRun['state'] === 'completed' && actorRun['result'])
+      return actorRun['result'];
     const artifact = await deps.storage.read(job.instanceId, artifactId, {
       start: 0,
       end: 16 * 1024 * 1024,
@@ -242,10 +274,16 @@ export function createDigitalDecodeHandler(deps: {
     signal.throwIfAborted();
     return execution.commit(async (transaction) => {
       const run = await transaction.query(
-        'SELECT state FROM sd_digital_decoder_runs WHERE instance_id=$1 AND run_id=$2 FOR UPDATE',
+        'SELECT state,requested_by,radio_id,artifact_id FROM sd_digital_decoder_runs WHERE instance_id=$1 AND run_id=$2 FOR UPDATE',
         [job.instanceId, job.jobId],
       );
-      if (!run.rows[0] || run.rows[0]['state'] === 'cancelled')
+      if (
+        !run.rows[0] ||
+        run.rows[0]['state'] === 'cancelled' ||
+        run.rows[0]['requested_by'] !== actorId ||
+        run.rows[0]['radio_id'] !== source.radioId ||
+        run.rows[0]['artifact_id'] !== artifactId
+      )
         throw new SignalDockError(
           'OPERATION_CONFLICT',
           'Decoder run was cancelled or removed.',
@@ -256,6 +294,13 @@ export function createDigitalDecodeHandler(deps: {
           'DEADLINE_EXCEEDED',
           'Decoder job expired before commit.',
         );
+      await deps.authorizeActor(
+        job.instanceId,
+        actorId,
+        source.radioId,
+        transaction,
+      );
+      signal.throwIfAborted();
       // Nested repository transactions reuse this locked transaction instead of opening a new connection.
       const scoped: DatabasePort = {
         query: (text, values) => transaction.query(text, values),

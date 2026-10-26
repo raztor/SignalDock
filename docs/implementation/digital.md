@@ -10,7 +10,7 @@ No decoder receives radio control, PTT, user file paths, shell commands, process
 
 ## Integration requirements
 
-Add the decoder workspace to TypeScript project references and the API's dependencies. Add `maplibre-gl` 6.16.0 and `expo-crypto` 58.0.7 to the Expo application. Apply migration 045 after the shared/history foundations. Compose routes with the instance authentication service. Register `digital.decode` on the shared job worker with private storage and an available-recording context resolver. Terminal `execution.commit` must validate source revision/deletion and active job/cancellation/deadline in the same transaction as writes.
+Add the decoder workspace to TypeScript project references and the API's dependencies. Add `maplibre-gl` 6.16.0 and `expo-crypto` 58.0.7 to the Expo application. Apply migration 045 after the shared/history foundations. Compose routes with the instance authentication service. Register `digital.decode` on the shared job worker with private storage an available-recording context resolver, and a required `authorizeActor` current-identity/grant checker. The checker must use its supplied database, perform no external calls, and hold current identity/grant rows through terminal publication. Decoder execution checks its persisted originating user before reading audio and again before writing results. Identity revocation hooks that cancel jobs should run after the identity mutation commits to preserve lock ordering. Terminal `execution.commit` must validate source revision/deletion and active job/cancellation/deadline in the same transaction as writes.
 
 The public packet/position DTOs come from `@signaldock/contracts`; decoder job views and audio result formats belong to this module. The frontend consumes the shared API request/session helpers and accepts an optional configured HTTPS map style. Default mapping contacts no tile service. Compose the history `onDeleteSource` callback with `removeDigitalRecordingDerivatives` for each source artifact so already-stored derived evidence follows source deletion.
 
@@ -23,7 +23,7 @@ The following checks passed locally using Node 24 and PostgreSQL 18.4 in unique 
 - Real DTMF synthetic audio with timed output and silence/single-tone rejection.
 - An actual FFmpeg SBC encode/decode round trip of the synthetic packet audio followed by successful decoding. This is a separate compressed-audio fixture, not live Bluetooth evidence.
 - Child process cancellation/deadline handling and invalid WAVE rejection.
-- PostgreSQL packet isolation across instances/radios, repeated source IDs, pagination, original malformed/ambiguous evidence, recording scheduling/result transactions, and rejected terminal commits.
+- PostgreSQL packet isolation across instances/radios, repeated source IDs, pagination, original malformed/ambiguous evidence, recording scheduling/result transactions, rejected terminal commits, and permissions revoked before execution or during decoding.
 - Pure map-model station scope, freshness, and source-separated tracks.
 
 Reproduce with `vitest run services/digital-decoders/test apps/api/test/aprs.test.ts apps/client/src/features/aprs/map-model.test.ts`. Set `TEST_DATABASE_URL` to an expendable test PostgreSQL database for SQL checks; absent configuration skips them explicitly. The SBC test requires local FFmpeg and skips explicitly when unavailable.
