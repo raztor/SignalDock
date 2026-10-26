@@ -125,9 +125,10 @@ final class StreamingTransport: NSObject, NSApplicationDelegate, IOBluetoothRFCO
         guard let active = channel, active.isOpen() else { return kIOReturnNotOpen }
         let mtu = max(1, Int(active.getMTU()))
         var bytes = [UInt8](data)
-        for offset in stride(from: 0, to: bytes.count, by: mtu) {
+        let count = bytes.count
+        for offset in stride(from: 0, to: count, by: mtu) {
             let status = bytes.withUnsafeMutableBytes { buffer in
-                active.writeSync(buffer.baseAddress!.advanced(by: offset), length: UInt16(min(mtu, bytes.count - offset)))
+                active.writeSync(buffer.baseAddress!.advanced(by: offset), length: UInt16(min(mtu, count - offset)))
             }
             if status != kIOReturnSuccess { return status }
         }

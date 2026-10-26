@@ -65,11 +65,15 @@ The image includes Python, FFmpeg and the bindings, runs as UID 10001, and accep
 ```sh
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=services/drivers/vgc-benlink/src \
   .venv-driver/bin/python -m unittest discover -s services/drivers/vgc-benlink/test -v
-swiftc -swift-version 5 -typecheck services/drivers/vgc-benlink/transports/macos/streaming_transport.swift
+swiftc -swift-version 5 -module-cache-path /private/tmp/signaldock-vgc-swift-cache \
+  services/drivers/vgc-benlink/transports/macos/streaming_transport.swift \
+  -o /private/tmp/signaldock-vgc-transport-check
 bash -n services/drivers/vgc-benlink/transports/macos/run_streaming_transport.sh
 ```
 
 The automated suite uses fake BLE/RFCOMM ports, real synthetic PCM↔SBC conversion through FFmpeg, and an actual authenticated Unix gRPC client/server. It covers fences, stale revisions/generations, failed restoration, private recovery files, cancellation during opening, conflicting prepares, stream ownership, local expiry, absolute limits, stop uncertainty and bounded RX gaps. It never opens Bluetooth. `test/rpc_fixture.py --socket ... --radio-id ... --token ...` exposes the same service in a separate process with fake control/audio for cross-language conformance tests; fixture results are not hardware evidence.
+
+On Mac, the suite fully compiles and links the native helper without launching it. Swift type checking alone does not cover exclusivity lowering/code generation. A fake launcher-exit test also verifies that an early compile/launch failure is surfaced immediately instead of waiting through the hardware-opening deadline.
 
 Earlier Mac discovery, frequency, RX voice and two-tone TX results remain in [hardware validation](../hardware-validation.md). They validate the earlier proof tooling, not this continuous service/helper. Pending gates are sustained physical RX, browser microphone TX, observed carrier release, opening cancellation, process/network interruptions, memory restoration/recovery, native permission handling, clean Linux/ARM64 installation and physical Linux/Raspberry Pi validation. Only a coordinated prepared-observer test may access RF.
 

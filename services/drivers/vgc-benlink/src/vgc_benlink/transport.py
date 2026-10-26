@@ -90,16 +90,30 @@ class MacNativeTransport:
 
         self.server = await asyncio.start_unix_server(accepted, path=str(path), limit=16384)
         os.chmod(path, 0o600)
+        exited = None
         try:
             self.process = await asyncio.create_subprocess_exec("bash", str(self.launcher), str(path), self.config.classic_address,
                 str(self.config.audio_channel), stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL)
-            self.reader, self.writer = await asyncio.wait_for(connected, self.config.audio_open_timeout + 15)
+            exited = asyncio.create_task(self.process.wait())
+            done, _ = await asyncio.wait((connected, exited), timeout=self.config.audio_open_timeout + 15,
+                return_when=asyncio.FIRST_COMPLETED)
+            if connected not in done:
+                if exited in done:
+                    raise DriverError("RADIO_UNAVAILABLE", "The native launcher exited before opening its private IPC connection (exit " + str(exited.result()) + ").")
+                raise DriverError("DEADLINE_EXCEEDED", "The native launcher did not connect before its opening deadline.")
+            self.reader, self.writer = connected.result()
             message = json.loads(await asyncio.wait_for(self.reader.readline(), self.config.audio_open_timeout))
             if message.get("type") != "ready":
                 raise DriverError("RADIO_UNAVAILABLE", "The native helper did not open the configured radio.")
         except BaseException:
             await self.close()
             raise
+        finally:
+            if not connected.done():
+                connected.cancel()
+            if exited is not None:
+                exited.cancel()
+                await asyncio.gather(exited, return_exceptions=True)
 
     async def receive(self):
         while self.reader is not None:
