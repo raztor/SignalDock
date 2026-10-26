@@ -6,6 +6,8 @@ The backend/runtime owns authorization and local TX expiry. A screen cannot subs
 
 Application navigation must await `stopActiveMedia` before accepting a different server, account or radio. Native audio remains disabled until development-build validation passes.
 
+Pass `mediaAvailable={serverInfo.features.liveAudio}` to `MediaScreen`. It defaults to unavailable, loads the authenticated `RadioView` through its shared schema, and disables unsupported listening/PTT with reasons based on server configuration, capabilities, radio state, per-radio permissions and control ownership. The backend remains authoritative for same-account sessions and all transmission admission.
+
 Implementation and outstanding acceptance gates: [media.md](../../../../../docs/implementation/media.md).
 
 Specification: [05-audio-ptt.md](../../../../../docs/specifications/05-audio-ptt.md).
