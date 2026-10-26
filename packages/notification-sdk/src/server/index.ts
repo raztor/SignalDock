@@ -12,3 +12,8 @@ export {
   type RelayDeliveryPort,
   type RelayGrantInspection,
 } from './relay-client.js';
+export {
+  notificationDeliveryHandler,
+  notificationRevocationHandler,
+  type NotificationDeliveryService,
+} from './jobs.js';
