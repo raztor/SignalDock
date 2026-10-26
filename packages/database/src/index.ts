@@ -5,7 +5,11 @@ import {
   type PoolConfig,
   type QueryResultRow,
 } from 'pg';
-import type { DatabasePort, MigrationDefinition } from '@signaldock/contracts';
+import {
+  IdSchema,
+  type DatabasePort,
+  type MigrationDefinition,
+} from '@signaldock/contracts';
 export type { MigrationDefinition } from '@signaldock/contracts';
 
 class TransactionDatabase implements DatabasePort {
@@ -202,9 +206,11 @@ export async function dispatchOutbox(
     payload: unknown;
   }) => Promise<void>,
   limit = 50,
+  instanceId?: string,
 ): Promise<number> {
   if (!Number.isInteger(limit) || limit < 1 || limit > 500)
     throw new Error('Invalid outbox batch limit.');
+  if (instanceId !== undefined) IdSchema.parse(instanceId);
   return database.transaction(async (tx) => {
     const batch = await tx.query<{
       instance_id: string;
@@ -213,8 +219,8 @@ export async function dispatchOutbox(
       radio_id: string | null;
       payload: unknown;
     }>(
-      "SELECT instance_id,id,type,radio_id,payload FROM sd_event_outbox WHERE delivered_at IS NULL AND type <> 'job.enqueue' ORDER BY occurred_at,id FOR UPDATE SKIP LOCKED LIMIT $1",
-      [limit],
+      `SELECT instance_id,id,type,radio_id,payload FROM sd_event_outbox WHERE delivered_at IS NULL AND type <> 'job.enqueue'${instanceId === undefined ? '' : ' AND instance_id=$2::uuid'} ORDER BY occurred_at,id FOR UPDATE SKIP LOCKED LIMIT $1`,
+      instanceId === undefined ? [limit] : [limit, instanceId],
     );
     for (const row of batch.rows) {
       await deliver({

@@ -110,4 +110,71 @@ describe.skipIf(!url)('real PostgreSQL infrastructure', () => {
     ).toBe(0);
     expect(received).toEqual([id]);
   });
+  it('locks and dispatches only the selected station even with colliding event identifiers', async () => {
+    const stationA = crypto.randomUUID(),
+      stationB = crypto.randomUUID(),
+      id = crypto.randomUUID();
+    // B is older; filtering must happen before ordering, limits, and row locks.
+    await appendOutbox(db, {
+      instanceId: stationB,
+      id,
+      type: 'fixture.station',
+      payload: { station: 'B' },
+    });
+    await appendOutbox(db, {
+      instanceId: stationA,
+      id,
+      type: 'fixture.station',
+      payload: { station: 'A' },
+    });
+    await appendOutbox(db, {
+      instanceId: stationA,
+      id: crypto.randomUUID(),
+      type: 'job.enqueue',
+      payload: {},
+    });
+    const received: { instanceId: string; id: string; payload: unknown }[] = [];
+    expect(
+      await dispatchOutbox(
+        db,
+        async (event) => {
+          received.push(event);
+        },
+        1,
+        stationA,
+      ),
+    ).toBe(1);
+    expect(received).toMatchObject([
+      { instanceId: stationA, id, payload: { station: 'A' } },
+    ]);
+    expect(
+      (
+        await db.query<{ delivered_at: Date | null }>(
+          'SELECT delivered_at FROM sd_event_outbox WHERE instance_id=$1 AND id=$2',
+          [stationB, id],
+        )
+      ).rows[0]?.delivered_at,
+    ).toBeNull();
+    expect(
+      await dispatchOutbox(
+        db,
+        async () => {
+          throw new Error('No more station A events.');
+        },
+        50,
+        stationA,
+      ),
+    ).toBe(0);
+    // Existing unscoped callers retain their original behavior.
+    expect(
+      await dispatchOutbox(db, async (event) => {
+        received.push(event);
+      }),
+    ).toBe(1);
+    expect(received[1]).toMatchObject({
+      instanceId: stationB,
+      id,
+      payload: { station: 'B' },
+    });
+  });
 });
