@@ -45,6 +45,7 @@ export interface IdentityRepository {
   hasUsers(): Promise<boolean>;
   findUserByName(username: string): Promise<IdentityUserRecord | null>;
   findUser(id: string): Promise<IdentityUserRecord | null>;
+  lockUser(id: string): Promise<IdentityUserRecord | null>;
   listUsers(): Promise<IdentityUserRecord[]>;
   createUser(user: IdentityUserRecord): Promise<void>;
   updateUser(user: IdentityUserRecord): Promise<void>;
@@ -116,6 +117,15 @@ export class SqlIdentityRepository implements IdentityRepository {
     const row = (
       await this.database.query(
         'SELECT * FROM sd_users WHERE instance_id=$1 AND id=$2',
+        [this.instanceId, id],
+      )
+    ).rows[0];
+    return row ? this.user(row) : null;
+  }
+  async lockUser(id: string): Promise<IdentityUserRecord | null> {
+    const row = (
+      await this.database.query(
+        'SELECT * FROM sd_users WHERE instance_id=$1 AND id=$2 FOR UPDATE',
         [this.instanceId, id],
       )
     ).rows[0];

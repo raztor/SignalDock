@@ -163,6 +163,101 @@ describe.skipIf(!connectionString)(
         service.login({ username: 'listener', password, sessionMode: 'token' }),
       ).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
     });
+    it.each(['password_reset', 'permissions', 'sessions'] as const)(
+      'rejects a verified login completed after %s invalidated its user version',
+      async (change) => {
+        const a = await admin();
+        const user = await service.createUser(a.principal, {
+          username: 'pending-user',
+          password,
+          role: 'operator',
+        });
+        let entered!: () => void;
+        let release!: () => void;
+        const verificationEntered = new Promise<void>((resolve) => {
+          entered = resolve;
+        });
+        const verificationRelease = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        const delayedPasswords: PasswordHasher = {
+          ...fixturePasswords,
+          verify: async (hash, value) => {
+            const valid = await fixturePasswords.verify(hash, value);
+            entered();
+            await verificationRelease;
+            return valid;
+          },
+        };
+        const delayed = new IdentityService({
+          instanceId,
+          repository: new SqlIdentityRepository(db, instanceId),
+          passwords: delayedPasswords,
+          now: () => now,
+        });
+        const login = delayed.login({
+          username: user.username,
+          password,
+          sessionMode: 'token',
+        });
+        await verificationEntered;
+        if (change === 'password_reset')
+          await service.resetPassword(
+            a.principal,
+            user.id,
+            'replacement password 123',
+          );
+        if (change === 'permissions')
+          await service.updateUser(a.principal, user.id, { role: 'listener' });
+        if (change === 'sessions')
+          await service.revokeUserSessions(a.principal, user.id);
+        release();
+        await expect(login).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+        const rows = await db.query(
+          'SELECT id FROM sd_sessions WHERE instance_id=$1 AND user_id=$2 AND revoked_at IS NULL',
+          [instanceId, user.id],
+        );
+        expect(rows.rows).toHaveLength(0);
+      },
+    );
+    it('serializes duplicate usernames and returns a domain conflict', async () => {
+      const a = await admin();
+      const results = await Promise.allSettled([
+        service.createUser(a.principal, {
+          username: 'duplicate',
+          password,
+          role: 'listener',
+        }),
+        service.createUser(a.principal, {
+          username: 'duplicate',
+          password,
+          role: 'listener',
+        }),
+      ]);
+      expect(
+        results.filter((result) => result.status === 'fulfilled'),
+      ).toHaveLength(1);
+      const failure = results.find((result) => result.status === 'rejected');
+      if (failure?.status === 'rejected')
+        expect(failure.reason).toMatchObject({ code: 'OPERATION_CONFLICT' });
+    });
+    it('clips issued access expiry to the absolute refresh-family expiry', async () => {
+      await admin();
+      const short = new IdentityService({
+        instanceId,
+        repository: new SqlIdentityRepository(db, instanceId),
+        passwords: fixturePasswords,
+        now: () => now,
+        accessLifetimeMs: 10000,
+        refreshLifetimeMs: 1000,
+      });
+      const tokens = await short.login({
+        username: 'admin',
+        password,
+        sessionMode: 'token',
+      });
+      expect(Date.parse(tokens.accessExpiresAt)).toBe(now + 1000);
+    });
     it('requires explicit radio scopes even for administrator and rejects listener TX', async () => {
       const a = await admin();
       await expect(

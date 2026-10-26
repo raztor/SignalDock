@@ -193,15 +193,22 @@ export class IdentityService
       input.password,
     );
     if (!valid || !user?.enabled) throw unauthorized();
-    const { session, tokens, refreshHash } = this.issue(
-      user,
-      input.sessionMode,
-      input.label ?? '',
-    );
-    await this.repository.transaction((repository) =>
-      repository.createSession(session, refreshHash),
-    );
-    return tokens;
+    return this.repository.transaction(async (repository) => {
+      const current = await repository.lockUser(user.id);
+      if (
+        !current?.enabled ||
+        current.authVersion !== user.authVersion ||
+        current.passwordHash !== user.passwordHash
+      )
+        throw unauthorized();
+      const { session, tokens, refreshHash } = this.issue(
+        current,
+        input.sessionMode,
+        input.label ?? '',
+      );
+      await repository.createSession(session, refreshHash);
+      return tokens;
+    });
   }
   async refresh(
     refreshToken: string,
@@ -406,6 +413,7 @@ export class IdentityService
       radioPermissions: this.grants(role, input.radioPermissions ?? []),
     };
     await this.repository.transaction(async (repository) => {
+      await repository.lockBootstrap();
       if (await repository.findUserByName(username))
         throw new SignalDockError(
           'OPERATION_CONFLICT',
@@ -424,7 +432,7 @@ export class IdentityService
     IdSchema.parse(userId);
     const outcome = await this.repository.transaction(async (repository) => {
       const administrators = await repository.lockAdministrators();
-      const current = await repository.findUser(userId);
+      const current = await repository.lockUser(userId);
       if (!current) throw new SignalDockError('NOT_FOUND', 'Unknown user.');
       const role = RoleSchema.parse(input.role ?? current.role);
       const enabled = input.enabled ?? current.enabled;
@@ -472,12 +480,16 @@ export class IdentityService
   ): Promise<number> {
     await this.authorize(principal, 'instance.admin');
     IdSchema.parse(userId);
-    if (!(await this.repository.findUser(userId)))
-      throw new SignalDockError('NOT_FOUND', 'Unknown user.');
-    const sessionIds = await this.repository.revokeUserSessions(
-      userId,
-      this.timestamp(),
-    );
+    const sessionIds = await this.repository.transaction(async (repository) => {
+      const user = await repository.lockUser(userId);
+      if (!user) throw new SignalDockError('NOT_FOUND', 'Unknown user.');
+      await repository.updateUser({
+        ...user,
+        authVersion: user.authVersion + 1,
+        updatedAt: this.timestamp(),
+      });
+      return repository.revokeUserSessions(userId, this.timestamp());
+    });
     await this.revoked(userId, sessionIds, 'administrator');
     return sessionIds.length;
   }
@@ -491,7 +503,7 @@ export class IdentityService
     this.password(password);
     const hash = await this.passwords.hash(password);
     const sessionIds = await this.repository.transaction(async (repository) => {
-      const user = await repository.findUser(userId);
+      const user = await repository.lockUser(userId);
       if (!user) throw new SignalDockError('NOT_FOUND', 'Unknown user.');
       await repository.updateUser({
         ...user,
@@ -526,8 +538,11 @@ export class IdentityService
     const refreshToken = this.token('r');
     const csrfToken = randomBytes(32).toString('base64url');
     const now = this.timestamp();
+    const refreshExpiresAt =
+      existing?.refreshExpiresAt ??
+      new Date(this.now() + this.refreshLifetime).toISOString();
     const accessExpiresAt = new Date(
-      this.now() + this.accessLifetime,
+      Math.min(this.now() + this.accessLifetime, Date.parse(refreshExpiresAt)),
     ).toISOString();
     const session: IdentitySessionRecord = {
       id: existing?.id ?? randomUUID(),
@@ -537,9 +552,7 @@ export class IdentityService
       csrfTokenHash: digest(csrfToken),
       mode,
       accessExpiresAt,
-      refreshExpiresAt:
-        existing?.refreshExpiresAt ??
-        new Date(this.now() + this.refreshLifetime).toISOString(),
+      refreshExpiresAt,
       revokedAt: null,
       createdAt: existing?.createdAt ?? now,
       lastSeenAt: now,

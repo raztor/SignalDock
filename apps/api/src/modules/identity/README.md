@@ -38,3 +38,5 @@ The existing instance identity must be present. The command prompts without echo
 `apps/api/test/identity.test.ts` exercises real PostgreSQL migrations, concurrent bootstrap/refresh, token reuse revocation, scope/role checks, instance isolation, expiry, password recovery, and cookie/CSRF handling. Set `SIGNALDOCK_TEST_DATABASE_URL` to run the database cases. The password adapter test uses real Argon2id; deterministic password fixtures accelerate the database scenarios.
 
 See the [identity specification](../../../../../docs/specifications/03-identity-administration.md) and [session specification](../../../../../docs/specifications/01-servers-sessions.md).
+
+Login verifies passwords before acquiring a user-row lock, then rechecks enabled status, password hash, and authentication version before inserting the session. Password, role/grant, and administrative session revocations increment this version under the same lock, preventing a verification started earlier from creating a session after revocation. User edits are serialized; new-user creation serializes the username conflict check. Access expiry never exceeds the absolute refresh-family expiry.
