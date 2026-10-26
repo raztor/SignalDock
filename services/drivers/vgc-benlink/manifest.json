@@ -1,28 +1,63 @@
 {
   "driverId": "vgc-benlink",
   "version": "0.1.0",
-  "driverApi": {"min": 1, "max": 1},
+  "driverApi": { "min": 1, "max": 1 },
   "supportedDeviceFamilies": ["VGC VR-N7500"],
   "verification": "experimental",
   "entrypoint": "signaldock-vgc",
-  "hostAccess": ["Bluetooth BLE", "Bluetooth Classic RFCOMM", "FFmpeg", "macOS IOBluetooth development helper"],
+  "hostAccess": [
+    "Bluetooth BLE",
+    "Bluetooth Classic RFCOMM",
+    "FFmpeg",
+    "macOS IOBluetooth development helper"
+  ],
   "configurationSchema": {
     "type": "object",
     "additionalProperties": false,
     "required": ["radioId", "bleAddress", "classicAddress"],
     "properties": {
-      "radioId": {"type": "string", "format": "uuid"},
-      "bleAddress": {"type": "string", "minLength": 1},
-      "classicAddress": {"type": "string", "minLength": 1},
-      "audioChannel": {"type": "integer", "minimum": 1, "maximum": 30, "default": 2},
-      "workingMemoryId": {"type": "integer", "minimum": 0, "maximum": 255},
-      "allowExperimentalTx": {"type": "boolean", "default": false},
-      "maxTxSeconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 30, "default": 30},
-      "idleTxSeconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 1.5, "default": 1.5},
-      "audioOpenTimeout": {"type": "number", "exclusiveMinimum": 0, "maximum": 15, "default": 10},
-      "drainSeconds": {"type": "number", "minimum": 0, "maximum": 3, "default": 1.5},
-      "ffmpeg": {"type": "string", "minLength": 1, "default": "ffmpeg"}
+      "radioId": { "type": "string", "format": "uuid" },
+      "bleAddress": { "type": "string", "minLength": 1 },
+      "classicAddress": { "type": "string", "minLength": 1 },
+      "audioChannel": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 30,
+        "default": 2
+      },
+      "workingMemoryId": { "type": "integer", "minimum": 0, "maximum": 255 },
+      "allowExperimentalTx": { "type": "boolean", "default": false },
+      "maxTxSeconds": {
+        "type": "number",
+        "exclusiveMinimum": 0,
+        "maximum": 30,
+        "default": 30
+      },
+      "idleTxSeconds": {
+        "type": "number",
+        "exclusiveMinimum": 0,
+        "maximum": 1.5,
+        "default": 1.5
+      },
+      "audioOpenTimeout": {
+        "type": "number",
+        "exclusiveMinimum": 0,
+        "maximum": 15,
+        "default": 10
+      },
+      "drainSeconds": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 3,
+        "default": 1.5
+      },
+      "ffmpeg": { "type": "string", "minLength": 1, "default": "ffmpeg" }
     }
   },
-  "quirks": ["Memory-based tuning requires an explicitly reserved working memory", "curr_ch_id does not establish effective frequency", "Streaming TX requires explicit opt-in and physical acceptance", "Only the configured device is opened; no discovery by name"]
+  "quirks": [
+    "Memory-based tuning requires an explicitly reserved working memory",
+    "curr_ch_id does not establish effective frequency",
+    "Streaming TX requires explicit opt-in and physical acceptance",
+    "Only the configured device is opened; no discovery by name"
+  ]
 }
