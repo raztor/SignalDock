@@ -81,6 +81,16 @@ export const SessionTokensSchema = z.strictObject({
   user: PublicUserSchema,
 });
 export type SessionTokens = z.infer<typeof SessionTokensSchema>;
+export const SessionSummarySchema = z.object({
+  id,
+  createdAt: timestamp,
+  lastSeenAt: timestamp,
+  refreshExpiresAt: timestamp,
+  revokedAt: timestamp.nullable(),
+  label: z.string(),
+  current: z.boolean(),
+});
+export type SessionSummary = z.infer<typeof SessionSummarySchema>;
 export const CreateUserRequestSchema = z.strictObject({
   username: z.string().min(1).max(100),
   password: z.string().min(12).max(1024),
@@ -355,36 +365,38 @@ export const IncidentRecordSchema = z.strictObject({
 });
 export type IncidentRecord = z.infer<typeof IncidentRecordSchema>;
 export type PacketSource = 'native' | 'recording' | 'aprs_is';
-export interface PositionRecord {
-  positionId: string;
-  packetId: string;
-  instanceId: string;
-  radioId: string;
-  callsign: string;
-  lat: number;
-  lon: number;
-  symbol?: string;
-  receivedAt: string;
-  source: PacketSource;
-}
-export interface PacketRecord {
-  packetId: string;
-  instanceId: string;
-  radioId: string;
-  receivedAt: string;
-  source: PacketSource;
-  rawFrameBase64?: string;
-  rawText?: string;
-  frequencyHz?: number;
-  attribution: 'confirmed' | 'inferred' | 'unknown';
-  parserVersion: string;
-  callsign?: string;
-  destination?: string;
-  path: string[];
-  kind: string;
-  parsed?: Record<string, unknown>;
-  position?: PositionRecord;
-}
+export const PositionRecordSchema = z.object({
+  positionId: id,
+  packetId: id,
+  instanceId: id,
+  radioId: id,
+  callsign: z.string(),
+  lat: z.number().min(-90).max(90),
+  lon: z.number().min(-180).max(180),
+  symbol: z.string().optional(),
+  receivedAt: timestamp,
+  source: z.enum(['native', 'recording', 'aprs_is']),
+});
+export type PositionRecord = z.infer<typeof PositionRecordSchema>;
+export const PacketRecordSchema = z.object({
+  packetId: id,
+  instanceId: id,
+  radioId: id,
+  receivedAt: timestamp,
+  source: z.enum(['native', 'recording', 'aprs_is']),
+  rawFrameBase64: z.string().optional(),
+  rawText: z.string().optional(),
+  frequencyHz: z.number().int().positive().optional(),
+  attribution: z.enum(['confirmed', 'inferred', 'unknown']),
+  parserVersion: z.string(),
+  callsign: z.string().optional(),
+  destination: z.string().optional(),
+  path: z.array(z.string()),
+  kind: z.string(),
+  parsed: z.record(z.string(), z.unknown()).optional(),
+  position: PositionRecordSchema.optional(),
+});
+export type PacketRecord = z.infer<typeof PacketRecordSchema>;
 export type NotificationCategory =
   | 'communication'
   | 'transcript'
@@ -520,6 +532,9 @@ export interface HistoryQuery {
 }
 
 export const applicationSchemas = {
+  SessionSummary: SessionSummarySchema,
+  PacketRecord: PacketRecordSchema,
+  PositionRecord: PositionRecordSchema,
   IncidentEvidence: IncidentEvidenceSchema,
   IncidentRecord: IncidentRecordSchema,
   CreateUserRequest: CreateUserRequestSchema,

@@ -17,7 +17,8 @@ export async function apiFetch(
 ): Promise<Response> {
   const routePath = path.split('?')[0]!;
   if (
-    !/^[a-zA-Z0-9][a-zA-Z0-9/_?=&.%:-]*$/.test(path) ||
+    !/^[a-zA-Z0-9][a-zA-Z0-9/_.%:-]*$/.test(routePath) ||
+    /[#\r\n\\]/.test(path) ||
     routePath.includes('..') ||
     path.includes('://') ||
     /%2[fFeE]/i.test(routePath)
@@ -29,6 +30,15 @@ export async function apiFetch(
   }
   const baseUrl = normalizeServerUrl(session.baseUrl);
   const url = new URL(`api/v1/${path}`, baseUrl);
+  if (
+    url.origin !== new URL(baseUrl).origin ||
+    !url.pathname.startsWith(new URL('api/v1/', baseUrl).pathname)
+  ) {
+    throw new SignalDockError(
+      'INVALID_ARGUMENT',
+      'API route escapes the selected instance.',
+    );
+  }
   const headers = new Headers(init.headers);
   headers.set('Accept', 'application/json');
   headers.set('Authorization', `Bearer ${session.accessToken}`);

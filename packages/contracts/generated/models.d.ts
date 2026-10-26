@@ -1,4 +1,59 @@
 // Generated from contract schemas. Run npm run generate:contracts.
+export interface SessionSummary {
+  id: string;
+  createdAt: string;
+  lastSeenAt: string;
+  refreshExpiresAt: string;
+  revokedAt: string | null;
+  label: string;
+  current: boolean;
+}
+
+export interface PacketRecord {
+  packetId: string;
+  instanceId: string;
+  radioId: string;
+  receivedAt: string;
+  source: "native" | "recording" | "aprs_is";
+  rawFrameBase64?: string;
+  rawText?: string;
+  frequencyHz?: number;
+  attribution: "confirmed" | "inferred" | "unknown";
+  parserVersion: string;
+  callsign?: string;
+  destination?: string;
+  path: string[];
+  kind: string;
+  parsed?: {
+    [k: string]: unknown;
+  };
+  position?: {
+    positionId: string;
+    packetId: string;
+    instanceId: string;
+    radioId: string;
+    callsign: string;
+    lat: number;
+    lon: number;
+    symbol?: string;
+    receivedAt: string;
+    source: "native" | "recording" | "aprs_is";
+  };
+}
+
+export interface PositionRecord {
+  positionId: string;
+  packetId: string;
+  instanceId: string;
+  radioId: string;
+  callsign: string;
+  lat: number;
+  lon: number;
+  symbol?: string;
+  receivedAt: string;
+  source: "native" | "recording" | "aprs_is";
+}
+
 export interface IncidentEvidence {
   communicationId: string;
   transcriptRevisionId?: string;
