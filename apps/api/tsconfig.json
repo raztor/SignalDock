@@ -12,6 +12,12 @@
     },
     {
       "path": "../../packages/database"
+    },
+    {
+      "path": "../../services/radio-runtime"
+    },
+    {
+      "path": "../../packages/radio-driver-sdk"
     }
   ]
 }
