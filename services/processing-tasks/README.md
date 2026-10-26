@@ -11,6 +11,8 @@ This package supplies versioned tasks and deterministic local implementations. T
 
 Install the three extension tasks with `registerAnalysisTasks(registry)`. Register `new LocalAnalysisConnector(rules)` for processing without cloud credentials. Generic connectors consume each task's `describePrompt` and `normalizeOutput`; adding a task does not require a provider-dispatch or radio change. Local algorithms remain explicit implementations of their supported tasks.
 
+Embedded job runners and standalone workers share `createLocalTranscriptAnalysisHandler(service)` and `createRuleAnalysisHandler(service)`. These factories accept structural service ports, require a matching versioned job source, and forward the terminal commit context. They do not import application code.
+
 Extraction and classification require one transcript communication per request. Every finding cites its communication ID, exact quote, and zero-based JavaScript UTF-16 start/end offsets. A normalizer rejects invented quotes, unrelated sources, and envelope references. Empty findings are valid. A callsign candidate never authenticates the speaker; a named place never establishes a geographic position.
 
 Local incident rules support enabled state, priority, radio scope, confirmed-frequency bounds, and source-time bounds. Phrases are escaped literals, with a small English/Spanish negation heuristic. There are at most 100 rules, 30 phrases per rule, and 20 evidence matches per rule. Unknown frequencies do not satisfy frequency bounds. Detection does not provide complete emergency coverage; an unsupported or negative finding must not close an incident automatically.

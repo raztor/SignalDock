@@ -23,7 +23,7 @@ import { configureHttp } from '../src/shared/http/configure-http.js';
 import {
   createLocalTranscriptAnalysisHandler,
   createRuleAnalysisHandler,
-} from '../../worker/src/handlers/analysis.js';
+} from '@signaldock/processing-tasks';
 
 const url = process.env['TEST_DATABASE_URL'];
 describe.skipIf(!url)('incident source integrity on PostgreSQL', () => {

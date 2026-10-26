@@ -26,6 +26,7 @@ import {
 } from './local-analysis.js';
 export * from './schemas.js';
 export * from './local-analysis.js';
+export * from './handlers.js';
 
 export interface AnalysisTaskDefinition extends ProcessingTaskDefinition {
   describePrompt(request: ProcessingRequest): {
