@@ -1,0 +1,23 @@
+{
+  "name": "@signaldock/push-relay",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "scripts": {
+    "start": "node dist/main.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "dependencies": {
+    "@signaldock/contracts": "*",
+    "@signaldock/database": "*",
+    "@signaldock/notification-sdk": "*",
+    "fastify": "5.12.7",
+    "zod": "4.6.7"
+  }
+}
