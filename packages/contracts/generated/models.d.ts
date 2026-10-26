@@ -1,4 +1,15 @@
 // Generated from contract schemas. Run npm run generate:contracts.
+export interface CoverageInterval {
+  id: string;
+  radioId: string;
+  generation: string;
+  frequencyHz?: number;
+  attribution: "confirmed" | "inferred" | "unknown";
+  startedAt: string;
+  endedAt?: string;
+  reason?: string;
+}
+
 export interface SessionSummary {
   id: string;
   createdAt: string;

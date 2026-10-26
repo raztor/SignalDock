@@ -532,7 +532,19 @@ export const CommunicationSchema = z.strictObject({
   deletedAt: timestamp.optional(),
 });
 export type Communication = z.infer<typeof CommunicationSchema>;
+export const CoverageIntervalSchema = z.strictObject({
+  id,
+  radioId: id,
+  generation: id,
+  frequencyHz: z.number().int().positive().optional(),
+  attribution: AttributionSchema,
+  startedAt: timestamp,
+  endedAt: timestamp.optional(),
+  reason: z.string().max(200).optional(),
+});
+export type CoverageInterval = z.infer<typeof CoverageIntervalSchema>;
 export interface HistoryQuery {
+  conversationId?: string;
   radioId?: string;
   frequencyHz?: number;
   search?: string;
@@ -542,6 +554,7 @@ export interface HistoryQuery {
 }
 
 export const applicationSchemas = {
+  CoverageInterval: CoverageIntervalSchema,
   SessionSummary: SessionSummarySchema,
   PacketRecord: PacketRecordSchema,
   PositionRecord: PositionRecordSchema,
