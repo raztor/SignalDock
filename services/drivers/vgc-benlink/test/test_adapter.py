@@ -70,6 +70,58 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(expired.exception.code, "DEADLINE_EXCEEDED")
         self.assertEqual(self.control.tune_calls, 1)
 
+    async def test_runtime_restart_requires_fresh_idle_epoch_before_fence_one(self):
+        await self.driver.tune(operation(self.driver, fencing=7), Tuning(145500000))
+        old_generation = self.driver.state.generation
+        fresh_owner = str(uuid.uuid4())
+        # An ordinary idempotent Connect must not erase the established owner.
+        await self.driver.connect(RADIO)
+        with self.assertRaises(DriverError) as old_owner:
+            await self.driver.tune(operation(self.driver, owner=fresh_owner), Tuning(146000000))
+        self.assertEqual(old_owner.exception.code, "CONTROL_REQUIRED")
+        await self.driver.disconnect()
+        self.control.tx = True
+        with self.assertRaises(DriverError) as transmitting:
+            await self.driver.connect(RADIO)
+        self.assertEqual(transmitting.exception.code, "RADIO_STATE_UNCERTAIN")
+        self.assertEqual(self.driver.state.generation, old_generation)
+        self.assertEqual(self.driver._control_fencing, 7)
+        self.assertEqual(self.driver.state.tx_state, "stop_unconfirmed")
+        self.control.tx = False
+        self.control.fail_observe = True
+        with self.assertRaises(ConnectionError):
+            await self.driver.connect(RADIO)
+        self.assertEqual(self.driver.state.generation, old_generation)
+        self.assertEqual(self.driver._control_fencing, 7)
+        self.control.fail_observe = False
+        state = await self.driver.connect(RADIO)
+        self.assertNotEqual(state.generation, old_generation)
+        self.assertEqual(state.tx_state, "idle")
+        await self.driver.tune(operation(self.driver, owner=fresh_owner), Tuning(146000000))
+        self.assertEqual(self.driver._control_fencing, 1)
+
+    async def test_uncertain_disconnect_retains_owner_until_physical_idle(self):
+        await self.driver.tune(operation(self.driver, fencing=5), Tuning(145500000))
+        old_generation = self.driver.state.generation
+        self.control.fail_observe = True
+        with self.assertRaises(DriverError) as uncertain:
+            await self.driver.disconnect()
+        self.assertEqual(uncertain.exception.code, "RADIO_STATE_UNCERTAIN")
+        self.assertEqual(self.driver.state.generation, old_generation)
+        self.assertEqual(self.driver._control_fencing, 5)
+        self.assertEqual(self.driver.state.tx_state, "stop_unconfirmed")
+        self.control.fail_observe = False
+        self.control.tx = True
+        with self.assertRaises(DriverError):
+            await self.driver.disconnect()
+        self.assertEqual(self.driver.state.generation, old_generation)
+        self.control.tx = False
+        await self.driver.disconnect()
+        self.assertEqual(self.driver.state.generation, old_generation)
+        state = await self.driver.connect(RADIO)
+        self.assertNotEqual(state.generation, old_generation)
+        self.assertEqual(state.tx_state, "idle")
+
     async def test_tx_opt_in_is_required(self):
         self.driver.config = replace(self.config, allow_experimental_tx=False)
         with self.assertRaises(DriverError) as disabled:

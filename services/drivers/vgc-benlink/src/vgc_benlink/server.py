@@ -52,9 +52,11 @@ async def serve(driver: VgcDriver, socket_path: Path, token: str | None = None, 
         await event.wait()
     finally:
         await server.stop(3)
-        await driver.disconnect()
-        if socket_path.exists() and socket_path.stat().st_ino == inode:
-            socket_path.unlink()
+        try:
+            await driver.disconnect()
+        finally:
+            if socket_path.exists() and socket_path.stat().st_ino == inode:
+                socket_path.unlink()
 
 
 def main():

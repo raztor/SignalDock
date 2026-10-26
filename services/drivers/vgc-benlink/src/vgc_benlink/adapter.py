@@ -133,19 +133,25 @@ class VgcDriver:
         self._check_radio(radio_id)
         if self.state.connection != "disconnected":
             return self.snapshot()
-        self.state = Snapshot(self.config.radio_id, connection="connecting", tx_state="unknown")
-        self.last_tx = TxObservation(self.config.radio_id, self.state.generation, "", "idle", False)
-        self._sequence = 0
-        self._events.clear()
-        self._operations.clear()
-        self._used_tx_grants.clear()
-        self._control_fencing = self._last_tx_fencing = 0
-        self._completed_tx_fencing = 0
-        self._control_owner = None
-        self._rx_sequence = self._rx_samples = 0
+        # A restarted runtime must explicitly disconnect/connect. Retain the old
+        # epoch and fences until fresh hardware readback proves control is idle.
+        self.state.connection = "connecting"
         try:
             async with self._control_lock:
                 observation = await asyncio.wait_for(self.control.connect(), 20)
+            if observation.tx_active is not False or (self._opening is not None and not self._opening.done()):
+                self.state.tx_state = "stop_unconfirmed"
+                raise DriverError("RADIO_STATE_UNCERTAIN", "A fresh physical idle observation and settled audio opening are required before resetting control ownership.")
+            self.state = Snapshot(self.config.radio_id, connection="connecting", tx_state="unknown")
+            self.last_tx = TxObservation(self.config.radio_id, self.state.generation, "", "idle", False)
+            self._sequence = 0
+            self._events.clear()
+            self._operations.clear()
+            self._used_tx_grants.clear()
+            self._control_fencing = self._last_tx_fencing = 0
+            self._completed_tx_fencing = 0
+            self._control_owner = None
+            self._rx_sequence = self._rx_samples = 0
             self._apply_observation(observation)
             self.state.connection = "ready"
             self.state.revision += 1
@@ -156,7 +162,12 @@ class VgcDriver:
         except BaseException:
             self.state.connection = "disconnected"
             self.state.tuning_confidence = "unknown"
+            self.state.tx_state = "stop_unconfirmed"
             self._publish()
+            try:
+                await asyncio.wait_for(self.control.disconnect(), 5)
+            except BaseException:
+                pass
             raise
 
     async def disconnect(self):
@@ -164,6 +175,9 @@ class VgcDriver:
             await self._disconnect()
 
     async def _disconnect(self):
+        if self.state.connection == "disconnected" and self.state.tx_state == "idle" and self.transport is None and self._opening is None:
+            return
+        was_disconnected = self.state.connection == "disconnected"
         if self.transmission is not None:
             await self.end_tx(self.transmission.grant_id, "driver_disconnect")
         for task in [self._monitor, self._watchdog]:
@@ -172,14 +186,27 @@ class VgcDriver:
         await asyncio.gather(*(task for task in [self._monitor, self._watchdog] if task is not None), return_exceptions=True)
         self._monitor = self._watchdog = None
         await self._close_audio()
+        confirmed = False
         async with self._control_lock:
-            await self.control.disconnect()
+            try:
+                observation = await asyncio.wait_for(self.control.connect() if was_disconnected else self.control.observe(), 20 if was_disconnected else 5)
+                self._apply_observation(observation)
+                confirmed = observation.tx_active is False and (self._opening is None or self._opening.done())
+            except BaseException:
+                pass
+            try:
+                await asyncio.wait_for(self.control.disconnect(), 5)
+            except BaseException:
+                confirmed = False
         self.state.connection = "disconnected"
+        self.state.tx_state = "idle" if confirmed else "stop_unconfirmed"
         self.state.revision += 1
         self._publish()
         for queue in self._subscribers.values():
             self._queue_latest(queue, None)
         self._subscribers.clear()
+        if not confirmed:
+            raise DriverError("RADIO_STATE_UNCERTAIN", "Disconnect could not confirm physical idle; the prior ownership epoch is retained.")
 
     async def reconcile(self):
         async with self._control_lock:
