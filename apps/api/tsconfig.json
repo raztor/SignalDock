@@ -18,6 +18,9 @@
     },
     {
       "path": "../../packages/radio-driver-sdk"
+    },
+    {
+      "path": "../../services/media-gateway"
     }
   ]
 }

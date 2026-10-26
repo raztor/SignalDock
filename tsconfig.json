@@ -26,6 +26,9 @@
       "path": "services/radio-runtime"
     },
     {
+      "path": "services/media-gateway"
+    },
+    {
       "path": "apps/api"
     }
   ]

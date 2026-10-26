@@ -8,6 +8,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./tx": {
+      "types": "./dist/tx/index.d.ts",
+      "default": "./dist/tx/index.js"
     }
   },
   "dependencies": {
