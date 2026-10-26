@@ -173,13 +173,13 @@ try {
     }),
   );
 } finally {
+  await bridge.close();
   active = false;
   await Promise.all(
     readers.map((reader) => reader.cancel().catch(() => undefined)),
   );
   await publisher.disconnect();
   await listener.disconnect();
-  await bridge.close();
   await source.close();
   await track.close();
   await dispose();

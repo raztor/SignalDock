@@ -90,6 +90,7 @@ export class TxSupervisor {
   private readonly leaseMs: number;
   private readonly maxContinuousMs: number;
   private readonly timeoutMs: number;
+  private closed = false;
   constructor(
     private readonly options: {
       runtime: TxRuntimePort;
@@ -121,6 +122,11 @@ export class TxSupervisor {
   }
 
   async start(input: TxStartInput, format: AudioFormat): Promise<TxStatus> {
+    if (this.closed)
+      throw new SignalDockError(
+        'RADIO_UNAVAILABLE',
+        'Transmission supervision is shutting down.',
+      );
     const snapshot = this.options.runtime.snapshot(input.radioId);
     if (snapshot.generation !== input.generation)
       throw new SignalDockError(
@@ -503,6 +509,7 @@ export class TxSupervisor {
     );
   }
   async close(): Promise<void> {
+    this.closed = true;
     if (this.timer) clearInterval(this.timer);
     await Promise.all(
       [...this.active.values()]

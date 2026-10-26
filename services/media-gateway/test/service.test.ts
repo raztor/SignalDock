@@ -142,4 +142,17 @@ describe('media enrollment', () => {
       }),
     ).rejects.toThrow('revoked');
   });
+  it('rejects late admissions and transmission starts after shutdown', async () => {
+    const f = fixture();
+    await f.media.close();
+    await expect(f.start()).rejects.toMatchObject({
+      code: 'RADIO_UNAVAILABLE',
+    });
+    await expect(
+      f.media.createSession(f.principal, 'token', {
+        radioId: f.radioId,
+        mode: 'listen',
+      }),
+    ).rejects.toMatchObject({ code: 'RADIO_UNAVAILABLE' });
+  });
 });

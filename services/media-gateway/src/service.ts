@@ -38,6 +38,7 @@ export class MediaService {
   private readonly sessions = new Map<string, EnrolledSession>();
   private readonly timer: ReturnType<typeof setInterval>;
   private checking = false;
+  private closed = false;
   private readonly pendingAdmissions = new Set<string>();
   private readonly pendingTxParticipants = new Set<string>();
   private readonly preparedSources = new Map<
@@ -86,6 +87,11 @@ export class MediaService {
       txGrantId?: string | undefined;
     },
   ): Promise<MediaSession> {
+    if (this.closed)
+      throw new SignalDockError(
+        'RADIO_UNAVAILABLE',
+        'Media service is shutting down.',
+      );
     if (principal.instanceId !== this.options.instanceId)
       throw new SignalDockError(
         'FORBIDDEN',
@@ -283,6 +289,7 @@ export class MediaService {
     );
   }
   async close(): Promise<void> {
+    this.closed = true;
     clearInterval(this.timer);
     for (const source of this.preparedSources.values())
       source.controller.abort(new Error('Media shutdown.'));

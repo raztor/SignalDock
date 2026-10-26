@@ -163,6 +163,7 @@ export type TuningContextResolver = (
 export class LiveKitRadioBridge {
   private readonly radios = new Map<string, RadioBridge>();
   private readonly opening = new Map<string, Promise<void>>();
+  private closed = false;
   constructor(
     private readonly options: {
       instanceId: string;
@@ -186,6 +187,11 @@ export class LiveKitRadioBridge {
     format: AudioFormat;
     frames: (signal: AbortSignal) => AsyncIterable<PcmAudioFrame>;
   }): Promise<void> {
+    if (this.closed)
+      throw new SignalDockError(
+        'RADIO_UNAVAILABLE',
+        'Media bridge is shutting down.',
+      );
     const existing = this.radios.get(input.radioId);
     if (existing?.generation === input.generation) return;
     const pending = this.opening.get(input.radioId);
@@ -209,6 +215,11 @@ export class LiveKitRadioBridge {
     frames: (signal: AbortSignal) => AsyncIterable<PcmAudioFrame>;
   }): Promise<void> {
     await this.detachRadio(input.radioId);
+    if (this.closed)
+      throw new SignalDockError(
+        'RADIO_UNAVAILABLE',
+        'Media bridge is shutting down.',
+      );
     if (input.format.encoding !== 'pcm_s16le' || input.format.channels !== 1)
       throw new SignalDockError(
         'CAPABILITY_UNSUPPORTED',
@@ -234,8 +245,13 @@ export class LiveKitRadioBridge {
       void this.options.invalidateRadio(input.radioId, 'media_reconnecting');
     });
     room.on(RoomEvent.Disconnected, () => {
-      if (!abort.signal.aborted)
+      if (!abort.signal.aborted) {
         void this.options.invalidateRadio(input.radioId, 'media_disconnected');
+        if (this.radios.get(input.radioId) === bridge)
+          void this.detachRadio(input.radioId).catch((error: unknown) =>
+            this.options.onError?.(input.radioId, error),
+          );
+      }
     });
     try {
       await room.connect(
@@ -251,12 +267,24 @@ export class LiveKitRadioBridge {
         },
       );
       const publication = new TrackPublishOptions();
+      if (this.closed)
+        throw new Error('Media bridge closed during connection.');
       publication.source = TrackSource.SOURCE_MICROPHONE;
       await room.localParticipant!.publishTrack(track, publication);
+      if (this.closed)
+        throw new Error('Media bridge closed during publication.');
       this.radios.set(input.radioId, bridge);
-      bridge.pending = this.publishRx(input, bridge).catch((error: unknown) => {
-        if (!abort.signal.aborted) this.options.onError?.(input.radioId, error);
-      });
+      bridge.pending = this.publishRx(input, bridge)
+        .catch((error: unknown) => {
+          if (!abort.signal.aborted)
+            this.options.onError?.(input.radioId, error);
+        })
+        .finally(() => {
+          if (!abort.signal.aborted)
+            void this.detachRadio(input.radioId).catch((error: unknown) =>
+              this.options.onError?.(input.radioId, error),
+            );
+        });
     } catch (error) {
       abort.abort();
       await room.disconnect().catch(() => undefined);
@@ -394,6 +422,8 @@ export class LiveKitRadioBridge {
     await bridge.track.close();
   }
   async close(): Promise<void> {
+    this.closed = true;
+    await Promise.allSettled([...this.opening.values()]);
     await Promise.all(
       [...this.radios.keys()].map((id) => this.detachRadio(id)),
     );
