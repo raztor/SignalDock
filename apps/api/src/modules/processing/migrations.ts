@@ -1,6 +1,9 @@
 import type { MigrationDefinition } from '@signaldock/contracts';
 
-export const processingMigrations: readonly MigrationDefinition[] = [{ id: '030_processing', sql: `
+export const processingMigrations: readonly MigrationDefinition[] = [
+  {
+    id: '030_processing',
+    sql: `
 CREATE TABLE sd_provider_credentials (
   instance_id uuid NOT NULL, id uuid NOT NULL, owner_user_id uuid,
   envelope jsonb NOT NULL, revision integer NOT NULL DEFAULT 1,
@@ -41,4 +44,6 @@ CREATE TABLE sd_processing_background_consents (
   PRIMARY KEY(instance_id,id), FOREIGN KEY(instance_id,profile_id) REFERENCES sd_processing_profiles(instance_id,id)
 );
 CREATE UNIQUE INDEX sd_processing_one_active_consent ON sd_processing_background_consents(instance_id,radio_id) WHERE enabled=true;
-` }];
+`,
+  },
+];

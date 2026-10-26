@@ -30,6 +30,9 @@
     },
     {
       "path": "../../packages/job-queue"
+    },
+    {
+      "path": "../../services/processing-connectors"
     }
   ]
 }

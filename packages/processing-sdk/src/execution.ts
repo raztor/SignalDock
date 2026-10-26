@@ -1,9 +1,19 @@
-import type { ProcessingCapability, ProcessingRequest, ProcessingResult } from '@signaldock/contracts';
+import type {
+  ProcessingCapability,
+  ProcessingRequest,
+  ProcessingResult,
+} from '@signaldock/contracts';
 
 export type ProviderAuthentication =
   | { kind: 'none' }
   | { kind: 'api-key'; secret: string }
-  | { kind: 'oauth'; accessToken: string; userId: string; accountId: string; workspaceId: string };
+  | {
+      kind: 'oauth';
+      accessToken: string;
+      userId: string;
+      accountId: string;
+      workspaceId: string;
+    };
 
 export interface ProcessingArtifact {
   artifactId: string;
@@ -19,11 +29,20 @@ export interface ProcessingExecutionContext {
   configuration: Readonly<Record<string, unknown>>;
   settings: Readonly<Record<string, unknown>>;
   fetch?: typeof fetch;
-  readArtifact?(artifactId: string, signal: AbortSignal): Promise<ProcessingArtifact>;
-  writeArtifact?(input: { bytes: Uint8Array; contentType: string; jobId: string }, signal: AbortSignal): Promise<{ artifactId: string }>;
+  readArtifact?(
+    artifactId: string,
+    signal: AbortSignal,
+  ): Promise<ProcessingArtifact>;
+  writeArtifact?(
+    input: { bytes: Uint8Array; contentType: string; jobId: string },
+    signal: AbortSignal,
+  ): Promise<{ artifactId: string }>;
   task?: {
     instruction: string;
     outputSchema?: Readonly<Record<string, unknown>>;
-    normalizeOutput(request: ProcessingRequest, value: unknown): ProcessingResult['output'];
+    normalizeOutput(
+      request: ProcessingRequest,
+      value: unknown,
+    ): ProcessingResult['output'];
   };
 }

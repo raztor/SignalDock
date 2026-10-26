@@ -20,6 +20,7 @@
     "@signaldock/media-gateway": "*",
     "@signaldock/history": "*",
     "@signaldock/artifact-storage": "*",
-    "@signaldock/job-queue": "*"
+    "@signaldock/job-queue": "*",
+    "@signaldock/processing-connectors": "*"
   }
 }

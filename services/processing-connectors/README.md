@@ -8,13 +8,13 @@ Optional implementations use the versioned SDK. Core radio operation requires no
 - [azure-speech](azure-speech/README.md)
 - [ollama](ollama/README.md)
 
-| Connector | Structured text | Recorded STT | TTS | Authentication |
-| --- | --- | --- | --- | --- |
-| OpenAI API | Responses | Yes | WAV | Instance API key |
-| API-compatible | Responses or Chat Completions | Configured subset | Configured subset | API key or explicitly unauthenticated endpoint |
-| OpenAI subscription | Eligible Responses models | No | No | User-owned supported subscription OAuth |
-| Azure Speech | No | Fast transcription REST | RIFF PCM | Instance resource key |
-| Ollama | JSON chat | No | No | Local endpoint |
+| Connector           | Structured text               | Recorded STT            | TTS               | Authentication                                 |
+| ------------------- | ----------------------------- | ----------------------- | ----------------- | ---------------------------------------------- |
+| OpenAI API          | Responses                     | Yes                     | WAV               | Instance API key                               |
+| API-compatible      | Responses or Chat Completions | Configured subset       | Configured subset | API key or explicitly unauthenticated endpoint |
+| OpenAI subscription | Eligible Responses models     | No                      | No                | User-owned supported subscription OAuth        |
+| Azure Speech        | No                            | Fast transcription REST | RIFF PCM          | Instance resource key                          |
+| Ollama              | JSON chat                     | No                      | No                | Local endpoint                                 |
 
 There is no automatic provider fallback or advertised streaming speech. Endpoint redirects are refused. Local endpoints require `allowPrivateNetwork: true`. `CredentialVault` uses AES-256-GCM with instance/owner/credential binding. `ProcessingRuntime` checks authorization, source references and profile revisions before execution and final commit. Jobs enqueue transactionally; cancelled or superseded outputs are discarded.
 

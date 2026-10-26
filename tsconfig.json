@@ -32,6 +32,9 @@
       "path": "packages/history"
     },
     {
+      "path": "services/processing-connectors"
+    },
+    {
       "path": "apps/api"
     }
   ]
