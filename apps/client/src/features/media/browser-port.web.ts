@@ -33,24 +33,47 @@ export const browserMediaPort: BrowserMediaPort = {
   async connect(
     session: MediaSession,
     onInterrupted,
+    signal,
   ): Promise<MediaConnection> {
     const room = new Room({ adaptiveStream: false, dynacast: false });
     const audio = new Set<HTMLMediaElement>();
     let closing = false;
-    room.on(RoomEvent.Reconnecting, () => onInterrupted());
+    const disconnect = async () => {
+      closing = true;
+      for (const element of audio) {
+        element.pause();
+        element.remove();
+      }
+      audio.clear();
+      await room.disconnect();
+    };
+    const abort = () => {
+      void disconnect().catch(() => undefined);
+    };
+    signal.addEventListener('abort', abort, { once: true });
+    if (signal.aborted) {
+      await disconnect();
+      throw new Error('Media connection cancelled.');
+    }
+    room.on(RoomEvent.Reconnecting, () => {
+      if (!closing && !signal.aborted) onInterrupted();
+    });
     room.on(RoomEvent.Disconnected, () => {
       if (!closing) onInterrupted();
     });
     room.on(RoomEvent.ParticipantDisconnected, (participant) => {
       if (
+        !closing &&
+        !signal.aborted &&
         participant.identity ===
-          `bridge-${session.instanceId}-${session.radioId}` &&
-        !closing
+          `bridge-${session.instanceId}-${session.radioId}`
       )
         onInterrupted();
     });
     room.on(RoomEvent.TrackSubscribed, (track, _publication, participant) => {
       if (
+        closing ||
+        signal.aborted ||
         session.mode !== 'listen' ||
         participant.identity !==
           `bridge-${session.instanceId}-${session.radioId}` ||
@@ -73,7 +96,12 @@ export const browserMediaPort: BrowserMediaPort = {
       await room.connect(session.serverUrl, session.token, {
         autoSubscribe: session.mode === 'listen',
       });
+      if (signal.aborted) {
+        await disconnect();
+        throw new Error('Media connection cancelled.');
+      }
     } catch (error) {
+      signal.removeEventListener('abort', abort);
       closing = true;
       await room.disconnect();
       throw error;
@@ -93,13 +121,8 @@ export const browserMediaPort: BrowserMediaPort = {
         );
       },
       disconnect: async () => {
-        closing = true;
-        for (const element of audio) {
-          element.pause();
-          element.remove();
-        }
-        audio.clear();
-        await room.disconnect();
+        signal.removeEventListener('abort', abort);
+        await disconnect();
       },
     };
   },

@@ -25,6 +25,7 @@ export interface BrowserMediaPort {
   connect(
     session: MediaSession,
     onInterrupted: () => void,
+    signal: AbortSignal,
   ): Promise<MediaConnection>;
 }
 export interface MediaUiState {
@@ -68,6 +69,8 @@ export class RadioMediaController {
   private heartbeat: ReturnType<typeof setInterval> | undefined;
   private listenerRenewal: ReturnType<typeof setInterval> | undefined;
   private renewing = false;
+  private txAbort: AbortController | undefined;
+  private listenAbort: AbortController | undefined;
   private readonly initialSession: ClientSession;
   private state: MediaUiState = {
     listening: false,
@@ -120,7 +123,9 @@ export class RadioMediaController {
     if (!this.current(epoch)) throw new Error('Media operation was cancelled.');
   }
   async listen(): Promise<void> {
-    if (this.closed || this.listener) return;
+    if (this.closed || this.listener || this.listenAbort) return;
+    const cancellation = new AbortController();
+    this.listenAbort = cancellation;
     const epoch = ++this.listenEpoch;
     const session = this.session();
     let admitted: MediaSession | undefined;
@@ -132,9 +137,13 @@ export class RadioMediaController {
       });
       if (this.closed || epoch !== this.listenEpoch)
         throw new Error('Listening was cancelled.');
-      connection = await this.options.port.connect(admitted, () => {
-        void this.stop('Listening connection interrupted.');
-      });
+      connection = await this.options.port.connect(
+        admitted,
+        () => {
+          void this.stop('Listening connection interrupted.');
+        },
+        cancellation.signal,
+      );
       if (this.closed || epoch !== this.listenEpoch)
         throw new Error('Listening was cancelled.');
       this.listener = connection;
@@ -150,6 +159,7 @@ export class RadioMediaController {
     } catch (error) {
       await connection?.disconnect().catch(() => undefined);
       if (admitted) await this.removeSession(session, admitted.id);
+      if (epoch === this.listenEpoch) this.listenAbort = undefined;
       if (epoch === this.listenEpoch)
         this.update({
           listening: false,
@@ -160,6 +170,8 @@ export class RadioMediaController {
   async startTransmit(): Promise<void> {
     if (this.closed || this.state.pending || this.grant) return;
     const epoch = ++this.txEpoch;
+    const cancellation = new AbortController();
+    this.txAbort = cancellation;
     const session = this.session();
     let mic: Microphone | undefined;
     let grant: TxGrant | undefined;
@@ -256,9 +268,13 @@ export class RadioMediaController {
       });
       this.ensure(epoch);
       this.txSession = admitted;
-      connection = await this.options.port.connect(admitted, () => {
-        void this.stopTransmit('Media connection interrupted.');
-      });
+      connection = await this.options.port.connect(
+        admitted,
+        () => {
+          void this.stopTransmit('Media connection interrupted.');
+        },
+        cancellation.signal,
+      );
       this.ensure(epoch);
       this.txConnection = connection;
       await connection.publish(mic);
@@ -284,6 +300,8 @@ export class RadioMediaController {
   }
   stopTransmit(reason = 'Released.'): Promise<void> {
     ++this.txEpoch;
+    this.txAbort?.abort();
+    this.txAbort = undefined;
     clearInterval(this.heartbeat);
     this.heartbeat = undefined;
     this.renewing = false;
@@ -306,6 +324,8 @@ export class RadioMediaController {
   }
   stop(reason = 'Media stopped.'): Promise<void> {
     ++this.listenEpoch;
+    this.listenAbort?.abort();
+    this.listenAbort = undefined;
     clearInterval(this.listenerRenewal);
     this.listenerRenewal = undefined;
     const listener = this.listener,
@@ -328,7 +348,7 @@ export class RadioMediaController {
   }
   private async release(session: ClientSession, grant: TxGrant): Promise<void> {
     await this.request(
-      session,
+      { ...session, onUnauthorized: () => undefined },
       `radios/${grant.radioId}/tx-sessions/${grant.txGrantId}`,
       { method: 'DELETE' },
     ).catch(() => undefined);
@@ -337,8 +357,12 @@ export class RadioMediaController {
     session: ClientSession,
     id: string,
   ): Promise<void> {
-    await this.request(session, `media/sessions/${id}`, {
-      method: 'DELETE',
-    }).catch(() => undefined);
+    await this.request(
+      { ...session, onUnauthorized: () => undefined },
+      `media/sessions/${id}`,
+      {
+        method: 'DELETE',
+      },
+    ).catch(() => undefined);
   }
 }

@@ -106,6 +106,51 @@ function fixture() {
   };
 }
 describe('browser PTT cancellation', () => {
+  it('aborts a pending listening connection before accepting another context', async () => {
+    const connection = deferred<{
+      disconnect: () => Promise<void>;
+      publish: () => Promise<void>;
+    }>();
+    let signal: AbortSignal | undefined;
+    let disconnected = 0;
+    const states: MediaUiState[] = [];
+    const controller = new RadioMediaController({
+      session: () =>
+        ({
+          instanceId: crypto.randomUUID(),
+          baseUrl: 'https://example.test/',
+          accessToken: 'token',
+          user: { id: 'user' },
+        }) as ClientSession,
+      radioId: crypto.randomUUID(),
+      port: {
+        microphone: async () => {
+          throw new Error('Not used.');
+        },
+        connect: async (_session, _interrupted, cancellation) => {
+          signal = cancellation;
+          return connection.promise;
+        },
+      },
+      onState: (state) => states.push(state),
+      request: async <T>() => ({ id: crypto.randomUUID() }) as T,
+    });
+    const opening = controller.listen();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(signal?.aborted).toBe(false);
+    await controller.stop('Switching context.');
+    expect(signal?.aborted).toBe(true);
+    connection.resolve({
+      disconnect: async () => {
+        disconnected++;
+      },
+      publish: async () => undefined,
+    });
+    await opening;
+    expect(disconnected).toBeGreaterThan(0);
+    expect(states.every((state) => !state.listening)).toBe(true);
+    await controller.dispose();
+  });
   it('never creates a TX grant after release during microphone permission', async () => {
     const f = fixture();
     const opening = f.controller.startTransmit();
