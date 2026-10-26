@@ -66,7 +66,10 @@ export function createSimulatorRegistry(): InstalledDriverRegistry {
 
 /** Install a specific trusted driver ID; configuration cannot execute a downloaded driver. */
 export function createGrpcDriverFactory(
-  options: { resolveCredential?: (reference: string) => Promise<string> } = {},
+  options: {
+    resolveCredential?: (reference: string) => Promise<string>;
+    connectTimeoutMs?: number;
+  } = {},
 ): RadioDriverFactory {
   return async (configuration) => {
     if (!configuration.endpoint)
@@ -75,6 +78,19 @@ export function createGrpcDriverFactory(
         'A private driver endpoint is required.',
       );
     const reference = configuration.config['credentialRef'];
+    const connectTimeoutMs =
+      configuration.config['connectTimeoutMs'] ?? options.connectTimeoutMs;
+    if (
+      connectTimeoutMs !== undefined &&
+      (typeof connectTimeoutMs !== 'number' ||
+        !Number.isInteger(connectTimeoutMs) ||
+        connectTimeoutMs < 1 ||
+        connectTimeoutMs > 30000)
+    )
+      throw new SignalDockError(
+        'INVALID_ARGUMENT',
+        'Driver connection timeout must be between 1 and 30000 ms.',
+      );
     let token: string | undefined;
     if (reference !== undefined) {
       if (typeof reference !== 'string' || !options.resolveCredential)
@@ -108,6 +124,7 @@ export function createGrpcDriverFactory(
       descriptor,
       endpoint: configuration.endpoint,
       ...(token ? { token } : {}),
+      ...(typeof connectTimeoutMs === 'number' ? { connectTimeoutMs } : {}),
     });
     try {
       await driver.establishSession();

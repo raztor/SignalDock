@@ -19,6 +19,17 @@ const descriptor = () => ({
   driverId: 'fixture.grpc',
 });
 describe('private driver transport configuration', () => {
+  it('bounds the distinct connection timeout', () => {
+    for (const connectTimeoutMs of [0, 30001, Number.NaN, 1.5])
+      expect(
+        () =>
+          new GrpcRadioDriver({
+            descriptor: descriptor(),
+            endpoint: 'unix:/private/tmp/unused-timeout-fixture.sock',
+            connectTimeoutMs,
+          }),
+      ).toThrow('connection timeout');
+  });
   it('does not reconnect or admit a new controller when idle-confirmed disconnect fails', async () => {
     const driver = new GrpcRadioDriver({
       descriptor: descriptor(),
@@ -170,8 +181,27 @@ describe.skipIf(!existsSync(python))(
         },
         tuning: { rxHz: 146000000, mode: 'FM' },
       });
+
       expect(after.observedTuning?.rxHz).toBe(146000000);
       expect(after.revision).toBe(before.revision + 1);
+    });
+    it('uses setup deadlines independently of short ordinary-operation deadlines', async () => {
+      const bounded = new GrpcRadioDriver({
+        descriptor: descriptor(),
+        endpoint,
+        token: 'fixture-token',
+        allowInsecureLoopback: true,
+        timeoutMs: 15,
+        connectTimeoutMs: 1000,
+      });
+      try {
+        expect((await bounded.establishSession()).connection).toBe('ready');
+        await expect(bounded.reconcile()).rejects.toMatchObject({
+          code: 'DEADLINE_EXCEEDED',
+        });
+      } finally {
+        bounded.close();
+      }
     });
     it('preserves typed driver rejection and rejects expired commands before dispatch', async () => {
       const state = await driver.reconcile();

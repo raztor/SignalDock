@@ -3,6 +3,7 @@ from concurrent import futures
 import json
 import os
 import sys
+import time
 import uuid
 
 import grpc
@@ -31,6 +32,7 @@ class FixtureDriver(rpc.RadioDriverServiceServicer):
 
     def Describe(self, request, context):
         self.check(context)
+        time.sleep(0.05)
         return pb.DescribeResponse(driver_id="fixture.grpc", version="0.1.0", protocol_min=1,
                                    protocol_max=1, capabilities=pb.RadioCapabilities(
                                        tuning_writable=True, tuning_ranges=[pb.FrequencyRange(min_hz=144000000, max_hz=148000000)],
@@ -39,6 +41,7 @@ class FixtureDriver(rpc.RadioDriverServiceServicer):
 
     def Connect(self, request, context):
         self.check(context)
+        time.sleep(0.05)
         return self.snapshot()
 
     def GetSnapshot(self, request, context):
@@ -46,10 +49,12 @@ class FixtureDriver(rpc.RadioDriverServiceServicer):
         return self.snapshot()
 
     def Reconcile(self, request, context):
+        time.sleep(0.05)
         return self.GetSnapshot(request, context)
 
     def Disconnect(self, request, context):
         self.check(context)
+        time.sleep(0.05)
         return pb.DisconnectResponse()
 
     def ApplyTuning(self, request, context):

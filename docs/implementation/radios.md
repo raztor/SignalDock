@@ -10,6 +10,8 @@ Compose `RadioApplicationService({ instanceId, database, auth, runtime?, driverF
 
 `credentialRef` resolves outside persisted configuration; inline token/password/private-key fields are rejected. A Unix endpoint is written as `unix:/absolute/path`. The SDK supports authenticated TLS for remote endpoints; custom TLS material is injected through the SDK deployment options rather than accepted from ordinary public requests.
 
+Connection setup has its own bounded timeout: `connectTimeoutMs` defaults to 25,000 ms and accepts integer values from 1 through 30,000 ms. It applies to Describe/Connect and the initial recovery Disconnect/Reconcile. The factory accepts a deployment default or a per-radio connector option. Ordinary commands, normal reconciliation, and ordinary disconnect retain their 5,000 ms default. This permits bounded BLE discovery without extending control or TX command deadlines.
+
 ## Public API
 
 All paths below are relative to `/api/v1` (including any deployment prefix). List responses are arrays.

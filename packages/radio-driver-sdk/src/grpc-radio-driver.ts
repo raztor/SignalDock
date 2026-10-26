@@ -44,6 +44,7 @@ export interface GrpcRadioDriverOptions {
   tls?: { ca?: Uint8Array; privateKey?: Uint8Array; certificate?: Uint8Array };
   allowInsecureLoopback?: boolean;
   timeoutMs?: number;
+  connectTimeoutMs?: number;
 }
 
 /** Private gRPC transport. It never retries writes or replays audio. */
@@ -51,6 +52,7 @@ export class GrpcRadioDriver implements RadioDriver {
   readonly hardwareEndpoint: string;
   private readonly client: Client;
   private readonly timeoutMs: number;
+  private readonly connectTimeoutMs: number;
   private description: RadioDescriptor;
   private state: RadioSnapshot;
   private readonly streams = new Set<{ cancel(): void }>();
@@ -61,6 +63,7 @@ export class GrpcRadioDriver implements RadioDriver {
       structuredClone(options.descriptor),
     );
     this.timeoutMs = options.timeoutMs ?? 5000;
+    this.connectTimeoutMs = options.connectTimeoutMs ?? 25000;
     if (
       !Number.isInteger(this.timeoutMs) ||
       this.timeoutMs < 1 ||
@@ -69,6 +72,15 @@ export class GrpcRadioDriver implements RadioDriver {
       throw new SignalDockError(
         'INVALID_ARGUMENT',
         'Driver timeout must be between 1 and 30000 ms.',
+      );
+    if (
+      !Number.isInteger(this.connectTimeoutMs) ||
+      this.connectTimeoutMs < 1 ||
+      this.connectTimeoutMs > 30000
+    )
+      throw new SignalDockError(
+        'INVALID_ARGUMENT',
+        'Driver connection timeout must be between 1 and 30000 ms.',
       );
     const transport = connectionOptions(options);
     this.hardwareEndpoint = transport.endpoint;
@@ -96,9 +108,9 @@ export class GrpcRadioDriver implements RadioDriver {
     try {
       // Drivers must reject Disconnect while physical idle cannot be confirmed.
       // A new Connect may reset its controller fence only after that boundary.
-      await this.disconnect();
+      await this.disconnect(this.connectTimeoutMs);
       await this.connect();
-      const snapshot = await this.reconcile();
+      const snapshot = await this.reconcile(this.connectTimeoutMs);
       if (snapshot.connection !== 'ready' || snapshot.txState !== 'idle') {
         throw new SignalDockError(
           'RADIO_STATE_UNCERTAIN',
@@ -117,6 +129,7 @@ export class GrpcRadioDriver implements RadioDriver {
       const description = await this.unary(
         wire.RadioDriverService.method.describe,
         {},
+        { deadline: Date.now() + this.connectTimeoutMs },
       );
       if (
         description.driverId !== this.description.driverId ||
@@ -160,9 +173,13 @@ export class GrpcRadioDriver implements RadioDriver {
         }),
       };
       return this.acceptSnapshot(
-        await this.unary(wire.RadioDriverService.method.connect, {
-          radioId: this.description.radioId,
-        }),
+        await this.unary(
+          wire.RadioDriverService.method.connect,
+          {
+            radioId: this.description.radioId,
+          },
+          { deadline: Date.now() + this.connectTimeoutMs },
+        ),
       );
     } catch (error) {
       this.markUnavailable();
@@ -174,12 +191,17 @@ export class GrpcRadioDriver implements RadioDriver {
     return structuredClone(this.state);
   }
 
-  async reconcile(): Promise<RadioSnapshot> {
+  async reconcile(timeoutMs = this.timeoutMs): Promise<RadioSnapshot> {
+    validateTimeout(timeoutMs);
     try {
       return this.acceptSnapshot(
-        await this.unary(wire.RadioDriverService.method.reconcile, {
-          radioId: this.description.radioId,
-        }),
+        await this.unary(
+          wire.RadioDriverService.method.reconcile,
+          {
+            radioId: this.description.radioId,
+          },
+          { deadline: Date.now() + timeoutMs },
+        ),
       );
     } catch (error) {
       this.markUnavailable();
@@ -187,13 +209,18 @@ export class GrpcRadioDriver implements RadioDriver {
     }
   }
 
-  async disconnect(): Promise<void> {
+  async disconnect(timeoutMs = this.timeoutMs): Promise<void> {
+    validateTimeout(timeoutMs);
     for (const stream of this.streams) stream.cancel();
     this.streams.clear();
     try {
-      await this.unary(wire.RadioDriverService.method.disconnect, {
-        radioId: this.description.radioId,
-      });
+      await this.unary(
+        wire.RadioDriverService.method.disconnect,
+        {
+          radioId: this.description.radioId,
+        },
+        { deadline: Date.now() + timeoutMs },
+      );
     } finally {
       this.state = {
         ...this.state,
@@ -639,6 +666,13 @@ export class GrpcRadioDriver implements RadioDriver {
 
 const methodPath = (method: string) =>
   `/${wire.RadioDriverService.typeName}/${method}`;
+function validateTimeout(value: number): void {
+  if (!Number.isInteger(value) || value < 1 || value > 30000)
+    throw new SignalDockError(
+      'INVALID_ARGUMENT',
+      'Driver timeout must be between 1 and 30000 ms.',
+    );
+}
 function operationToWire(
   context: OperationContext,
 ): MessageInitShape<typeof wire.OperationContextSchema> {
