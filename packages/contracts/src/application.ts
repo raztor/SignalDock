@@ -1,0 +1,366 @@
+import { z } from 'zod';
+
+const id = z.uuid();
+const timestamp = z.iso.datetime();
+export const RoleSchema = z.enum(['listener', 'operator', 'administrator']);
+export type Role = z.infer<typeof RoleSchema>;
+export const PermissionSchema = z.enum([
+  'radio.listen',
+  'radio.control',
+  'radio.transmit',
+  'radio.configure',
+  'history.read',
+  'history.write',
+  'recording.export',
+  'incident.read',
+  'incident.manage',
+  'aprs.read',
+  'processing.manage',
+  'notifications.read',
+  'notifications.manage',
+  'instance.admin',
+]);
+export type Permission = z.infer<typeof PermissionSchema>;
+export const RadioPermissionGrantSchema = z.strictObject({
+  radioId: id,
+  permissions: z.array(PermissionSchema),
+});
+export type RadioPermissionGrant = z.infer<typeof RadioPermissionGrantSchema>;
+export const PublicUserSchema = z.strictObject({
+  id,
+  username: z.string().min(1).max(100),
+  role: RoleSchema,
+  enabled: z.boolean(),
+  radioPermissions: z.array(RadioPermissionGrantSchema),
+});
+export type PublicUser = z.infer<typeof PublicUserSchema>;
+export const PrincipalSchema = z.strictObject({
+  instanceId: id,
+  userId: id,
+  sessionId: id,
+  username: z.string().min(1),
+  role: RoleSchema,
+  radioPermissions: z.array(RadioPermissionGrantSchema),
+});
+export type Principal = z.infer<typeof PrincipalSchema>;
+export type AuthPrincipal = Principal;
+export interface AuthenticationPort {
+  authenticate(accessToken: string): Promise<Principal>;
+  authorize(
+    principal: Principal,
+    permission: Permission,
+    radioId?: string,
+  ): Promise<void>;
+}
+export type AuthPort = AuthenticationPort;
+export const LoginRequestSchema = z.strictObject({
+  username: z.string().min(1).max(100),
+  password: z.string().min(1).max(1024),
+  sessionMode: z.enum(['cookie', 'token']),
+});
+export type LoginRequest = z.infer<typeof LoginRequestSchema>;
+export const SessionTokensSchema = z.strictObject({
+  accessToken: z.string().min(1),
+  accessExpiresAt: timestamp,
+  refreshToken: z.string().min(1).optional(),
+  csrfToken: z.string().min(1).optional(),
+  user: PublicUserSchema,
+});
+export type SessionTokens = z.infer<typeof SessionTokensSchema>;
+export const BootstrapRequestSchema = z.strictObject({
+  setupToken: z.string().min(1).max(512),
+  username: z.string().min(1).max(100),
+  password: z.string().min(12).max(1024),
+});
+
+export interface QueryResult<T> {
+  rows: T[];
+  rowCount: number | null;
+}
+export interface DatabasePort {
+  query<T extends Record<string, unknown> = Record<string, unknown>>(
+    text: string,
+    values?: readonly unknown[],
+  ): Promise<QueryResult<T>>;
+  transaction<T>(action: (transaction: DatabasePort) => Promise<T>): Promise<T>;
+}
+export interface MigrationDefinition {
+  id: string;
+  sql: string;
+}
+export interface ArtifactMetadata {
+  artifactId: string;
+  instanceId: string;
+  sizeBytes: number;
+  sha256: string;
+  contentType: string;
+  createdAt?: string;
+}
+export interface ArtifactReadResult {
+  metadata: ArtifactMetadata;
+  bytes: Uint8Array;
+  totalBytes: number;
+  start: number;
+  end: number;
+}
+export interface ArtifactStoragePort {
+  put(input: {
+    instanceId: string;
+    artifactId: string;
+    bytes: Uint8Array;
+    contentType: string;
+  }): Promise<ArtifactMetadata>;
+  read(
+    instanceId: string,
+    artifactId: string,
+    range?: { start: number; end?: number },
+  ): Promise<ArtifactReadResult>;
+  delete(instanceId: string, artifactId: string): Promise<void>;
+}
+export type JobState =
+  | 'queued'
+  | 'running'
+  | 'retry_wait'
+  | 'completed'
+  | 'failed'
+  | 'cancelled'
+  | 'requires_configuration';
+export interface JobInput {
+  jobId: string;
+  instanceId: string;
+  kind: string;
+  payload: Record<string, unknown>;
+  idempotencyKey: string;
+  deadline: string;
+  maxAttempts?: number;
+}
+export interface JobSnapshot {
+  jobId: string;
+  instanceId: string;
+  state: JobState;
+  attempts: number;
+  error?: string;
+}
+export type JobHandler = (
+  job: JobInput,
+  signal: AbortSignal,
+) => Promise<unknown>;
+export interface JobQueuePort {
+  enqueue(input: JobInput): Promise<{ jobId: string; duplicate: boolean }>;
+  cancel(instanceId: string, jobId: string): Promise<void>;
+  get(instanceId: string, jobId: string): Promise<JobSnapshot | null>;
+  register(kind: string, handler: JobHandler): void;
+  start(): Promise<void>;
+  stop(): Promise<void>;
+}
+export interface DomainEvent<T = unknown> {
+  protocolVersion: 1;
+  eventId: string;
+  instanceId: string;
+  radioId?: string;
+  streamGeneration: string;
+  sequence: number;
+  occurredAt: string;
+  type: string;
+  payloadVersion: number;
+  correlationId?: string;
+  payload: T;
+}
+export interface EventPublisherPort {
+  publish(event: DomainEvent): Promise<void>;
+}
+
+export const RadioConfigurationSchema = z.strictObject({
+  radioId: id,
+  displayName: z.string().min(1).max(100),
+  driverId: z.string().min(1).max(100),
+  resourceGroupIds: z.array(z.string().min(1)),
+  enabled: z.boolean(),
+  endpoint: z.string().optional(),
+  config: z.record(z.string(), z.unknown()).default({}),
+});
+export type RadioConfiguration = z.infer<typeof RadioConfigurationSchema>;
+export const RadioMemorySchema = z.strictObject({
+  memoryId: z.string().min(1),
+  name: z.string(),
+  tuning: z.strictObject({
+    rxHz: z.number().int().positive(),
+    txHz: z.number().int().positive().optional(),
+    mode: z.enum(['FM', 'AM', 'USB', 'LSB', 'CW', 'DIGITAL']),
+  }),
+});
+export type RadioMemory = z.infer<typeof RadioMemorySchema>;
+
+export interface AudioFormat {
+  encoding: 'pcm_s16le';
+  sampleRateHz: number;
+  channels: number;
+}
+export interface PcmAudioFrame {
+  streamId: string;
+  sequence: number;
+  mediaTimeUs: number;
+  format: AudioFormat;
+  data: Uint8Array;
+  tuningRevision: number;
+  attributionConfidence: 'confirmed' | 'inferred' | 'unknown';
+  discontinuity: boolean;
+  endOfBurst?: boolean;
+  capturedAt?: string;
+}
+export type PcmFrame = PcmAudioFrame;
+// TX lease deadlines use epoch milliseconds; the private driver wire uses UTC strings.
+export const TxGrantSchema = z.strictObject({
+  txGrantId: id,
+  radioId: id,
+  ownerId: id,
+  sessionId: id,
+  instanceId: id.optional(),
+  controlGrant: id,
+  generation: id,
+  fencing: z.number().int().nonnegative(),
+  tuningRevision: z.number().int().nonnegative(),
+  expiresAt: z.number().int().positive(),
+  maxUntil: z.number().int().positive(),
+});
+export type TxGrant = z.infer<typeof TxGrantSchema>;
+export type TxState =
+  | 'idle'
+  | 'preparing'
+  | 'granted'
+  | 'transmitting'
+  | 'stopping'
+  | 'rejected'
+  | 'failed_before_tx'
+  | 'tx_unconfirmed'
+  | 'stop_unconfirmed';
+export const MediaSessionSchema = z.strictObject({
+  id,
+  instanceId: id,
+  radioId: id,
+  sessionId: id,
+  participantIdentity: z.string().min(1),
+  serverUrl: z.string().url(),
+  token: z.string().min(1),
+  expiresAt: timestamp,
+  mode: z.enum(['listen', 'transmit']),
+});
+export type MediaSession = z.infer<typeof MediaSessionSchema>;
+
+export interface SourceTranscript {
+  instanceId: string;
+  radioId: string;
+  communicationId: string;
+  transcriptRevisionId: string;
+  text: string;
+  frequencyHz?: number;
+  capturedAt: string;
+}
+export type IncidentState =
+  'new' | 'acknowledged' | 'in_progress' | 'resolved' | 'dismissed';
+export interface IncidentEvidence {
+  communicationId: string;
+  transcriptRevisionId?: string;
+  quote?: string;
+}
+export interface IncidentRecord {
+  id: string;
+  instanceId: string;
+  radioId: string;
+  state: IncidentState;
+  priority: 'low' | 'medium' | 'high' | 'critical';
+  title: string;
+  ownerUserId?: string;
+  retentionHold: boolean;
+  evidence: IncidentEvidence[];
+  revision: number;
+  createdAt: string;
+  updatedAt: string;
+}
+export type PacketSource = 'native' | 'recording' | 'aprs_is';
+export interface PositionRecord {
+  positionId: string;
+  packetId: string;
+  instanceId: string;
+  radioId: string;
+  callsign: string;
+  lat: number;
+  lon: number;
+  symbol?: string;
+  receivedAt: string;
+  source: PacketSource;
+}
+export interface PacketRecord {
+  packetId: string;
+  instanceId: string;
+  radioId: string;
+  receivedAt: string;
+  source: PacketSource;
+  rawFrameBase64?: string;
+  rawText?: string;
+  frequencyHz?: number;
+  attribution: 'confirmed' | 'inferred' | 'unknown';
+  parserVersion: string;
+  callsign?: string;
+  destination?: string;
+  path: string[];
+  kind: string;
+  parsed?: Record<string, unknown>;
+  position?: PositionRecord;
+}
+export type NotificationCategory =
+  | 'communication'
+  | 'transcript'
+  | 'incident'
+  | 'control'
+  | 'radio'
+  | 'storage'
+  | 'processing';
+export interface NotificationRecord {
+  id: string;
+  instanceId: string;
+  userId: string;
+  radioId?: string;
+  eventId: string;
+  category: NotificationCategory;
+  createdAt: string;
+  readAt?: string;
+  deliveryState:
+    | 'queued'
+    | 'relay_accepted'
+    | 'provider_accepted'
+    | 'failed'
+    | 'expired'
+    | 'application_opened';
+}
+export interface NotificationPreference {
+  categories: NotificationCategory[];
+  radioIds: string[];
+  frequencyHz?: number;
+  quietHours?: { start: string; end: string; timeZone: string };
+  cooldownSeconds: number;
+  suppressWhileListening: boolean;
+  enabled: boolean;
+}
+export interface NotificationEvent {
+  instanceId: string;
+  radioId?: string;
+  eventId: string;
+  category: NotificationCategory;
+  occurredAt: string;
+}
+
+export const applicationSchemas = {
+  Role: RoleSchema,
+  Permission: PermissionSchema,
+  RadioPermissionGrant: RadioPermissionGrantSchema,
+  PublicUser: PublicUserSchema,
+  Principal: PrincipalSchema,
+  LoginRequest: LoginRequestSchema,
+  SessionTokens: SessionTokensSchema,
+  BootstrapRequest: BootstrapRequestSchema,
+  RadioConfiguration: RadioConfigurationSchema,
+  RadioMemory: RadioMemorySchema,
+  TxGrant: TxGrantSchema,
+  MediaSession: MediaSessionSchema,
+};

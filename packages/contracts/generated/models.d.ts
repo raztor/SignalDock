@@ -1,4 +1,187 @@
 // Generated from contract schemas. Run npm run generate:contracts.
+export type Role = "listener" | "operator" | "administrator";
+
+export type Permission =
+  | "radio.listen"
+  | "radio.control"
+  | "radio.transmit"
+  | "radio.configure"
+  | "history.read"
+  | "history.write"
+  | "recording.export"
+  | "incident.read"
+  | "incident.manage"
+  | "aprs.read"
+  | "processing.manage"
+  | "notifications.read"
+  | "notifications.manage"
+  | "instance.admin";
+
+export interface RadioPermissionGrant {
+  radioId: string;
+  permissions: (
+    | "radio.listen"
+    | "radio.control"
+    | "radio.transmit"
+    | "radio.configure"
+    | "history.read"
+    | "history.write"
+    | "recording.export"
+    | "incident.read"
+    | "incident.manage"
+    | "aprs.read"
+    | "processing.manage"
+    | "notifications.read"
+    | "notifications.manage"
+    | "instance.admin"
+  )[];
+}
+
+export interface PublicUser {
+  id: string;
+  username: string;
+  role: "listener" | "operator" | "administrator";
+  enabled: boolean;
+  radioPermissions: {
+    radioId: string;
+    permissions: (
+      | "radio.listen"
+      | "radio.control"
+      | "radio.transmit"
+      | "radio.configure"
+      | "history.read"
+      | "history.write"
+      | "recording.export"
+      | "incident.read"
+      | "incident.manage"
+      | "aprs.read"
+      | "processing.manage"
+      | "notifications.read"
+      | "notifications.manage"
+      | "instance.admin"
+    )[];
+  }[];
+}
+
+export interface Principal {
+  instanceId: string;
+  userId: string;
+  sessionId: string;
+  username: string;
+  role: "listener" | "operator" | "administrator";
+  radioPermissions: {
+    radioId: string;
+    permissions: (
+      | "radio.listen"
+      | "radio.control"
+      | "radio.transmit"
+      | "radio.configure"
+      | "history.read"
+      | "history.write"
+      | "recording.export"
+      | "incident.read"
+      | "incident.manage"
+      | "aprs.read"
+      | "processing.manage"
+      | "notifications.read"
+      | "notifications.manage"
+      | "instance.admin"
+    )[];
+  }[];
+}
+
+export interface LoginRequest {
+  username: string;
+  password: string;
+  sessionMode: "cookie" | "token";
+}
+
+export interface SessionTokens {
+  accessToken: string;
+  accessExpiresAt: string;
+  refreshToken?: string;
+  csrfToken?: string;
+  user: {
+    id: string;
+    username: string;
+    role: "listener" | "operator" | "administrator";
+    enabled: boolean;
+    radioPermissions: {
+      radioId: string;
+      permissions: (
+        | "radio.listen"
+        | "radio.control"
+        | "radio.transmit"
+        | "radio.configure"
+        | "history.read"
+        | "history.write"
+        | "recording.export"
+        | "incident.read"
+        | "incident.manage"
+        | "aprs.read"
+        | "processing.manage"
+        | "notifications.read"
+        | "notifications.manage"
+        | "instance.admin"
+      )[];
+    }[];
+  };
+}
+
+export interface BootstrapRequest {
+  setupToken: string;
+  username: string;
+  password: string;
+}
+
+export interface RadioConfiguration {
+  radioId: string;
+  displayName: string;
+  driverId: string;
+  resourceGroupIds: string[];
+  enabled: boolean;
+  endpoint?: string;
+  config: {
+    [k: string]: unknown;
+  };
+}
+
+export interface RadioMemory {
+  memoryId: string;
+  name: string;
+  tuning: {
+    rxHz: number;
+    txHz?: number;
+    mode: "FM" | "AM" | "USB" | "LSB" | "CW" | "DIGITAL";
+  };
+}
+
+export interface TxGrant {
+  txGrantId: string;
+  radioId: string;
+  ownerId: string;
+  sessionId: string;
+  instanceId?: string;
+  controlGrant: string;
+  generation: string;
+  fencing: number;
+  tuningRevision: number;
+  expiresAt: number;
+  maxUntil: number;
+}
+
+export interface MediaSession {
+  id: string;
+  instanceId: string;
+  radioId: string;
+  sessionId: string;
+  participantIdentity: string;
+  serverUrl: string;
+  token: string;
+  expiresAt: string;
+  mode: "listen" | "transmit";
+}
+
 export interface ApiError {
   code:
     | "INVALID_ARGUMENT"

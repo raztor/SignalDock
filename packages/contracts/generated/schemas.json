@@ -1,4 +1,624 @@
 {
+  "Role": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "string",
+    "enum": [
+      "listener",
+      "operator",
+      "administrator"
+    ]
+  },
+  "Permission": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "string",
+    "enum": [
+      "radio.listen",
+      "radio.control",
+      "radio.transmit",
+      "radio.configure",
+      "history.read",
+      "history.write",
+      "recording.export",
+      "incident.read",
+      "incident.manage",
+      "aprs.read",
+      "processing.manage",
+      "notifications.read",
+      "notifications.manage",
+      "instance.admin"
+    ]
+  },
+  "RadioPermissionGrant": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "radioId": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "permissions": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "enum": [
+            "radio.listen",
+            "radio.control",
+            "radio.transmit",
+            "radio.configure",
+            "history.read",
+            "history.write",
+            "recording.export",
+            "incident.read",
+            "incident.manage",
+            "aprs.read",
+            "processing.manage",
+            "notifications.read",
+            "notifications.manage",
+            "instance.admin"
+          ]
+        }
+      }
+    },
+    "required": [
+      "radioId",
+      "permissions"
+    ],
+    "additionalProperties": false
+  },
+  "PublicUser": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "id": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "username": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 100
+      },
+      "role": {
+        "type": "string",
+        "enum": [
+          "listener",
+          "operator",
+          "administrator"
+        ]
+      },
+      "enabled": {
+        "type": "boolean"
+      },
+      "radioPermissions": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "radioId": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "permissions": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "radio.listen",
+                  "radio.control",
+                  "radio.transmit",
+                  "radio.configure",
+                  "history.read",
+                  "history.write",
+                  "recording.export",
+                  "incident.read",
+                  "incident.manage",
+                  "aprs.read",
+                  "processing.manage",
+                  "notifications.read",
+                  "notifications.manage",
+                  "instance.admin"
+                ]
+              }
+            }
+          },
+          "required": [
+            "radioId",
+            "permissions"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    "required": [
+      "id",
+      "username",
+      "role",
+      "enabled",
+      "radioPermissions"
+    ],
+    "additionalProperties": false
+  },
+  "Principal": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "instanceId": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "userId": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "sessionId": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "username": {
+        "type": "string",
+        "minLength": 1
+      },
+      "role": {
+        "type": "string",
+        "enum": [
+          "listener",
+          "operator",
+          "administrator"
+        ]
+      },
+      "radioPermissions": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "radioId": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "permissions": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "radio.listen",
+                  "radio.control",
+                  "radio.transmit",
+                  "radio.configure",
+                  "history.read",
+                  "history.write",
+                  "recording.export",
+                  "incident.read",
+                  "incident.manage",
+                  "aprs.read",
+                  "processing.manage",
+                  "notifications.read",
+                  "notifications.manage",
+                  "instance.admin"
+                ]
+              }
+            }
+          },
+          "required": [
+            "radioId",
+            "permissions"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    "required": [
+      "instanceId",
+      "userId",
+      "sessionId",
+      "username",
+      "role",
+      "radioPermissions"
+    ],
+    "additionalProperties": false
+  },
+  "LoginRequest": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "username": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 100
+      },
+      "password": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 1024
+      },
+      "sessionMode": {
+        "type": "string",
+        "enum": [
+          "cookie",
+          "token"
+        ]
+      }
+    },
+    "required": [
+      "username",
+      "password",
+      "sessionMode"
+    ],
+    "additionalProperties": false
+  },
+  "SessionTokens": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "accessToken": {
+        "type": "string",
+        "minLength": 1
+      },
+      "accessExpiresAt": {
+        "type": "string",
+        "format": "date-time",
+        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+      },
+      "refreshToken": {
+        "type": "string",
+        "minLength": 1
+      },
+      "csrfToken": {
+        "type": "string",
+        "minLength": 1
+      },
+      "user": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "username": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "listener",
+              "operator",
+              "administrator"
+            ]
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "radioPermissions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "radioId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "permissions": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "radio.listen",
+                      "radio.control",
+                      "radio.transmit",
+                      "radio.configure",
+                      "history.read",
+                      "history.write",
+                      "recording.export",
+                      "incident.read",
+                      "incident.manage",
+                      "aprs.read",
+                      "processing.manage",
+                      "notifications.read",
+                      "notifications.manage",
+                      "instance.admin"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "radioId",
+                "permissions"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "id",
+          "username",
+          "role",
+          "enabled",
+          "radioPermissions"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "required": [
+      "accessToken",
+      "accessExpiresAt",
+      "user"
+    ],
+    "additionalProperties": false
+  },
+  "BootstrapRequest": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "setupToken": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 512
+      },
+      "username": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 100
+      },
+      "password": {
+        "type": "string",
+        "minLength": 12,
+        "maxLength": 1024
+      }
+    },
+    "required": [
+      "setupToken",
+      "username",
+      "password"
+    ],
+    "additionalProperties": false
+  },
+  "RadioConfiguration": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "radioId": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "displayName": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 100
+      },
+      "driverId": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 100
+      },
+      "resourceGroupIds": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "enabled": {
+        "type": "boolean"
+      },
+      "endpoint": {
+        "type": "string"
+      },
+      "config": {
+        "default": {},
+        "type": "object",
+        "propertyNames": {
+          "type": "string"
+        },
+        "additionalProperties": {}
+      }
+    },
+    "required": [
+      "radioId",
+      "displayName",
+      "driverId",
+      "resourceGroupIds",
+      "enabled",
+      "config"
+    ],
+    "additionalProperties": false
+  },
+  "RadioMemory": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "memoryId": {
+        "type": "string",
+        "minLength": 1
+      },
+      "name": {
+        "type": "string"
+      },
+      "tuning": {
+        "type": "object",
+        "properties": {
+          "rxHz": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "txHz": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "FM",
+              "AM",
+              "USB",
+              "LSB",
+              "CW",
+              "DIGITAL"
+            ]
+          }
+        },
+        "required": [
+          "rxHz",
+          "mode"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "required": [
+      "memoryId",
+      "name",
+      "tuning"
+    ],
+    "additionalProperties": false
+  },
+  "TxGrant": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "txGrantId": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "radioId": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "ownerId": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "sessionId": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "instanceId": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "controlGrant": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "generation": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "fencing": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9007199254740991
+      },
+      "tuningRevision": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9007199254740991
+      },
+      "expiresAt": {
+        "type": "integer",
+        "exclusiveMinimum": 0,
+        "maximum": 9007199254740991
+      },
+      "maxUntil": {
+        "type": "integer",
+        "exclusiveMinimum": 0,
+        "maximum": 9007199254740991
+      }
+    },
+    "required": [
+      "txGrantId",
+      "radioId",
+      "ownerId",
+      "sessionId",
+      "controlGrant",
+      "generation",
+      "fencing",
+      "tuningRevision",
+      "expiresAt",
+      "maxUntil"
+    ],
+    "additionalProperties": false
+  },
+  "MediaSession": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "id": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "instanceId": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "radioId": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "sessionId": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "participantIdentity": {
+        "type": "string",
+        "minLength": 1
+      },
+      "serverUrl": {
+        "type": "string",
+        "format": "uri"
+      },
+      "token": {
+        "type": "string",
+        "minLength": 1
+      },
+      "expiresAt": {
+        "type": "string",
+        "format": "date-time",
+        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+      },
+      "mode": {
+        "type": "string",
+        "enum": [
+          "listen",
+          "transmit"
+        ]
+      }
+    },
+    "required": [
+      "id",
+      "instanceId",
+      "radioId",
+      "sessionId",
+      "participantIdentity",
+      "serverUrl",
+      "token",
+      "expiresAt",
+      "mode"
+    ],
+    "additionalProperties": false
+  },
   "ApiError": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "type": "object",

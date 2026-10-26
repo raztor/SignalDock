@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { applicationSchemas } from './application.js';
+export * from './application.js';
 
 export const API_PROTOCOL_VERSION = 1 as const;
 export const DRIVER_PROTOCOL_VERSION = 1 as const;
@@ -300,6 +302,7 @@ export type RecentServer = z.infer<typeof RecentServerSchema>;
 export const RecentServersSchema = z.array(RecentServerSchema).max(10);
 
 export const contractSchemas = {
+  ...applicationSchemas,
   ApiError: ApiErrorSchema,
   ServerInfo: ServerInfoSchema,
   Health: HealthSchema,
