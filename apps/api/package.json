@@ -22,6 +22,7 @@
     "@signaldock/artifact-storage": "*",
     "@signaldock/job-queue": "*",
     "@signaldock/processing-connectors": "*",
-    "@signaldock/processing-tasks": "*"
+    "@signaldock/processing-tasks": "*",
+    "@signaldock/digital-decoders": "*"
   }
 }

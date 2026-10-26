@@ -36,6 +36,9 @@
     },
     {
       "path": "../../services/processing-tasks"
+    },
+    {
+      "path": "../../services/digital-decoders"
     }
   ]
 }
