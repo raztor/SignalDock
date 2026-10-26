@@ -1,4 +1,18 @@
 // Generated from contract schemas. Run npm run generate:contracts.
+export interface DomainEvent {
+  protocolVersion: 1;
+  eventId: string;
+  instanceId: string;
+  radioId?: string;
+  streamGeneration: string;
+  sequence: number;
+  occurredAt: string;
+  type: string;
+  payloadVersion: number;
+  correlationId?: string;
+  payload: unknown;
+}
+
 export interface CoverageInterval {
   id: string;
   radioId: string;

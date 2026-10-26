@@ -277,6 +277,12 @@ export function ProcessingScreen({
               ...(audio
                 ? { artifactId: selectedCommunication.recording!.artifactId }
                 : {}),
+              ...(!audio && selectedCommunication.transcripts.at(-1)
+                ? {
+                    transcriptRevisionId:
+                      selectedCommunication.transcripts.at(-1)!.id,
+                  }
+                : {}),
             }
           : undefined;
       const input = audio

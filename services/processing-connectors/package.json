@@ -15,5 +15,9 @@
     "@signaldock/processing-sdk": "*",
     "jose": "6.2.13",
     "@signaldock/history": "*"
+  },
+  "devDependencies": {
+    "pg": "8.23.1",
+    "@types/pg": "8.23.1"
   }
 }

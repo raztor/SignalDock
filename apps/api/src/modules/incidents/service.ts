@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto';
 import {
   IdSchema,
+  ProcessingRequestSchema,
+  ProcessingResultSchema,
   SignalDockError,
   type AuthenticationPort,
   type IncidentRecord,
@@ -9,10 +11,14 @@ import {
   type SourceTranscript,
   type JobExecutionContext,
   type DatabasePort,
+  type JobInput,
+  type ProcessingRequest,
+  type ProcessingResult,
 } from '@signaldock/contracts';
 import {
   EmergencyFindingsSchema,
   EmergencyRuleSchema,
+  analysisTaskDefinitions,
   assertTextEvidence,
   defaultEmergencyRules,
   detectEmergency,
@@ -325,6 +331,150 @@ export class IncidentService {
     });
   }
 
+  /** Runs inside the processing job's already guarded terminal transaction. */
+  async acceptProcessingResult(
+    transaction: DatabasePort,
+    requestInput: ProcessingRequest,
+    resultInput: ProcessingResult,
+    signal: AbortSignal,
+    originalSource: JobInput['source'] | undefined,
+  ): Promise<{
+    handled: boolean;
+    analysisId?: string;
+    incidentId?: string;
+    duplicate?: boolean;
+  }> {
+    const supported = [
+      'callsign.extract',
+      'entities.extract',
+      'conversation.summarize',
+      'emergency.classify',
+    ];
+    if (!supported.includes(requestInput.task)) return { handled: false };
+    signal.throwIfAborted();
+    const request = ProcessingRequestSchema.parse(requestInput);
+    const result = ProcessingResultSchema.parse(resultInput);
+    if (request.taskVersion !== 1)
+      throw new SignalDockError(
+        'CAPABILITY_UNSUPPORTED',
+        'This analysis task version is not installed.',
+      );
+    if (
+      result.jobId !== request.jobId ||
+      result.profileRevision !== request.profileRevision
+    ) {
+      throw new SignalDockError(
+        'PROVIDER_UNAVAILABLE',
+        'The analysis result does not match its job and profile revision.',
+      );
+    }
+    if (
+      request.input.kind !== 'text' ||
+      request.input.communicationIds.length !== 1 ||
+      !originalSource ||
+      request.input.communicationIds[0] !== originalSource.communicationId ||
+      !originalSource.transcriptRevisionId ||
+      !Number.isSafeInteger(originalSource.communicationRevision) ||
+      originalSource.communicationRevision < 1
+    ) {
+      throw new SignalDockError(
+        'INVALID_ARGUMENT',
+        'Text analysis requires one matching versioned transcript source.',
+      );
+    }
+    const source = await this.repository.source(
+      {
+        instanceId: request.instanceId,
+        communicationId: IdSchema.parse(originalSource.communicationId),
+        transcriptRevisionId: IdSchema.parse(
+          originalSource.transcriptRevisionId,
+        ),
+      },
+      transaction,
+      true,
+      originalSource.communicationRevision,
+    );
+    if (!source || source.text !== request.input.text)
+      throw new SignalDockError(
+        'STALE_REVISION',
+        'The original analyzed transcript is no longer current.',
+      );
+    const provenance = {
+      jobId: request.jobId,
+      profileId: request.profileId,
+      profileRevision: request.profileRevision,
+      connectorId: result.connectorId,
+      taskId: request.task,
+      taskVersion: request.taskVersion,
+      simulated: result.simulated,
+      communicationId: originalSource.communicationId,
+      communicationRevision: originalSource.communicationRevision,
+      transcriptRevisionId: originalSource.transcriptRevisionId,
+    };
+    const definition = analysisTaskDefinitions().find(
+      (task) => task.taskId === request.task,
+    );
+    let data: unknown;
+    if (definition) {
+      definition.validateInput(request);
+      definition.validateOutput(request, result);
+      if (result.output.kind !== 'extension')
+        throw new SignalDockError(
+          'PROVIDER_UNAVAILABLE',
+          'The analysis output does not match its task.',
+        );
+      data = result.output.data;
+    } else {
+      if (
+        result.output.kind !== 'summary' ||
+        !result.output.text.trim() ||
+        result.output.text.length > 64000 ||
+        result.output.evidenceIds.length !== 1 ||
+        result.output.evidenceIds[0] !== source.communicationId
+      ) {
+        throw new SignalDockError(
+          'PROVIDER_UNAVAILABLE',
+          'The summary output does not reference its original source.',
+        );
+      }
+      data = {
+        text: result.output.text,
+        evidenceIds: result.output.evidenceIds,
+      };
+    }
+    signal.throwIfAborted();
+    if (request.task === 'emergency.classify') {
+      const assessment = await this.recordAssessment(
+        source,
+        {
+          analysisId: request.jobId,
+          findings: EmergencyFindingsSchema.parse(data),
+          connectorId: result.connectorId,
+          profileRevision: request.profileRevision,
+          provenance,
+        },
+        signal,
+        transaction,
+      );
+      return { handled: true, ...assessment };
+    }
+    await this.repository.recordTaskResult(
+      {
+        analysisId: request.jobId,
+        source,
+        taskId: request.task,
+        taskVersion: request.taskVersion,
+        connectorId: result.connectorId,
+        profileRevision: request.profileRevision,
+        provenance,
+        result: data,
+      },
+      signal,
+      transaction,
+    );
+    return { handled: true, analysisId: request.jobId };
+  }
+
   /** Provider processing uses the same source/evidence checks and never authorizes actions. */
   async acceptAssessment(
     reference: SourceReference,
@@ -363,6 +513,7 @@ export class IncidentService {
       findings: EmergencyFindings;
       connectorId: string;
       profileRevision: number;
+      provenance?: Record<string, unknown>;
     },
     signal: AbortSignal,
     transaction: DatabasePort,

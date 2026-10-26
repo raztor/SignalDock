@@ -6,9 +6,9 @@ import {
   type AuthPort,
   type Communication,
   type DatabasePort,
-  type JobQueuePort,
   type JobInput,
   type JobExecutionContext,
+  type JobQueuePort,
   type Principal,
   type ProcessingProfile,
   type ProcessingRequest,
@@ -126,7 +126,7 @@ function fixture(overrides: Partial<ProcessingRuntimeOptions> = {}) {
       simulated: true,
       execution: 'local',
     }),
-    execute: vi.fn(
+    execute: vi.fn<ProcessingConnector['execute']>(
       async (
         input,
         _connection,
@@ -367,19 +367,46 @@ describe('processing job authorization and terminal commit', () => {
       expect.objectContaining({ maxAttempts: 1 }),
       f.db,
     );
-    const committed = vi.fn();
+    expect(f.validateInputs).toHaveBeenLastCalledWith(
+      actor,
+      f.request,
+      undefined,
+      f.db,
+      undefined,
+    );
+    const commitCalled = vi.fn();
     const commit: JobExecutionContext['commit'] = async (write) => {
-      committed();
+      commitCalled();
       return write(f.db);
     };
     await f.runtime.execute(f.job, new AbortController().signal, { commit });
-    expect(committed).toHaveBeenCalledOnce();
+    expect(commitCalled).toHaveBeenCalledOnce();
     expect(f.onCompleted).toHaveBeenCalledOnce();
     expect(f.auth.authorize).toHaveBeenCalledTimes(4);
     expect(f.artifacts.delete).not.toHaveBeenCalled();
     expect(
       f.calls.some((call) => call.text.includes("state='completed'")),
     ).toBe(true);
+  });
+  it('revalidates the source inside enqueue transaction before inserting domain or queue rows', async () => {
+    const f = fixture();
+    f.validateInputs
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(
+        new SignalDockError(
+          'STALE_REVISION',
+          'Source deleted while enqueue waited.',
+        ),
+      );
+    await expect(
+      f.runtime.enqueue(actor, f.request, 'deleted-source'),
+    ).rejects.toMatchObject({ code: 'STALE_REVISION' });
+    expect(
+      f.calls.some((call) =>
+        call.text.includes('INSERT INTO sd_processing_jobs'),
+      ),
+    ).toBe(false);
+    expect(f.queue.enqueue).not.toHaveBeenCalled();
   });
   it('suppresses late results and deletes generated artifacts if the source commit is rejected', async () => {
     const f = fixture();
@@ -455,6 +482,33 @@ describe('processing job authorization and terminal commit', () => {
     await expect(
       f.runtime.prepareTransmission(actor, f.request.jobId, randomUUID()),
     ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    expect(f.artifacts.read).not.toHaveBeenCalled();
+  });
+  it('filters jobs and denies preview/TX output after the actual source radio permission is revoked', async () => {
+    const authorizeSourceRead = vi.fn(async () => {
+      throw new SignalDockError(
+        'FORBIDDEN',
+        'The actual source radio grant was revoked.',
+      );
+    });
+    const f = fixture({ authorizeSourceRead });
+    f.row.state = 'completed';
+    f.row.source = {
+      communicationId: randomUUID(),
+      communicationRevision: 1,
+    } as never;
+    f.row.radio_id = randomUUID() as never;
+    f.row.result = {
+      output: { kind: 'audio', artifactId: randomUUID() },
+    } as never;
+    expect(await f.runtime.jobs(actor)).toEqual([]);
+    await expect(
+      f.runtime.preview(actor, f.request.jobId),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(
+      f.runtime.prepareTransmission(actor, f.request.jobId, f.row.radio_id!),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    expect(authorizeSourceRead).toHaveBeenCalledWith(actor, f.row.source);
     expect(f.artifacts.read).not.toHaveBeenCalled();
   });
 });

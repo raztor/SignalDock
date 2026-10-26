@@ -31,6 +31,13 @@ const station = connectionString
       ...common,
       dataDirectory,
       connectionString,
+      startJobs: process.env['SIGNALDOCK_EMBEDDED_JOBS'] !== 'false',
+      ...(process.env['SIGNALDOCK_RELAY_URL']
+        ? { relayUrl: process.env['SIGNALDOCK_RELAY_URL'] }
+        : {}),
+      ...(process.env['SIGNALDOCK_QUEUE_SCHEMA']
+        ? { queueSchema: process.env['SIGNALDOCK_QUEUE_SCHEMA'] }
+        : {}),
       driverCredentials: await loadDriverCredentials(
         process.env['SIGNALDOCK_DRIVER_CREDENTIALS_FILE'],
       ),

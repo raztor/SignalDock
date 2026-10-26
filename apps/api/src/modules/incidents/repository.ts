@@ -31,6 +31,7 @@ export interface IncidentAssessment {
   taskId: string;
   taskVersion: number;
   profileRevision: number;
+  provenance: Record<string, unknown>;
   result: EmergencyFindings;
   createdAt: string;
 }
@@ -53,6 +54,7 @@ export interface SourceAnalysis {
   taskVersion: number;
   connectorId: string;
   profileRevision: number;
+  provenance: Record<string, unknown>;
   result: unknown;
   createdAt: string;
 }
@@ -196,6 +198,7 @@ export class SqlIncidentRepository {
       taskVersion: Number(row['task_version']),
       profileRevision: Number(row['profile_revision']),
       result: EmergencyFindingsSchema.parse(row['result']),
+      provenance: row['provenance'] as Record<string, unknown>,
       createdAt: iso(row['created_at']),
     }));
   }
@@ -230,6 +233,7 @@ export class SqlIncidentRepository {
       connectorId: String(row['connector_id']),
       profileRevision: Number(row['profile_revision']),
       result: row['result'],
+      provenance: row['provenance'] as Record<string, unknown>,
       createdAt: iso(row['created_at']),
     }));
   }
@@ -242,6 +246,7 @@ export class SqlIncidentRepository {
       taskVersion: number;
       connectorId: string;
       profileRevision: number;
+      provenance?: Record<string, unknown>;
       result: unknown;
     },
     signal: AbortSignal,
@@ -256,8 +261,8 @@ export class SqlIncidentRepository {
           'The analyzed source was deleted or superseded.',
         );
       const saved = await tx.query(
-        `INSERT INTO sd_analysis_results(instance_id,id,communication_id,transcript_revision_id,task_id,task_version,connector_id,profile_revision,input_sha256,result)
-        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb) ON CONFLICT(instance_id,id) DO NOTHING RETURNING id`,
+        `INSERT INTO sd_analysis_results(instance_id,id,communication_id,transcript_revision_id,task_id,task_version,connector_id,profile_revision,input_sha256,result,provenance)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::jsonb) ON CONFLICT(instance_id,id) DO NOTHING RETURNING id`,
         [
           source.instanceId,
           input.analysisId,
@@ -269,13 +274,14 @@ export class SqlIncidentRepository {
           input.profileRevision,
           createHash('sha256').update(source.text).digest('hex'),
           JSON.stringify(input.result),
+          JSON.stringify(input.provenance ?? {}),
         ],
       );
       if (!saved.rowCount) {
         const duplicate = await tx.query(
           `SELECT id FROM sd_analysis_results WHERE instance_id=$1 AND id=$2
           AND communication_id=$3 AND transcript_revision_id=$4 AND task_id=$5 AND task_version=$6 AND connector_id=$7
-          AND profile_revision=$8 AND result=$9::jsonb`,
+          AND profile_revision=$8 AND result=$9::jsonb AND provenance=$10::jsonb`,
           [
             source.instanceId,
             input.analysisId,
@@ -286,6 +292,7 @@ export class SqlIncidentRepository {
             input.connectorId,
             input.profileRevision,
             JSON.stringify(input.result),
+            JSON.stringify(input.provenance ?? {}),
           ],
         );
         if (!duplicate.rowCount)
@@ -393,17 +400,20 @@ export class SqlIncidentRepository {
     >,
     tx = this.db,
     lock = false,
+    communicationRevision?: number,
   ): Promise<SourceTranscript | null> {
     const result = await tx.query(
       `SELECT c.radio_id,c.rx_hz,c.frequency_attribution,c.started_at,t.text
       FROM sd_communications c JOIN sd_transcript_revisions t ON t.instance_id=c.instance_id AND t.communication_id=c.id
       WHERE c.instance_id=$1 AND c.id=$2 AND t.id=$3 AND c.deleted_at IS NULL
+      AND ($4::integer IS NULL OR c.revision=$4)
       AND t.revision=(SELECT max(tr.revision) FROM sd_transcript_revisions tr WHERE tr.instance_id=c.instance_id AND tr.communication_id=c.id)
       ${lock ? 'FOR SHARE OF c,t' : ''}`,
       [
         reference.instanceId,
         reference.communicationId,
         reference.transcriptRevisionId,
+        communicationRevision ?? null,
       ],
     );
     const row = result.rows[0];
@@ -510,6 +520,7 @@ export class SqlIncidentRepository {
       findings: EmergencyFindings;
       connectorId: string;
       profileRevision: number;
+      provenance?: Record<string, unknown>;
       aggregationWindowMs: number;
     },
     signal: AbortSignal,
@@ -526,8 +537,8 @@ export class SqlIncidentRepository {
           'The analyzed source was deleted or superseded.',
         );
       const saved = await tx.query(
-        `INSERT INTO sd_analysis_results(instance_id,id,communication_id,transcript_revision_id,task_id,task_version,connector_id,profile_revision,input_sha256,result)
-        VALUES($1,$2,$3,$4,'emergency.classify',1,$5,$6,$7,$8::jsonb) ON CONFLICT(instance_id,id) DO NOTHING RETURNING id`,
+        `INSERT INTO sd_analysis_results(instance_id,id,communication_id,transcript_revision_id,task_id,task_version,connector_id,profile_revision,input_sha256,result,provenance)
+        VALUES($1,$2,$3,$4,'emergency.classify',1,$5,$6,$7,$8::jsonb,$9::jsonb) ON CONFLICT(instance_id,id) DO NOTHING RETURNING id`,
         [
           source.instanceId,
           input.analysisId,
@@ -537,13 +548,14 @@ export class SqlIncidentRepository {
           input.profileRevision,
           createHash('sha256').update(source.text).digest('hex'),
           JSON.stringify(input.findings),
+          JSON.stringify(input.provenance ?? {}),
         ],
       );
       if (!saved.rowCount) {
         const priorResult = await tx.query(
           `SELECT id FROM sd_analysis_results WHERE instance_id=$1 AND id=$2
           AND communication_id=$3 AND transcript_revision_id=$4 AND task_id='emergency.classify' AND task_version=1
-          AND connector_id=$5 AND profile_revision=$6 AND result=$7::jsonb`,
+          AND connector_id=$5 AND profile_revision=$6 AND result=$7::jsonb AND provenance=$8::jsonb`,
           [
             source.instanceId,
             input.analysisId,
@@ -552,6 +564,7 @@ export class SqlIncidentRepository {
             input.connectorId,
             input.profileRevision,
             JSON.stringify(input.findings),
+            JSON.stringify(input.provenance ?? {}),
           ],
         );
         if (!priorResult.rowCount)

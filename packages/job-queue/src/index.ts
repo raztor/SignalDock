@@ -143,6 +143,8 @@ export class PostgresJobQueue implements JobQueuePort {
           'Invalid source revision.',
         );
       if (input.source.artifactId) IdSchema.parse(input.source.artifactId);
+      if (input.source.transcriptRevisionId)
+        IdSchema.parse(input.source.transcriptRevisionId);
     }
     const source = input.source ? json(input.source) : null;
     const persist = async (tx: DatabasePort) => {

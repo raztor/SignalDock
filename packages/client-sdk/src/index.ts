@@ -8,6 +8,7 @@ import {
   type ClientSession,
   ApiErrorSchema,
 } from '@signaldock/contracts';
+export { subscribeStationEvents } from './events.js';
 
 /** Authenticated calls remain inside the selected instance's API prefix. */
 export async function apiFetch(
@@ -40,7 +41,7 @@ export async function apiFetch(
     );
   }
   const headers = new Headers(init.headers);
-  headers.set('Accept', 'application/json');
+  if (!headers.has('Accept')) headers.set('Accept', 'application/json');
   headers.set('Authorization', `Bearer ${session.accessToken}`);
   if (typeof init.body === 'string' && !headers.has('Content-Type'))
     headers.set('Content-Type', 'application/json');

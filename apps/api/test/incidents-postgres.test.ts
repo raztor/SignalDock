@@ -14,6 +14,8 @@ import {
   type AuthenticationPort,
   type JobExecutionContext,
   type Principal,
+  type ProcessingRequest,
+  type ProcessingResult,
 } from '@signaldock/contracts';
 import { incidentMigrations } from '../src/modules/incidents/migrations.js';
 import { SqlIncidentRepository } from '../src/modules/incidents/repository.js';
@@ -23,6 +25,10 @@ import { configureHttp } from '../src/shared/http/configure-http.js';
 import {
   createLocalTranscriptAnalysisHandler,
   createRuleAnalysisHandler,
+  analysisTaskDefinitions,
+  extractCallsigns,
+  extractEntities,
+  detectEmergency,
 } from '@signaldock/processing-tasks';
 
 const url = process.env['TEST_DATABASE_URL'];
@@ -66,6 +72,12 @@ describe.skipIf(!url)('incident source integrity on PostgreSQL', () => {
     },
   };
   const reference = { instanceId, communicationId, transcriptRevisionId };
+  const originalSource = {
+    communicationId,
+    communicationRevision: 1,
+    transcriptRevisionId,
+  };
+  const originalText = 'This is CE3ABC near Cerro Alto. Mayday, need help.';
   const execution: JobExecutionContext = {
     commit: (write) => db.transaction(write),
   };
@@ -156,6 +168,201 @@ describe.skipIf(!url)('incident source integrity on PostgreSQL', () => {
     });
     return { ...reference, transcriptRevisionId: nextId };
   }
+
+  function providerCompletion(task: string): {
+    request: ProcessingRequest;
+    result: ProcessingResult;
+  } {
+    const request: ProcessingRequest = {
+      instanceId,
+      jobId: randomUUID(),
+      task,
+      taskVersion: 1,
+      profileId: randomUUID(),
+      profileRevision: 7,
+      deadline: new Date(Date.now() + 30000).toISOString(),
+      input: {
+        kind: 'text',
+        text: originalText,
+        communicationIds: [communicationId],
+      },
+    };
+    const definition = analysisTaskDefinitions().find(
+      (item) => item.taskId === task,
+    );
+    const data =
+      task === 'callsign.extract'
+        ? extractCallsigns(originalText, communicationId)
+        : task === 'entities.extract'
+          ? extractEntities(originalText, communicationId)
+          : detectEmergency(originalText, communicationId);
+    const output: ProcessingResult['output'] = definition
+      ? definition.normalizeOutput(request, data)
+      : {
+          kind: 'summary',
+          text: 'A station near Cerro Alto requested assistance.',
+          evidenceIds: [communicationId],
+        };
+    return {
+      request,
+      result: {
+        jobId: request.jobId,
+        profileRevision: request.profileRevision,
+        connectorId: 'test.provider',
+        simulated: false,
+        output,
+      },
+    };
+  }
+
+  it('persists normalized provider tasks and provenance inside the supplied terminal transaction without nesting', async () => {
+    const noNestedTransactions = new SqlIncidentRepository(
+      {
+        query: db.query.bind(db),
+        transaction: async () => {
+          throw new Error('Completion hooks cannot open transactions.');
+        },
+      },
+      appendOutbox,
+    );
+    const hook = new IncidentService(noNestedTransactions, auth);
+    for (const task of [
+      'callsign.extract',
+      'entities.extract',
+      'conversation.summarize',
+      'emergency.classify',
+    ]) {
+      const { request, result } = providerCompletion(task);
+      const apply = () =>
+        db.transaction((tx) =>
+          hook.acceptProcessingResult(
+            tx,
+            request,
+            result,
+            new AbortController().signal,
+            originalSource,
+          ),
+        );
+      expect(await apply()).toMatchObject({
+        handled: true,
+        analysisId: request.jobId,
+      });
+      await apply();
+      const saved = (
+        await repository.analyses(instanceId, communicationId)
+      ).find((entry) => entry.id === request.jobId)!;
+      expect(saved).toMatchObject({
+        taskId: task,
+        taskVersion: 1,
+        connectorId: result.connectorId,
+        profileRevision: 7,
+        provenance: {
+          jobId: request.jobId,
+          profileId: request.profileId,
+          simulated: false,
+          ...originalSource,
+        },
+      });
+    }
+    expect(await count('sd_analysis_results')).toBe(4);
+    expect(await count('sd_incidents')).toBe(1);
+    expect(await count('sd_event_outbox')).toBe(1);
+  });
+  it('rejects provider completion mismatches, invented evidence and a superseded same-text source', async () => {
+    const { request, result } = providerCompletion('callsign.extract');
+    const apply = (input = request, output = result, source = originalSource) =>
+      db.transaction((tx) =>
+        service.acceptProcessingResult(
+          tx,
+          input,
+          output,
+          new AbortController().signal,
+          source,
+        ),
+      );
+    await expect(
+      apply(request, { ...result, jobId: randomUUID() }),
+    ).rejects.toMatchObject({ code: 'PROVIDER_UNAVAILABLE' });
+    await expect(
+      apply(request, { ...result, profileRevision: 99 }),
+    ).rejects.toMatchObject({ code: 'PROVIDER_UNAVAILABLE' });
+    await expect(
+      apply({ ...request, instanceId: randomUUID() }),
+    ).rejects.toMatchObject({ code: 'STALE_REVISION' });
+    await expect(
+      apply(request, result, { ...originalSource, communicationRevision: 2 }),
+    ).rejects.toMatchObject({ code: 'STALE_REVISION' });
+    const invented: ProcessingResult = {
+      ...result,
+      output: {
+        kind: 'extension',
+        schemaId: request.task,
+        schemaVersion: 1,
+        evidenceIds: [communicationId],
+        data: {
+          candidates: [
+            {
+              value: 'CE3ABC',
+              mention: 'unknown',
+              evidence: [
+                { communicationId, quote: 'CE3ABC', start: 0, end: 6 },
+              ],
+            },
+          ],
+        },
+      },
+    };
+    await expect(apply(request, invented)).rejects.toMatchObject({
+      code: 'PROVIDER_UNAVAILABLE',
+    });
+    await revise(originalText);
+    await expect(apply()).rejects.toMatchObject({ code: 'STALE_REVISION' });
+    expect(await count('sd_analysis_results')).toBe(0);
+    expect(await count('sd_incidents')).toBe(0);
+  });
+  it('rolls provider completion derivatives back with the caller transaction and requires an exact transcript reference', async () => {
+    const { request, result } = providerCompletion('emergency.classify');
+    await expect(
+      db.transaction(async (tx) => {
+        await service.acceptProcessingResult(
+          tx,
+          request,
+          result,
+          new AbortController().signal,
+          originalSource,
+        );
+        throw new Error('Terminal job state could not be committed.');
+      }),
+    ).rejects.toThrow('Terminal job state');
+    expect(await count('sd_analysis_results')).toBe(0);
+    expect(await count('sd_incident_evidence')).toBe(0);
+    expect(await count('sd_incidents')).toBe(0);
+    expect(await count('sd_event_outbox')).toBe(0);
+    await expect(
+      db.transaction((tx) =>
+        service.acceptProcessingResult(
+          tx,
+          request,
+          result,
+          new AbortController().signal,
+          { communicationId, communicationRevision: 1 },
+        ),
+      ),
+    ).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' });
+    const unsupported = providerCompletion('conversation.summarize');
+    unsupported.request.task = 'future.extension';
+    expect(
+      await db.transaction((tx) =>
+        service.acceptProcessingResult(
+          tx,
+          unsupported.request,
+          unsupported.result,
+          new AbortController().signal,
+          undefined,
+        ),
+      ),
+    ).toEqual({ handled: false });
+  });
 
   it('persists all four local tasks, source evidence and one transactional notification', async () => {
     const jobId = randomUUID();

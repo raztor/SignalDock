@@ -92,6 +92,13 @@ export interface ProcessingRuntimeOptions {
     request: ProcessingRequest,
     source: JobInput['source'] | undefined,
     db?: DatabasePort,
+    claimedRadioId?: string,
+  ): Promise<void>;
+  /** Reauthorize the persisted source's current radio; viewing an old result does not require its old revision to remain latest. */
+  authorizeSourceRead?(
+    principal: ProcessingActor,
+    source: NonNullable<JobInput['source']>,
+    db?: DatabasePort,
   ): Promise<void>;
   /** Runs inside the queue's guarded final transaction, for example to append a transcript revision. */
   onCompleted?(
@@ -99,6 +106,7 @@ export interface ProcessingRuntimeOptions {
     principal: ProcessingActor,
     request: ProcessingRequest,
     result: ProcessingResult,
+    source?: JobInput['source'],
   ): Promise<void>;
   authorizeBackgroundUser?(
     instanceId: string,
@@ -441,9 +449,11 @@ export class ProcessingRuntime {
         'INVALID_ARGUMENT',
         'Processing requires one versioned communication source and its matching recording.',
       );
-    await this.options.validateInputs(actor, request, source);
+    await this.options.validateInputs(actor, request, source, undefined, radioId);
     const fingerprint = semanticFingerprint(request, radioId, source);
     return this.options.db.transaction(async (tx) => {
+      // Lock/revalidate the source before any domain or queue row, so deletion cannot race a late enqueue.
+      await this.options.validateInputs(actor, request, source, tx, radioId);
       const inserted = await tx.query(
         'INSERT INTO sd_processing_jobs(instance_id,id,owner_user_id,radio_id,profile_id,request,actor,source,state,fingerprint,idempotency_key) VALUES($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8::jsonb,$9,$10,$11) ON CONFLICT(instance_id,owner_user_id,idempotency_key) DO NOTHING',
         [
@@ -697,12 +707,25 @@ export class ProcessingRuntime {
   }
   async jobs(actor: Principal) {
     await this.manage(actor);
-    const rows = (
+    const selected = (
       await this.options.db.query<JobRow>(
         'SELECT * FROM sd_processing_jobs WHERE instance_id=$1 AND owner_user_id=$2 ORDER BY created_at DESC LIMIT 100',
         [actor.instanceId, actor.userId],
       )
     ).rows;
+    const rows: JobRow[] = [];
+    for (const row of selected) {
+      try {
+        await this.authorizeOutput(actor, row);
+        rows.push(row);
+      } catch (error) {
+        if (
+          !(error instanceof SignalDockError) ||
+          !['FORBIDDEN', 'NOT_FOUND'].includes(error.code)
+        )
+          throw error;
+      }
+    }
     await Promise.all(
       rows
         .filter((row) => row.state === 'queued' || row.state === 'running')
@@ -758,8 +781,7 @@ export class ProcessingRuntime {
         'NOT_FOUND',
         'A completed audio preview is unavailable.',
       );
-    if (job.radio_id)
-      await this.options.auth.authorize(actor, 'history.read', job.radio_id);
+    await this.authorizeOutput(actor, job);
     return this.options.artifacts.read(
       actor.instanceId,
       job.result.output.artifactId,
@@ -796,6 +818,7 @@ export class ProcessingRuntime {
         'NOT_FOUND',
         'A completed speech preview belonging to this user is required.',
       );
+    await this.authorizeOutput(actor, job);
     const profile = await this.profile(actor, job.request.profileId);
     const connection = await this.connection(actor, profile.connectionId);
     if (
@@ -871,6 +894,8 @@ export class ProcessingRuntime {
         actor,
         row.request,
         row.source ?? undefined,
+        undefined,
+        row.radio_id ?? undefined,
       );
       const profile = await this.profile(actor, row.request.profileId);
       const connection = await this.connection(actor, profile.connectionId);
@@ -944,6 +969,8 @@ export class ProcessingRuntime {
               actor,
               row.request,
               row.source ?? undefined,
+              undefined,
+              row.radio_id ?? undefined,
             );
             const stored = await this.options.artifacts.read(
               actor.instanceId,
@@ -981,6 +1008,7 @@ export class ProcessingRuntime {
           row.request,
           row.source ?? undefined,
           tx,
+          row.radio_id ?? undefined,
         );
         const current = await this.profile(actor, row.request.profileId, tx);
         const latestConnection = await this.connection(
@@ -1005,7 +1033,13 @@ export class ProcessingRuntime {
             'OPERATION_CONFLICT',
             'The processing result was cancelled or superseded.',
           );
-        await this.options.onCompleted?.(tx, actor, row.request, result);
+        await this.options.onCompleted?.(
+          tx,
+          actor,
+          row.request,
+          result,
+          row.source ?? undefined,
+        );
       });
       committed = true;
       // Health metadata must not turn an already committed result into a retried inference.
@@ -1061,6 +1095,17 @@ export class ProcessingRuntime {
     const profile = ProcessingProfileSchema.parse(row.profile);
     await this.connection(actor, profile.connectionId, db);
     return profile;
+  }
+  private async authorizeOutput(actor: Principal, job: JobRow) {
+    if (job.source) {
+      if (!this.options.authorizeSourceRead)
+        throw new SignalDockError(
+          'REQUIRES_CONFIGURATION',
+          'Processing source-read authorization is required.',
+        );
+      await this.options.authorizeSourceRead(actor, job.source);
+    } else if (job.radio_id)
+      await this.options.auth.authorize(actor, 'history.read', job.radio_id);
   }
   private async connection(
     actor: ProcessingActor,

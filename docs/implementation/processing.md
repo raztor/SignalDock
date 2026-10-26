@@ -9,7 +9,7 @@ Composition exports:
 - `createProcessingRegistry(tasks?)`, plus `registerTask`/`register` for installed extensions.
 - `CredentialVault(activeKeyId, keys)` with persistent operator-managed 32-byte encryption keys.
 - `OpenAISubscriptionOAuth(hostId)` with a persistent server host ID, separate from keys and tokens.
-- `ProcessingRuntime({db,auth,artifacts,queue,registry,vault,subscriptionOAuth,validateInputs,onCompleted?,authorizeBackgroundUser?})`.
+- `ProcessingRuntime({db,auth,artifacts,queue,registry,vault,subscriptionOAuth,validateInputs,authorizeSourceRead?,onCompleted?,authorizeBackgroundUser?})`.
 - `createHistoryProcessingHooks(history,authorizeActor,{onTranscriptCommitted?})` supplies source authorization and transcript persistence. The optional callback receives the terminal transaction, actor, updated communication and transcript; it may enqueue analysis/outbox work in that transaction, without external IO. Those writes become visible atomically with the transcript.
 - `registerProcessingRoutes(app,{prefix,auth,processing,transmitPreparedSpeech?})`.
 - `registerProcessingHandlers(queue,processing)`.
@@ -18,6 +18,12 @@ Composition exports:
 The integration owner registers `processingMigrations` (`030_processing`) before application startup. Root workspace references/dependencies and worker composition are separate integration responsibilities. The connector package pins `jose` 6.2.13; official API operations use standard `fetch`, not an implicit vendor SDK.
 
 `validateInputs` must resolve every communication in the selected instance, authorize its radio, reject deleted sources, compare the source revision, and match audio artifacts to available recordings. Current jobs accept one versioned source communication. Structured text must correspond to the authorized source transcript; source text never gains tools or system authority. This callback runs before enqueue, before provider IO, before reading audio and inside final commit. `onCompleted` runs in that final transaction: append a provider transcript revision using the history service's transaction argument, with connector/profile/task provenance. Never create another database transaction inside this callback.
+
+The history hooks require `validateJobSource(job,transaction)` for transactional work. Enqueue revalidates and locks the source before inserting any domain/shared queue row, preventing deletion from racing a late insert of copied text. Structured jobs persist `source.transcriptRevisionId` and validate that exact immutable transcript and frozen input text. The authorization callback receives an optional fourth transaction argument; pass it through to identity checks. `validateInputs` additionally receives the optional claimed radio ID and rejects a mismatch with the actual source radio. `onCompleted` receives the original source snapshot as its optional fifth argument for versioned analysis persistence.
+
+Include `authorizeSourceRead` from `createHistoryProcessingHooks` in runtime composition. Job lists, previews and prepared transmission reauthorize the current radio of the persisted source, ignoring a caller's claimed radio as an authority. Revoked/deleted sources are filtered or denied. A legitimate older result remains viewable with a current read grant even after the source revision advances.
+
+Wire history's source-deletion callback to `removeProcessingSourceDerivatives(transaction,instanceId,communicationId)` while the source lock is held. It locks shared jobs before domain derivatives, clears copied shared results/payloads/diagnostics, cancels unfinished jobs and deletes domain requests/results in the same transaction. Only safe queue audit references remain. The helper performs no network/artifact IO and opens no transaction. History retains responsibility for original recordings and its own transcript deletion.
 
 The shared queue atomically enqueues with the business row using `enqueue(job,transaction)`. The handler saves its result only through `execution.commit`: source locks, cancellation/deadline/attempt guards and derivative writes share the final transaction. Generated TTS artifacts are removed if commit fails. Cloud jobs use one attempt; an uncertain provider outcome is never automatically replayed. Manual jobs retain initiating-session authorization and stop if the session expires or is revoked.
 
@@ -91,6 +97,8 @@ npx vitest run services/processing-connectors/test packages/processing-sdk/test 
 ```
 
 Tests use deterministic audio/text, a real loopback mock HTTP server, mocked provider endpoints and signed JWKS fixtures. They cover capability replacement, local-only policy, cancellation, terminal failure, ownership, encrypted credential scope/key rotation, stale source/profile suppression, generated-artifact cleanup, consent invalidation, API prefix/auth boundaries and the shared TTS callback. They make no real provider calls or radio-audio uploads.
+
+With `TEST_DATABASE_URL` pointing to a disposable local PostgreSQL server, the retention test creates/drops its own unique schema and verifies rollback, removal of copied source text/results, unfinished-job cancellation, idempotency and instance/source isolation. Its test-only dependencies pin `pg` and `@types/pg` at 8.23.1.
 
 Outstanding external gates: database-backed cumulative integration/worker restarts, actual OpenAI/Azure/Ollama account/model acceptance, official eligible subscription onboarding/refresh/revocation/headless transfer, native preview/secure-storage compatibility, native audio/push builds and physical Linux/ARM64 radio acceptance. No fixture establishes those outcomes.
 

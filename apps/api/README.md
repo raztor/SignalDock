@@ -1,9 +1,17 @@
-# Backend API
+# API backend
 
-The Fastify application composes persistent station identity, one-time administrator bootstrap, local sessions, radio-scoped authorization, supervised radio runtimes, optional LiveKit media admission, private recording capture and frequency history.
+TypeScript/Fastify backend with authenticated identity, radios, media, history, processing, incidents, APRS and notifications. `app/station.ts` owns composition, migrations, lifecycle and cross-domain hooks. The API starts without operational modules only when `DATABASE_URL` is absent.
 
-Set `DATABASE_URL` and a protected `SIGNALDOCK_DATA_DIR`, build, then start `npm run dev:api` from the repository root. Without a database URL, discovery and health remain available. Read the private setup token locally; no default user or radio is created.
+```text
+src/main.ts                    Process bootstrap and shutdown
+src/app/                       Server composition and base-path configuration
+src/modules/<domain>/          Domain routes, services, and storage boundaries
+src/shared/http/               Common errors and HTTP response policy
+test/                          API integration and identity tests
+```
 
-Application composition is in `src/app`; domain implementations and validators are in `src/modules`. Public routes are versioned under `/api/v1` and respect a configured instance prefix. Vendor control stays behind private driver RPC. Core operation needs no processing provider account.
+`app/create-server.ts` registers discovery and accepts explicit operational composition. Keep vendor protocols in drivers, provider protocols behind the processing SDK, and shared DTOs in `@signaldock/contracts`. The generated OpenAPI catalog derives paths from actual route registrations and links each domain validator.
 
-See [development](../../docs/development.md), [core acceptance](../../docs/implementation/core-acceptance.md) and [the VGC module](../../services/drivers/vgc-benlink/README.md). Optional domains and standalone background-worker composition arrive in subsequent stack layers.
+`worker.ts` runs the same composition with HTTP and radio admission disabled. It executes installed handlers against the same persistent identity, private artifacts and station-scoped queue. Set `SIGNALDOCK_EMBEDDED_JOBS=false` in the API when using that worker. Only one process may own a physical radio runtime.
+
+From the repository root: `npm run dev:api`, `npm run check`, and `npm run build`. Configuration and identity storage are described in [development setup](../../docs/development.md).

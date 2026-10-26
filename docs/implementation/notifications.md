@@ -32,7 +32,7 @@ Coverage includes replay, forgery, scope/TTL/quota rejection, independently revo
 
 ## Release gates still open
 
-- Wire the module into the cumulative application shell, event dispatcher, identity callbacks, and job registry; validate those integrations at the stack tip.
+- Application shell, durable event dispatcher, identity callbacks and job registry are wired. The composed PostgreSQL integration test covers notification fanout; actual device delivery remains separate.
 - Validate browser permission UX and notification opening in the actual running application. Foreground notifications do not provide background Web Push.
 - Supply secure native installation signing/token adapters and demonstrate challenge receipt in signed iOS/Android development builds. No native enrollment UI is enabled yet.
 - Validate actual Expo publishing credentials, delivery receipts, device token rotation, direct owner revocation, and saved-instance navigation with real devices.

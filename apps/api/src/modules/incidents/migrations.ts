@@ -52,4 +52,8 @@ CREATE TABLE sd_incident_actions (
 );
 `,
   },
+  {
+    id: '041_analysis_provenance',
+    sql: `ALTER TABLE sd_analysis_results ADD COLUMN provenance jsonb NOT NULL DEFAULT '{}'::jsonb;`,
+  },
 ];

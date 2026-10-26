@@ -28,3 +28,4 @@ export {
   createHistoryProcessingHooks,
   type ProcessingHistoryPort,
 } from './history.js';
+export { removeProcessingSourceDerivatives } from './retention.js';

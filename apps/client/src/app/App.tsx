@@ -23,6 +23,11 @@ import { UserAdminScreen } from '../features/admin/UserAdminScreen';
 import { RadioDashboardScreen } from '../features/radios/RadioDashboardScreen';
 import { MediaScreen, stopActiveMedia } from '../features/media';
 import { HistoryScreen } from '../features/history/HistoryScreen';
+import { ProcessingScreen } from '../features/processing/ProcessingScreen';
+import { IncidentsScreen } from '../features/incidents/IncidentsScreen';
+import { AprsScreen } from '../features/aprs/AprsScreen';
+import { NotificationsScreen } from '../features/notifications/NotificationsScreen';
+import { transmitPreparedSpeech } from './transmit-speech';
 
 export default function App() {
   const controller = useMemo(
@@ -72,8 +77,8 @@ export default function App() {
     <Workspace
       key={key}
       session={auth.session}
-      mediaAvailable={auth.server?.info.features.liveAudio ?? false}
       displayName={auth.server?.info.displayName ?? 'Station'}
+      mediaAvailable={auth.server?.info.features.liveAudio ?? false}
       onServers={back}
       onSignOut={() => {
         void controller.signOut();
@@ -82,19 +87,27 @@ export default function App() {
   );
 }
 
-type Section = 'Radios' | 'History' | 'Sessions' | 'Administration';
+type Section =
+  | 'Radios'
+  | 'History'
+  | 'Incidents'
+  | 'APRS'
+  | 'Notifications'
+  | 'Processing'
+  | 'Sessions'
+  | 'Administration';
 function Workspace({
   session,
   displayName,
-  mediaAvailable,
   onServers,
   onSignOut,
+  mediaAvailable,
 }: {
   session: ClientSession;
   displayName: string;
-  mediaAvailable: boolean;
   onServers: () => void;
   onSignOut: () => void;
+  mediaAvailable: boolean;
 }) {
   const [section, setSection] = useState<Section>('Radios');
   const [radioId, setRadioId] = useState<string>();
@@ -130,9 +143,12 @@ function Workspace({
   const sections: Section[] = [
     'Radios',
     'History',
+    'Incidents',
+    'APRS',
+    'Notifications',
     'Sessions',
     ...(session.user.role === 'administrator'
-      ? ['Administration' as const]
+      ? ['Processing' as const, 'Administration' as const]
       : []),
   ];
   return (
@@ -185,6 +201,29 @@ function Workspace({
           </View>
         )}
         {section === 'History' && <HistoryScreen {...props} />}
+        {section === 'Incidents' && <IncidentsScreen {...props} />}
+        {section === 'APRS' && <AprsScreen {...props} />}
+        <View
+          style={{
+            flex: 1,
+            display: section === 'Notifications' ? 'flex' : 'none',
+          }}
+        >
+          <NotificationsScreen
+            {...props}
+            onSelectRadio={(id) => {
+              void selectRadio(id).then(() => navigate('Radios'));
+            }}
+          />
+        </View>
+        {section === 'Processing' && (
+          <ProcessingScreen
+            {...props}
+            onTransmitSpeech={(jobId, id, signal) =>
+              transmitPreparedSpeech(session, jobId, id, signal)
+            }
+          />
+        )}
         {section === 'Sessions' && <SessionListScreen {...props} />}
         {section === 'Administration' && <UserAdminScreen session={session} />}
       </View>

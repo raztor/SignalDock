@@ -203,6 +203,7 @@ export interface JobInput {
   source?: {
     communicationId: string;
     communicationRevision: number;
+    transcriptRevisionId?: string;
     artifactId?: string;
   };
 }
@@ -232,19 +233,23 @@ export interface JobQueuePort {
   start(): Promise<void>;
   stop(): Promise<void>;
 }
-export interface DomainEvent<T = unknown> {
-  protocolVersion: 1;
-  eventId: string;
-  instanceId: string;
-  radioId?: string;
-  streamGeneration: string;
-  sequence: number;
-  occurredAt: string;
-  type: string;
-  payloadVersion: number;
-  correlationId?: string;
-  payload: T;
-}
+export const DomainEventSchema = z.strictObject({
+  protocolVersion: z.literal(1),
+  eventId: id,
+  instanceId: id,
+  radioId: id.optional(),
+  streamGeneration: id,
+  sequence: z.number().int().nonnegative().safe(),
+  occurredAt: timestamp,
+  type: z.string().min(1).max(100),
+  payloadVersion: z.number().int().positive(),
+  correlationId: z.string().min(1).max(128).optional(),
+  payload: z.unknown(),
+});
+export type DomainEvent<T = unknown> = Omit<
+  z.infer<typeof DomainEventSchema>,
+  'payload'
+> & { payload: T };
 export interface EventPublisherPort {
   publish(event: DomainEvent): Promise<void>;
 }
@@ -554,6 +559,7 @@ export interface HistoryQuery {
 }
 
 export const applicationSchemas = {
+  DomainEvent: DomainEventSchema,
   CoverageInterval: CoverageIntervalSchema,
   SessionSummary: SessionSummarySchema,
   PacketRecord: PacketRecordSchema,

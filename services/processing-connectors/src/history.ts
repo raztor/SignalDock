@@ -2,6 +2,7 @@ import {
   SignalDockError,
   type Communication,
   type DatabasePort,
+  type JobInput,
   type Permission,
   type TranscriptRevision,
 } from '@signaldock/contracts';
@@ -14,6 +15,10 @@ export interface ProcessingHistoryPort {
     communicationId: string,
     transaction?: DatabasePort,
   ): Promise<Communication | null>;
+  validateJobSource?(
+    job: JobInput,
+    transaction: DatabasePort,
+  ): Promise<boolean>;
   appendTranscript(
     instanceId: string,
     communicationId: string,
@@ -32,6 +37,7 @@ export function createHistoryProcessingHooks(
     actor: ProcessingActor,
     permission: Permission,
     radioId: string,
+    transaction?: DatabasePort,
   ) => Promise<void>,
   options: {
     onTranscriptCommitted?: (
@@ -41,9 +47,34 @@ export function createHistoryProcessingHooks(
       transcript: TranscriptRevision,
     ) => Promise<void>;
   } = {},
-): Pick<ProcessingRuntimeOptions, 'validateInputs' | 'onCompleted'> {
+): Pick<
+  ProcessingRuntimeOptions,
+  'validateInputs' | 'onCompleted' | 'authorizeSourceRead'
+> {
   return {
-    async validateInputs(actor, request, source, transaction) {
+    async authorizeSourceRead(actor, source, transaction) {
+      const communication = await history.get(
+        actor.instanceId,
+        source.communicationId,
+        transaction,
+      );
+      if (
+        !communication ||
+        communication.instanceId !== actor.instanceId ||
+        communication.deletedAt
+      )
+        throw new SignalDockError(
+          'NOT_FOUND',
+          'The processing source is unavailable.',
+        );
+      await authorizeActor(
+        actor,
+        'history.read',
+        communication.radioId,
+        transaction,
+      );
+    },
+    async validateInputs(actor, request, source, transaction, claimedRadioId) {
       if (request.instanceId !== actor.instanceId)
         throw new SignalDockError(
           'FORBIDDEN',
@@ -70,6 +101,30 @@ export function createHistoryProcessingHooks(
           'INVALID_ARGUMENT',
           'The processing job requires one versioned communication.',
         );
+      if (transaction) {
+        if (!history.validateJobSource)
+          throw new SignalDockError(
+            'REQUIRES_CONFIGURATION',
+            'History source locking is required for transactional processing.',
+          );
+        const valid = await history.validateJobSource(
+          {
+            jobId: request.jobId,
+            instanceId: request.instanceId,
+            kind: 'processing.execute',
+            payload: {},
+            idempotencyKey: request.jobId,
+            deadline: request.deadline,
+            source,
+          },
+          transaction,
+        );
+        if (!valid)
+          throw new SignalDockError(
+            'STALE_REVISION',
+            'The source changed or was deleted before processing could be committed.',
+          );
+      }
       const communication = await history.get(
         actor.instanceId,
         source.communicationId,
@@ -84,7 +139,20 @@ export function createHistoryProcessingHooks(
           'NOT_FOUND',
           'The source communication is unavailable.',
         );
-      await authorizeActor(actor, 'history.read', communication.radioId);
+      if (
+        claimedRadioId !== undefined &&
+        claimedRadioId !== communication.radioId
+      )
+        throw new SignalDockError(
+          'INVALID_ARGUMENT',
+          'The claimed radio does not match the source communication.',
+        );
+      await authorizeActor(
+        actor,
+        'history.read',
+        communication.radioId,
+        transaction,
+      );
       if (communication.revision !== source.communicationRevision)
         throw new SignalDockError(
           'STALE_REVISION',
@@ -101,11 +169,17 @@ export function createHistoryProcessingHooks(
             'The artifact is not the available recording for this communication.',
           );
       } else {
-        const transcript = communication.transcripts.at(-1);
-        if (!transcript || transcript.text !== request.input.text)
+        const transcript = communication.transcripts.find(
+          (revision) => revision.id === source.transcriptRevisionId,
+        );
+        if (
+          !source.transcriptRevisionId ||
+          !transcript ||
+          transcript.text !== request.input.text
+        )
           throw new SignalDockError(
             'STALE_REVISION',
-            'Structured processing must use the current authorized transcript.',
+            'Structured processing must use the exact authorized transcript revision.',
           );
       }
     },
@@ -136,7 +210,12 @@ export function createHistoryProcessingHooks(
           'NOT_FOUND',
           'The recording was removed before transcription completed.',
         );
-      await authorizeActor(actor, 'history.read', communication.radioId);
+      await authorizeActor(
+        actor,
+        'history.read',
+        communication.radioId,
+        transaction,
+      );
       const transcript = await history.appendTranscript(
         actor.instanceId,
         communicationId,

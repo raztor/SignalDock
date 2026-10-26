@@ -181,6 +181,7 @@ export function registerProcessingRoutes(
             communicationId: id,
             communicationRevision: z.number().int().nonnegative(),
             artifactId: id.optional(),
+            transcriptRevisionId: id.optional(),
           })
           .optional(),
       })
@@ -192,6 +193,9 @@ export function registerProcessingRoutes(
           communicationRevision: body.source.communicationRevision,
           ...(body.source.artifactId
             ? { artifactId: body.source.artifactId }
+            : {}),
+          ...(body.source.transcriptRevisionId
+            ? { transcriptRevisionId: body.source.transcriptRevisionId }
             : {}),
         }
       : undefined;
