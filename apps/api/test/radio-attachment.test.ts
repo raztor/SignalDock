@@ -110,6 +110,30 @@ async function create(
   return service;
 }
 describe('independent initial radio attachment supervision', () => {
+  it('waits for registered-radio reconfiguration cleanup before closing its runtime', async () => {
+    const c = config();
+    const original = await driver(c);
+    const service = await create([c], async () => original);
+    await vi.waitFor(() => expect(service.runtime.list()).toHaveLength(1));
+    const gate = deferred<void>();
+    const disconnect = vi
+      .spyOn(original, 'disconnect')
+      .mockImplementation(() => gate.promise);
+    const reconfiguration = service.configure(principal, {
+      ...c,
+      enabled: false,
+    });
+    await vi.waitFor(() => expect(disconnect).toHaveBeenCalledOnce());
+    let closed = false;
+    const closing = service.close().then(() => {
+      closed = true;
+    });
+    await new Promise((resolveValue) => setTimeout(resolveValue, 20));
+    expect(closed).toBe(false);
+    gate.resolve();
+    await Promise.all([reconfiguration, closing]);
+    expect(service.runtime.list()).toEqual([]);
+  });
   it('starts without waiting for a delayed radio and attaches an independent radio', async () => {
     const slow = config(),
       fast = config();

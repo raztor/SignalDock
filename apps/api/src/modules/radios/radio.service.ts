@@ -30,6 +30,7 @@ export class RadioApplicationService {
   private readonly configurations = new Map<string, RadioConfiguration>();
   private readonly failures = new Map<string, ErrorCode>();
   private readonly changing = new Set<string>();
+  private readonly configurationChanges = new Map<string, Promise<void>>();
   private readonly attachments: RadioAttachmentSupervisor;
   private closed = false;
   private readonly unlisten: () => void;
@@ -106,6 +107,7 @@ export class RadioApplicationService {
     this.closed = true;
     this.unlisten();
     await this.attachments.close();
+    await Promise.allSettled([...this.configurationChanges.values()]);
     await this.supervisor.close();
     await Promise.all(
       this.runtime.list().map(async (driver) => {
@@ -178,6 +180,13 @@ export class RadioApplicationService {
       .some((radio) => radio.radioId === configuration.radioId);
     if (registered) this.runtime.pause(configuration.radioId);
     this.changing.add(configuration.radioId);
+    let complete!: () => void;
+    this.configurationChanges.set(
+      configuration.radioId,
+      new Promise<void>((resolveValue) => {
+        complete = resolveValue;
+      }),
+    );
     try {
       await this.attachments.stop(configuration.radioId);
       await this.repository.save(configuration);
@@ -208,6 +217,8 @@ export class RadioApplicationService {
         !this.runtime.list().some((radio) => radio.radioId === current.radioId)
       )
         this.attachments.start(current);
+      this.configurationChanges.delete(configuration.radioId);
+      complete();
     }
   }
   async connection(
