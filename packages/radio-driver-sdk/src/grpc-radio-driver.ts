@@ -91,6 +91,27 @@ export class GrpcRadioDriver implements RadioDriver {
     return structuredClone(this.description);
   }
 
+  /** Establish a new controller session after backend startup, never replaying TX. */
+  async establishSession(): Promise<RadioSnapshot> {
+    try {
+      // Drivers must reject Disconnect while physical idle cannot be confirmed.
+      // A new Connect may reset its controller fence only after that boundary.
+      await this.disconnect();
+      await this.connect();
+      const snapshot = await this.reconcile();
+      if (snapshot.connection !== 'ready' || snapshot.txState !== 'idle') {
+        throw new SignalDockError(
+          'RADIO_STATE_UNCERTAIN',
+          'A new driver session requires confirmed physical idle.',
+        );
+      }
+      return snapshot;
+    } catch (error) {
+      this.markUnavailable();
+      throw error;
+    }
+  }
+
   async connect(): Promise<RadioSnapshot> {
     try {
       const description = await this.unary(

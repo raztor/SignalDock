@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -9,6 +9,7 @@ import {
   simulationDescriptors,
 } from '../src/index.js';
 import { RadioSnapshotSchema as WireSnapshotSchema } from '../src/generated/signaldock/driver/v1/driver_pb.js';
+import { SignalDockError } from '@signaldock/contracts';
 
 const python =
   process.env['SIGNALDOCK_CODEGEN_PYTHON'] ??
@@ -18,6 +19,53 @@ const descriptor = () => ({
   driverId: 'fixture.grpc',
 });
 describe('private driver transport configuration', () => {
+  it('does not reconnect or admit a new controller when idle-confirmed disconnect fails', async () => {
+    const driver = new GrpcRadioDriver({
+      descriptor: descriptor(),
+      endpoint: 'unix:/private/tmp/unused-recovery-fixture.sock',
+    });
+    const stop = vi
+      .spyOn(driver, 'disconnect')
+      .mockRejectedValue(
+        new SignalDockError(
+          'RADIO_STATE_UNCERTAIN',
+          'Physical carrier stop is unconfirmed.',
+        ),
+      );
+    const connect = vi.spyOn(driver, 'connect');
+    try {
+      await expect(driver.establishSession()).rejects.toMatchObject({
+        code: 'RADIO_STATE_UNCERTAIN',
+      });
+      expect(stop).toHaveBeenCalledOnce();
+      expect(connect).not.toHaveBeenCalled();
+      expect(driver.getSnapshot().connection).toBe('degraded');
+    } finally {
+      driver.close();
+    }
+  });
+  it('refuses startup admission when reconnect readback is not physically idle', async () => {
+    const driver = new GrpcRadioDriver({
+      descriptor: descriptor(),
+      endpoint: 'unix:/private/tmp/unused-recovery-fixture.sock',
+    });
+    const state = {
+      ...driver.getSnapshot(),
+      connection: 'ready' as const,
+      txState: 'stop_unconfirmed' as const,
+    };
+    vi.spyOn(driver, 'disconnect').mockResolvedValue();
+    vi.spyOn(driver, 'connect').mockResolvedValue(state);
+    vi.spyOn(driver, 'reconcile').mockResolvedValue(state);
+    try {
+      await expect(driver.establishSession()).rejects.toMatchObject({
+        code: 'RADIO_STATE_UNCERTAIN',
+      });
+      expect(driver.getSnapshot().connection).toBe('degraded');
+    } finally {
+      driver.close();
+    }
+  });
   it('requires authentication and TLS for remote endpoints', () => {
     expect(
       () =>

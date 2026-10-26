@@ -25,6 +25,7 @@ describe.skipIf(!python || !existsSync(fixture))(
     let directory: string;
     let processHandle: ChildProcessWithoutNullStreams;
     let driver: GrpcRadioDriver;
+    let endpoint: string;
     beforeAll(async () => {
       directory = await mkdtemp(join(tmpdir(), 'sd-vgc-wire-'));
       processHandle = spawn(
@@ -51,7 +52,7 @@ describe.skipIf(!python || !existsSync(fixture))(
           stdio: ['pipe', 'pipe', 'pipe'],
         },
       );
-      const endpoint = await new Promise<string>((resolveEndpoint, reject) => {
+      endpoint = await new Promise<string>((resolveEndpoint, reject) => {
         let output = '';
         let errors = '';
         const timer = setTimeout(
@@ -181,6 +182,48 @@ describe.skipIf(!python || !existsSync(fixture))(
       });
       expect(observed.state).toBe('idle');
       expect(observed.physicallyConfirmed).toBe(true);
+    });
+    it('establishes a new idle-confirmed controller epoch after a backend crash while the driver stays ready', async () => {
+      const old = await driver.reconcile();
+      const command = (
+        snapshot: ReturnType<GrpcRadioDriver['getSnapshot']>,
+        fencing: number,
+      ) => ({
+        context: {
+          operationId: crypto.randomUUID(),
+          radioId,
+          generation: snapshot.generation,
+          expectedRevision: snapshot.revision,
+          controlGrant: crypto.randomUUID(),
+          ownerId: crypto.randomUUID(),
+          sessionId: crypto.randomUUID(),
+          fencing,
+          deadline: new Date(Date.now() + 5000).toISOString(),
+        },
+        tuning: { rxHz: 146562500, txHz: 146562500, mode: 'FM' as const },
+      });
+      const retained = await driver.applyTuning(command(old, 5));
+      driver.close(); // Simulate process loss: no Disconnect was sent to the running service.
+      driver = new GrpcRadioDriver({
+        descriptor: {
+          ...simulationDescriptors()[0]!,
+          radioId,
+          driverId: 'vgc-benlink',
+        },
+        endpoint,
+        token,
+      });
+      const existing = await driver.connect();
+      expect(existing.generation).toBe(retained.generation);
+      await expect(
+        driver.applyTuning(command(existing, 1)),
+      ).rejects.toMatchObject({ code: 'CONTROL_REQUIRED' });
+      const recovered = await driver.establishSession();
+      expect(recovered.generation).not.toBe(retained.generation);
+      expect(recovered.txState).toBe('idle');
+      expect(
+        (await driver.applyTuning(command(recovered, 1))).observedTuning?.rxHz,
+      ).toBe(146562500);
     });
   },
 );

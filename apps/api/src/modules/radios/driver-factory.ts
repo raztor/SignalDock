@@ -110,7 +110,7 @@ export function createGrpcDriverFactory(
       ...(token ? { token } : {}),
     });
     try {
-      await driver.connect();
+      await driver.establishSession();
       return driver;
     } catch (error) {
       driver.close();
