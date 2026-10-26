@@ -452,6 +452,16 @@ export interface ProcessingConnectionView {
     | 'revoked';
   hasCredentials: boolean;
 }
+export interface ProcessingBackgroundConsentView {
+  consentId: string;
+  radioId: string;
+  profileId: string;
+  profileRevision: number;
+  endpoint: string;
+  serviceOwnerUserId: string;
+  enabled: boolean;
+  consentedAt: string;
+}
 export interface ProcessingJobView {
   jobId: string;
   instanceId: string;
