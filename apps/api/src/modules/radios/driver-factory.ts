@@ -14,6 +14,7 @@ import {
 
 export type RadioDriverFactory = (
   configuration: RadioConfiguration,
+  context?: { signal: AbortSignal },
 ) => Promise<RadioDriver>;
 export class InstalledDriverRegistry {
   private readonly factories = new Map<string, RadioDriverFactory>();
@@ -25,14 +26,14 @@ export class InstalledDriverRegistry {
       );
     this.factories.set(driverId, factory);
   }
-  create: RadioDriverFactory = async (configuration) => {
+  create: RadioDriverFactory = async (configuration, context) => {
     const factory = this.factories.get(configuration.driverId);
     if (!factory)
       throw new SignalDockError(
         'REQUIRES_CONFIGURATION',
         'This radio driver is not installed.',
       );
-    return factory(configuration);
+    return factory(configuration, context);
   };
 }
 
@@ -71,7 +72,8 @@ export function createGrpcDriverFactory(
     connectTimeoutMs?: number;
   } = {},
 ): RadioDriverFactory {
-  return async (configuration) => {
+  return async (configuration, context) => {
+    context?.signal.throwIfAborted();
     if (!configuration.endpoint)
       throw new SignalDockError(
         'REQUIRES_CONFIGURATION',
@@ -126,12 +128,18 @@ export function createGrpcDriverFactory(
       ...(token ? { token } : {}),
       ...(typeof connectTimeoutMs === 'number' ? { connectTimeoutMs } : {}),
     });
+    const abort = () => driver.close();
+    context?.signal.addEventListener('abort', abort, { once: true });
     try {
+      context?.signal.throwIfAborted();
       await driver.establishSession();
+      context?.signal.throwIfAborted();
       return driver;
     } catch (error) {
       driver.close();
       throw error;
+    } finally {
+      context?.signal.removeEventListener('abort', abort);
     }
   };
 }

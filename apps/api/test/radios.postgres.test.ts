@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Client } from 'pg';
 import { PostgresDatabase, migrate } from '@signaldock/database';
 import {
@@ -117,6 +117,11 @@ describe.skipIf(!url)('radio configuration on real PostgreSQL', () => {
       configuration,
     ]);
     const restarted = await createService();
+    await vi.waitFor(async () =>
+      expect(
+        (await restarted.get(operator, radioId)).snapshot?.connection,
+      ).toBe('ready'),
+    );
     expect((await restarted.get(operator, radioId)).snapshot?.connection).toBe(
       'ready',
     );

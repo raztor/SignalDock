@@ -1,5 +1,5 @@
 import Fastify from 'fastify';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   SignalDockError,
   type AuthenticationPort,
@@ -108,6 +108,11 @@ describe('persisted radio administration and scoped APIs', () => {
     const first = await service(database);
     expect(await first.list(principal)).toEqual([]);
     await first.configure(principal, configuration);
+    await vi.waitFor(async () =>
+      expect((await first.get(principal, radioId)).snapshot?.connection).toBe(
+        'ready',
+      ),
+    );
     expect((await first.list(principal))[0]?.snapshot?.connection).toBe(
       'ready',
     );
@@ -136,13 +141,20 @@ describe('persisted radio administration and scoped APIs', () => {
       endpoint: 'unix:/private/radio.sock',
     });
     const view = await app.get(principal, radioId);
-    expect(view.health.state).toBe('failed');
+    await vi.waitFor(async () =>
+      expect((await app.get(principal, radioId)).health.state).toBe('failed'),
+    );
     expect(view).not.toHaveProperty('endpoint');
     expect(view).not.toHaveProperty('config');
   });
   it('authenticates routes, scopes grants to sessions, rejects stale/routed contexts and applies tuning', async () => {
     const domain = await service();
     await domain.configure(principal, configuration);
+    await vi.waitFor(async () =>
+      expect((await domain.get(principal, radioId)).snapshot?.connection).toBe(
+        'ready',
+      ),
+    );
     const app = Fastify();
     configureHttp(app);
     registerRadioRoutes(app, { prefix: '/api/v1', auth, service: domain });

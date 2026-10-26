@@ -43,6 +43,10 @@ Shared resource groups exclude conflicting leases and in-flight operations. Tuni
 
 The driver supervisor reconnects with bounded exponential backoff. It observes snapshots and invalidates grants when connection/generation changes. It never launches a process or silently resumes TX. Driver connection failures remain visible as typed health states, while endpoint/token details are excluded from ordinary radio views.
 
+Initial attachment is supervised independently of an already-registered driver's reconnect loop. `start()` loads persisted configuration and returns without waiting for Bluetooth; new configurations likewise report their stored state before their connector becomes ready. At most four initial opens run together. Each attempt has a 120-second outer bound (individual setup RPCs retain their shorter configured bounds), with exponential retries from 500 ms to 30 seconds. One failed or delayed radio cannot prevent the API or other radios from starting.
+
+Factories receive an optional `{ signal }` context. Installed registries must forward it; the gRPC factory closes its client on abort. Shutdown and reconfiguration abort pending attempts, reject late registration, and dispose any late driver result. Physical endpoints remain reserved until an ignored cancellation and its cleanup actually settle; changing configuration cannot open a competing connection through that gap. Exact and canonical endpoint aliases are excluded during opening and while registered. No initial-attachment path starts or resumes TX.
+
 ## Evidence and remaining gates
 
 Unit/conformance tests cover two independent simulated radios, competing sessions, shared resources, expiry/revocation, stale contexts, idempotency, uncertain TX locks, memory semantics, persisted configuration using a test database port, and authenticated Fastify routes. The transport suite additionally starts a real Python gRPC server and verifies Node/Python control, typed rejection, bearer authentication, event streaming, and binary RX frames.

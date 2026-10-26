@@ -17,6 +17,7 @@ import {
 } from '@signaldock/contracts';
 import { DriverSupervisor, RadioRuntime } from '@signaldock/radio-runtime';
 import { RadioRepository } from './radio.repository.js';
+import { RadioAttachmentSupervisor } from './attachment-supervisor.js';
 import {
   createSimulatorRegistry,
   type RadioDriverFactory,
@@ -29,7 +30,8 @@ export class RadioApplicationService {
   private readonly configurations = new Map<string, RadioConfiguration>();
   private readonly failures = new Map<string, ErrorCode>();
   private readonly changing = new Set<string>();
-  private readonly factory: RadioDriverFactory;
+  private readonly attachments: RadioAttachmentSupervisor;
+  private closed = false;
   private readonly unlisten: () => void;
   constructor(
     private readonly options: {
@@ -39,12 +41,41 @@ export class RadioApplicationService {
       runtime?: RadioRuntime;
       driverFactory?: RadioDriverFactory;
       events?: EventPublisherPort;
+      attachmentRetryMs?: number;
+      attachmentTimeoutMs?: number;
+      attachmentConcurrency?: number;
     },
   ) {
     this.runtime = options.runtime ?? new RadioRuntime();
     this.repository = new RadioRepository(options.database, options.instanceId);
     this.supervisor = new DriverSupervisor(this.runtime);
-    this.factory = options.driverFactory ?? createSimulatorRegistry().create;
+    this.attachments = new RadioAttachmentSupervisor({
+      factory: options.driverFactory ?? createSimulatorRegistry().create,
+      current: (configuration) =>
+        !this.closed &&
+        !this.changing.has(configuration.radioId) &&
+        this.configurations.get(configuration.radioId) === configuration &&
+        configuration.enabled,
+      register: (driver) => {
+        this.runtime.register(driver);
+        this.failures.delete(driver.descriptor.radioId);
+        this.supervisor.start(driver.descriptor.radioId);
+      },
+      failure: (radioId, error) =>
+        this.failures.set(
+          radioId,
+          error instanceof SignalDockError ? error.code : 'RADIO_UNAVAILABLE',
+        ),
+      ...(options.attachmentRetryMs === undefined
+        ? {}
+        : { retryMs: options.attachmentRetryMs }),
+      ...(options.attachmentTimeoutMs === undefined
+        ? {}
+        : { attemptTimeoutMs: options.attachmentTimeoutMs }),
+      ...(options.attachmentConcurrency === undefined
+        ? {}
+        : { concurrency: options.attachmentConcurrency }),
+    });
     let sequence = 0;
     this.unlisten = this.runtime.subscribe((snapshot) => {
       if (options.events)
@@ -67,11 +98,14 @@ export class RadioApplicationService {
   async start(): Promise<void> {
     for (const configuration of await this.repository.list()) {
       this.configurations.set(configuration.radioId, configuration);
-      if (configuration.enabled) await this.attach(configuration);
+      if (configuration.enabled && !this.closed)
+        this.attachments.start(configuration);
     }
   }
   async close(): Promise<void> {
+    this.closed = true;
     this.unlisten();
+    await this.attachments.close();
     await this.supervisor.close();
     await Promise.all(
       this.runtime.list().map(async (driver) => {
@@ -113,6 +147,11 @@ export class RadioApplicationService {
     principal: Principal,
   ): Promise<RadioConfiguration[]> {
     await this.authorize(principal, 'instance.admin');
+    if (this.closed)
+      throw new SignalDockError(
+        'RADIO_UNAVAILABLE',
+        'Radio service is shutting down.',
+      );
     return [...this.configurations.values()].map((configuration) =>
       structuredClone(configuration),
     );
@@ -122,6 +161,11 @@ export class RadioApplicationService {
     input: RadioConfiguration,
   ): Promise<RadioConfiguration> {
     await this.authorize(principal, 'instance.admin');
+    if (this.closed)
+      throw new SignalDockError(
+        'RADIO_UNAVAILABLE',
+        'Radio service is shutting down.',
+      );
     const configuration = RadioConfigurationSchema.parse(input);
     rejectInlineSecrets(configuration.config);
     if (this.changing.has(configuration.radioId))
@@ -135,6 +179,7 @@ export class RadioApplicationService {
     if (registered) this.runtime.pause(configuration.radioId);
     this.changing.add(configuration.radioId);
     try {
+      await this.attachments.stop(configuration.radioId);
       await this.repository.save(configuration);
       this.configurations.set(configuration.radioId, configuration);
       if (registered) {
@@ -148,14 +193,21 @@ export class RadioApplicationService {
           if ('close' in driver && typeof driver.close === 'function')
             driver.close();
           this.runtime.unregister(configuration.radioId);
+          this.attachments.release(configuration.radioId);
         }
       }
       this.failures.delete(configuration.radioId);
-      if (configuration.enabled) await this.attach(configuration);
       return structuredClone(configuration);
     } finally {
       this.changing.delete(configuration.radioId);
       this.runtime.resume(configuration.radioId);
+      const current = this.configurations.get(configuration.radioId);
+      if (
+        current?.enabled &&
+        !this.closed &&
+        !this.runtime.list().some((radio) => radio.radioId === current.radioId)
+      )
+        this.attachments.start(current);
     }
   }
   async connection(
@@ -319,6 +371,11 @@ export class RadioApplicationService {
     return configuration;
   }
   private available(radioId: string): void {
+    if (this.closed)
+      throw new SignalDockError(
+        'RADIO_UNAVAILABLE',
+        'Radio service is shutting down.',
+      );
     const configuration = this.configuration(radioId);
     if (
       !configuration.enabled ||
@@ -329,21 +386,6 @@ export class RadioApplicationService {
         'RADIO_UNAVAILABLE',
         'This radio is not connected.',
       );
-  }
-  private async attach(configuration: RadioConfiguration): Promise<void> {
-    let driver: Awaited<ReturnType<RadioDriverFactory>> | undefined;
-    try {
-      driver = await this.factory(configuration);
-      this.runtime.register(driver);
-      this.supervisor.start(configuration.radioId);
-    } catch (error) {
-      if (driver && 'close' in driver && typeof driver.close === 'function')
-        driver.close();
-      this.failures.set(
-        configuration.radioId,
-        error instanceof SignalDockError ? error.code : 'RADIO_UNAVAILABLE',
-      );
-    }
   }
   private view(config: RadioConfiguration): RadioView {
     const descriptor =
