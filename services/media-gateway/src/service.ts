@@ -360,18 +360,40 @@ export class MediaService {
   }
   async close(): Promise<void> {
     this.closed = true;
+    clearInterval(this.timer);
+    const errors: unknown[] = [];
     for (const radioId of new Set(
       [...this.sessions.values()].map((entry) => entry.session.radioId),
-    ))
-      this.bridge.updateListeners(radioId);
-    clearInterval(this.timer);
+    )) {
+      try {
+        this.bridge.updateListeners(radioId);
+      } catch (error) {
+        errors.push(error);
+        this.reportError(radioId, error);
+      }
+    }
     for (const source of this.preparedSources.values())
       source.controller.abort(new Error('Media shutdown.'));
-    await this.options.supervisor.close();
-    await Promise.all(
+    try {
+      await this.options.supervisor.close();
+    } catch (error) {
+      errors.push(error);
+    }
+    const removed = await Promise.allSettled(
       [...this.sessions.values()].map((entry) => this.remove(entry)),
     );
-    await this.bridge.close();
+    for (const result of removed)
+      if (result.status === 'rejected') errors.push(result.reason);
+    try {
+      await this.bridge.close();
+    } catch (error) {
+      errors.push(error);
+    }
+    if (errors.length)
+      throw new AggregateError(
+        errors,
+        'Media shutdown completed with cleanup errors.',
+      );
   }
   async transmitEncodedAudio(
     principal: Principal,
@@ -532,18 +554,31 @@ export class MediaService {
     try {
       this.bridge.updateListeners(entry.session.radioId);
     } catch (error) {
-      this.options.onError?.(entry.session.radioId, error);
+      this.reportError(entry.session.radioId, error);
     }
-    if (entry.txGrantId)
-      await this.options.supervisor.stop(
-        entry.txGrantId,
-        'media_session_closed',
-      );
+    let stoppingError: unknown;
+    try {
+      if (entry.txGrantId)
+        await this.options.supervisor.stop(
+          entry.txGrantId,
+          'media_session_closed',
+        );
+    } catch (error) {
+      stoppingError = error;
+    }
     await bounded(
       this.options.credentials.revoke(entry.session),
       undefined,
       2500,
     ).catch(() => undefined);
+    if (stoppingError) throw stoppingError;
+  }
+  private reportError(radioId: string, error: unknown): void {
+    try {
+      this.options.onError?.(radioId, error);
+    } catch {
+      /* Diagnostic failures cannot abort shutdown or revocation. */
+    }
   }
   private assertAdmission(principal: Principal, epoch: number): void {
     if (this.closed)

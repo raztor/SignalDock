@@ -179,6 +179,7 @@ export type TuningContextResolver = (
 export class LiveKitRadioBridge {
   private readonly radios = new Map<string, RadioBridge>();
   private readonly opening = new Map<string, Promise<void>>();
+  private readonly detaching = new Map<string, Promise<void>>();
   private closed = false;
   constructor(
     private readonly options: {
@@ -428,19 +429,44 @@ export class LiveKitRadioBridge {
   }
 
   async detachRadio(radioId: string): Promise<void> {
+    const existing = this.detaching.get(radioId);
+    if (existing) return existing;
     const bridge = this.radios.get(radioId);
     if (!bridge) return;
     this.radios.delete(radioId);
     bridge.abort.abort();
-    await this.options.invalidateRadio(radioId, 'media_detached');
-    await Promise.all(
-      [...bridge.readers].map((reader) =>
-        reader.cancel().catch(() => undefined),
-      ),
-    );
-    await bridge.room.disconnect();
-    await bridge.source.close();
-    await bridge.track.close();
+    const work = (async () => {
+      const errors: unknown[] = [];
+      const attempt = async (action: () => unknown | Promise<unknown>) => {
+        try {
+          await action();
+        } catch (error) {
+          errors.push(error);
+        }
+      };
+      await attempt(() =>
+        this.options.invalidateRadio(radioId, 'media_detached'),
+      );
+      await Promise.all(
+        [...bridge.readers].map((reader) =>
+          reader.cancel().catch(() => undefined),
+        ),
+      );
+      await attempt(() => bridge.room.disconnect());
+      await attempt(() => bridge.source.close());
+      await attempt(() => bridge.track.close());
+      if (errors.length)
+        throw new AggregateError(
+          errors,
+          `Radio ${radioId} media cleanup failed.`,
+        );
+    })();
+    this.detaching.set(radioId, work);
+    try {
+      await work;
+    } finally {
+      this.detaching.delete(radioId);
+    }
   }
   updateListeners(radioId: string): void {
     const bridge = this.radios.get(radioId);
@@ -451,7 +477,7 @@ export class LiveKitRadioBridge {
         this.options.listenerIdentities(radioId),
       );
     } catch (error) {
-      void bridge.room.disconnect();
+      void bridge.room.disconnect().catch(() => undefined);
       void this.detachRadio(radioId).catch(() => undefined);
       throw error;
     }
@@ -459,9 +485,19 @@ export class LiveKitRadioBridge {
   async close(): Promise<void> {
     this.closed = true;
     await Promise.allSettled([...this.opening.values()]);
-    await Promise.all(
-      [...this.radios.keys()].map((id) => this.detachRadio(id)),
+    const pending = [...this.detaching.values()];
+    const results = await Promise.allSettled([
+      ...pending,
+      ...[...this.radios.keys()].map((id) => this.detachRadio(id)),
+    ]);
+    const errors = results.flatMap((result) =>
+      result.status === 'rejected' ? [result.reason] : [],
     );
+    if (errors.length)
+      throw new AggregateError(
+        errors,
+        'Radio media bridges could not all close cleanly.',
+      );
   }
   private archive(frame: PcmAudioFrame, context: MediaFrameContext): void {
     try {

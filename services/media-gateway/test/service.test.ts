@@ -12,7 +12,7 @@ const cleanup: MediaService[] = [];
 afterEach(async () => {
   await Promise.all(cleanup.splice(0).map((media) => media.close()));
 });
-function fixture() {
+function fixture(onError?: (radioId: string, error: unknown) => void) {
   const principal: Principal = {
     instanceId: crypto.randomUUID(),
     userId: crypto.randomUUID(),
@@ -65,6 +65,7 @@ function fixture() {
     auth,
     credentials,
     supervisor,
+    ...(onError ? { onError } : {}),
     rxSource: () => {
       throw new Error('No physical radio in this test.');
     },
@@ -91,6 +92,37 @@ function fixture() {
   };
 }
 describe('media enrollment', () => {
+  it('continues shutdown after an FFI permission failure and a broken diagnostic callback', async () => {
+    const reports = vi.fn(() => {
+      throw new Error('Diagnostic failure.');
+    });
+    const f = fixture(reports);
+    const tx = await f.start();
+    const otherRadio = crypto.randomUUID();
+    await f.media.createSession(f.principal, 'token', {
+      radioId: f.radioId,
+      mode: 'listen',
+    });
+    await f.media.createSession(f.principal, 'token', {
+      radioId: otherRadio,
+      mode: 'listen',
+    });
+    const updates: string[] = [];
+    const failure = new Error('FFI permission failure.');
+    vi.spyOn(f.media.bridge, 'updateListeners').mockImplementation(
+      (radioId) => {
+        updates.push(radioId);
+        if (radioId === f.radioId) throw failure;
+      },
+    );
+    const closed = vi.spyOn(f.media.bridge, 'close');
+    await expect(f.media.close()).rejects.toBeInstanceOf(AggregateError);
+    expect(updates).toContain(otherRadio);
+    expect(f.supervisor.get(tx.grant.txGrantId).state).toBe('idle');
+    expect(closed).toHaveBeenCalledOnce();
+    expect(f.credentials.revoke).toHaveBeenCalledTimes(2);
+    expect(reports).toHaveBeenCalled();
+  });
   it('binds grants and media sessions to both account and login session', async () => {
     const f = fixture();
     const tx = await f.start();

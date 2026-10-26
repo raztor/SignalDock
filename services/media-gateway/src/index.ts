@@ -16,3 +16,4 @@ export {
   type WireRadioAudioClient,
 } from './grpc.js';
 export { decodePreparedAudio, preparedPcmFrames } from './decode-audio.js';
+export { disposeMediaRuntime } from './runtime-disposal.js';
