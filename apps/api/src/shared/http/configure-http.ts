@@ -39,25 +39,20 @@ export function configureHttp(app: FastifyInstance): void {
         INTERNAL_ERROR: 500,
       };
       const status = statusByCode[error.code] ?? 500;
-      return reply
-        .code(status)
-        .send({
-          code: error.code,
-          message:
-            status === 500 ? 'An internal error occurred.' : error.message,
-          correlationId: request.id,
-          retryable: status === 503 && error.code !== 'REQUIRES_CONFIGURATION',
-        } satisfies ApiError);
+      return reply.code(status).send({
+        code: error.code,
+        message: status === 500 ? 'An internal error occurred.' : error.message,
+        correlationId: request.id,
+        retryable: status === 503 && error.code !== 'REQUIRES_CONFIGURATION',
+      } satisfies ApiError);
     }
     if (error instanceof ZodError) {
-      return reply
-        .code(400)
-        .send({
-          code: 'INVALID_ARGUMENT',
-          message: 'The request does not match the endpoint schema.',
-          correlationId: request.id,
-          retryable: false,
-        } satisfies ApiError);
+      return reply.code(400).send({
+        code: 'INVALID_ARGUMENT',
+        message: 'The request does not match the endpoint schema.',
+        correlationId: request.id,
+        retryable: false,
+      } satisfies ApiError);
     }
     const suppliedStatus =
       typeof error === 'object' && error !== null && 'statusCode' in error

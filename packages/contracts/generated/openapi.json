@@ -50,6 +50,211 @@
   },
   "components": {
     "schemas": {
+      "CreateUserRequest": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "password": {
+            "type": "string",
+            "minLength": 12,
+            "maxLength": 1024
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "listener",
+              "operator",
+              "administrator"
+            ]
+          },
+          "radioPermissions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "radioId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "permissions": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "radio.listen",
+                      "radio.control",
+                      "radio.transmit",
+                      "radio.configure",
+                      "history.read",
+                      "history.write",
+                      "recording.export",
+                      "incident.read",
+                      "incident.manage",
+                      "aprs.read",
+                      "processing.manage",
+                      "notifications.read",
+                      "notifications.manage",
+                      "instance.admin"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "radioId",
+                "permissions"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "username",
+          "password",
+          "role"
+        ],
+        "additionalProperties": false
+      },
+      "UpdateUserRequest": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "role": {
+            "type": "string",
+            "enum": [
+              "listener",
+              "operator",
+              "administrator"
+            ]
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "radioPermissions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "radioId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "permissions": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "radio.listen",
+                      "radio.control",
+                      "radio.transmit",
+                      "radio.configure",
+                      "history.read",
+                      "history.write",
+                      "recording.export",
+                      "incident.read",
+                      "incident.manage",
+                      "aprs.read",
+                      "processing.manage",
+                      "notifications.read",
+                      "notifications.manage",
+                      "instance.admin"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "radioId",
+                "permissions"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "ResetPasswordRequest": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "password": {
+            "type": "string",
+            "minLength": 12,
+            "maxLength": 1024
+          }
+        },
+        "required": [
+          "password"
+        ],
+        "additionalProperties": false
+      },
+      "RefreshRequest": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "refreshToken": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false
+      },
+      "ControlLease": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "grantId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "radioId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "ownerId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "sessionId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "generation": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "fencing": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "expiresAt": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "grantId",
+          "radioId",
+          "ownerId",
+          "sessionId",
+          "generation",
+          "fencing",
+          "expiresAt"
+        ],
+        "additionalProperties": false
+      },
       "RecordingRecord": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -1645,6 +1850,435 @@
           "driverId",
           "resourceGroupIds",
           "capabilities"
+        ],
+        "additionalProperties": false
+      },
+      "RadioView": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "radioId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "driverId": {
+            "type": "string"
+          },
+          "resourceGroupIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "descriptor": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "radioId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "displayName": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100
+                  },
+                  "driverId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100
+                  },
+                  "resourceGroupIds": {
+                    "maxItems": 20,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 100
+                    }
+                  },
+                  "capabilities": {
+                    "type": "object",
+                    "properties": {
+                      "memories": {
+                        "type": "object",
+                        "properties": {
+                          "read": {
+                            "type": "boolean"
+                          },
+                          "write": {
+                            "type": "boolean"
+                          },
+                          "select": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "read",
+                          "write",
+                          "select"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "tuning": {
+                        "type": "object",
+                        "properties": {
+                          "writable": {
+                            "type": "boolean"
+                          },
+                          "ranges": {
+                            "minItems": 1,
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "minHz": {
+                                  "type": "integer",
+                                  "exclusiveMinimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                "maxHz": {
+                                  "type": "integer",
+                                  "exclusiveMinimum": 0,
+                                  "maximum": 9007199254740991
+                                }
+                              },
+                              "required": [
+                                "minHz",
+                                "maxHz"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
+                          "modes": {
+                            "minItems": 1,
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "enum": [
+                                "FM",
+                                "AM",
+                                "USB",
+                                "LSB",
+                                "CW",
+                                "DIGITAL"
+                              ]
+                            }
+                          }
+                        },
+                        "required": [
+                          "writable",
+                          "ranges",
+                          "modes"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "rxAudio": {
+                        "type": "boolean"
+                      },
+                      "txAudio": {
+                        "type": "boolean"
+                      },
+                      "ptt": {
+                        "type": "string",
+                        "enum": [
+                          "explicit",
+                          "audio_coupled",
+                          "unsupported"
+                        ]
+                      },
+                      "physicalTxObservation": {
+                        "type": "boolean"
+                      },
+                      "independentlyReceivableChannels": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "verification": {
+                        "type": "string",
+                        "enum": [
+                          "simulated",
+                          "experimental",
+                          "hardware_verified"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "tuning",
+                      "rxAudio",
+                      "txAudio",
+                      "ptt",
+                      "physicalTxObservation",
+                      "independentlyReceivableChannels",
+                      "verification"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "radioId",
+                  "displayName",
+                  "driverId",
+                  "resourceGroupIds",
+                  "capabilities"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "snapshot": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "selectedMemoryId": {
+                    "type": "string"
+                  },
+                  "radioId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "generation": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "revision": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "connection": {
+                    "type": "string",
+                    "enum": [
+                      "disconnected",
+                      "connecting",
+                      "synchronizing",
+                      "ready",
+                      "degraded",
+                      "recovering"
+                    ]
+                  },
+                  "observedTuning": {
+                    "type": "object",
+                    "properties": {
+                      "rxHz": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "txHz": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "mode": {
+                        "type": "string",
+                        "enum": [
+                          "FM",
+                          "AM",
+                          "USB",
+                          "LSB",
+                          "CW",
+                          "DIGITAL"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "rxHz",
+                      "mode"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "desiredTuning": {
+                    "type": "object",
+                    "properties": {
+                      "rxHz": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "txHz": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "mode": {
+                        "type": "string",
+                        "enum": [
+                          "FM",
+                          "AM",
+                          "USB",
+                          "LSB",
+                          "CW",
+                          "DIGITAL"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "rxHz",
+                      "mode"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "tuningConfidence": {
+                    "type": "string",
+                    "enum": [
+                      "confirmed",
+                      "inferred",
+                      "unknown"
+                    ]
+                  },
+                  "txState": {
+                    "type": "string",
+                    "enum": [
+                      "idle",
+                      "preparing",
+                      "transmitting",
+                      "stopping",
+                      "stop_unconfirmed",
+                      "unknown"
+                    ]
+                  }
+                },
+                "required": [
+                  "radioId",
+                  "generation",
+                  "revision",
+                  "connection",
+                  "tuningConfidence",
+                  "txState"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "control": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "grantId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "radioId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "ownerId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "sessionId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "generation": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "fencing": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "expiresAt": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "grantId",
+                  "radioId",
+                  "ownerId",
+                  "sessionId",
+                  "generation",
+                  "fencing",
+                  "expiresAt"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "health": {
+            "type": "object",
+            "properties": {
+              "state": {
+                "type": "string",
+                "enum": [
+                  "configured",
+                  "connected",
+                  "failed"
+                ]
+              },
+              "errorCode": {
+                "type": "string",
+                "enum": [
+                  "INVALID_ARGUMENT",
+                  "UNAUTHORIZED",
+                  "FORBIDDEN",
+                  "NOT_FOUND",
+                  "API_INCOMPATIBLE",
+                  "INSTANCE_IDENTITY_CHANGED",
+                  "CAPABILITY_UNSUPPORTED",
+                  "CONTROL_BUSY",
+                  "CONTROL_REQUIRED",
+                  "STALE_REVISION",
+                  "STALE_GENERATION",
+                  "OPERATION_CONFLICT",
+                  "DEADLINE_EXCEEDED",
+                  "RADIO_UNAVAILABLE",
+                  "RADIO_STATE_UNCERTAIN",
+                  "TX_LIMIT_REACHED",
+                  "PROVIDER_UNAVAILABLE",
+                  "REQUIRES_CONFIGURATION",
+                  "INTERNAL_ERROR"
+                ]
+              }
+            },
+            "required": [
+              "state"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "radioId",
+          "displayName",
+          "driverId",
+          "resourceGroupIds",
+          "enabled",
+          "descriptor",
+          "snapshot",
+          "control",
+          "health"
         ],
         "additionalProperties": false
       },

@@ -71,6 +71,49 @@ export const SessionTokensSchema = z.strictObject({
   user: PublicUserSchema,
 });
 export type SessionTokens = z.infer<typeof SessionTokensSchema>;
+export const CreateUserRequestSchema = z.strictObject({
+  username: z.string().min(1).max(100),
+  password: z.string().min(12).max(1024),
+  role: RoleSchema,
+  radioPermissions: z.array(RadioPermissionGrantSchema).optional(),
+});
+export const UpdateUserRequestSchema = z.strictObject({
+  role: RoleSchema.optional(),
+  enabled: z.boolean().optional(),
+  radioPermissions: z.array(RadioPermissionGrantSchema).optional(),
+});
+export const ResetPasswordRequestSchema = z.strictObject({
+  password: z.string().min(12).max(1024),
+});
+export const RefreshRequestSchema = z.strictObject({
+  refreshToken: z.string().min(1).optional(),
+});
+export type CreateUserRequest = z.infer<typeof CreateUserRequestSchema>;
+export type UpdateUserRequest = z.infer<typeof UpdateUserRequestSchema>;
+export type ResetPasswordRequest = z.infer<typeof ResetPasswordRequestSchema>;
+export type RefreshRequest = z.infer<typeof RefreshRequestSchema>;
+export const ControlLeaseSchema = z.strictObject({
+  grantId: id,
+  radioId: id,
+  ownerId: id,
+  sessionId: id,
+  generation: id,
+  fencing: z.number().int().nonnegative(),
+  expiresAt: z.number().int().positive(),
+});
+export type ControlLease = z.infer<typeof ControlLeaseSchema>;
+export interface ClientSession {
+  baseUrl: string;
+  instanceId: string;
+  accessToken: string;
+  user: PublicUser;
+  onUnauthorized?: () => void;
+}
+export interface FeatureScreenProps {
+  session: ClientSession;
+  radioId?: string;
+  onSelectRadio?: (radioId: string) => void;
+}
 export const BootstrapRequestSchema = z.strictObject({
   setupToken: z.string().min(1).max(512),
   username: z.string().min(1).max(100),
@@ -427,6 +470,11 @@ export interface HistoryQuery {
 }
 
 export const applicationSchemas = {
+  CreateUserRequest: CreateUserRequestSchema,
+  UpdateUserRequest: UpdateUserRequestSchema,
+  ResetPasswordRequest: ResetPasswordRequestSchema,
+  RefreshRequest: RefreshRequestSchema,
+  ControlLease: ControlLeaseSchema,
   RecordingRecord: RecordingRecordSchema,
   TranscriptRevision: TranscriptRevisionSchema,
   Conversation: ConversationSchema,

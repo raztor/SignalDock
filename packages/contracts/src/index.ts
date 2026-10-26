@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { applicationSchemas } from './application.js';
+import { applicationSchemas, ControlLeaseSchema } from './application.js';
 export * from './application.js';
 
 export const API_PROTOCOL_VERSION = 1 as const;
@@ -174,6 +174,21 @@ export const RadioDescriptorSchema = z.strictObject({
   capabilities: RadioCapabilitiesSchema,
 });
 export type RadioDescriptor = z.infer<typeof RadioDescriptorSchema>;
+export const RadioViewSchema = z.strictObject({
+  radioId: IdSchema,
+  displayName: z.string(),
+  driverId: z.string(),
+  resourceGroupIds: z.array(z.string()),
+  enabled: z.boolean(),
+  descriptor: RadioDescriptorSchema.nullable(),
+  snapshot: RadioSnapshotSchema.nullable(),
+  control: ControlLeaseSchema.nullable(),
+  health: z.strictObject({
+    state: z.enum(['configured', 'connected', 'failed']),
+    errorCode: ErrorCodeSchema.optional(),
+  }),
+});
+export type RadioView = z.infer<typeof RadioViewSchema>;
 export const OperationContextSchema = z.strictObject({
   fencing: z.number().int().nonnegative().optional(),
   ownerId: IdSchema.optional(),
@@ -329,6 +344,7 @@ export const contractSchemas = {
   RadioCapabilities: RadioCapabilitiesSchema,
   RadioSnapshot: RadioSnapshotSchema,
   RadioDescriptor: RadioDescriptorSchema,
+  RadioView: RadioViewSchema,
   TuningCommand: TuningCommandSchema,
   RadioSnapshotEvent: RadioSnapshotEventSchema,
   ConnectorManifest: ConnectorManifestSchema,

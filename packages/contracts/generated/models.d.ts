@@ -1,4 +1,71 @@
 // Generated from contract schemas. Run npm run generate:contracts.
+export interface CreateUserRequest {
+  username: string;
+  password: string;
+  role: "listener" | "operator" | "administrator";
+  radioPermissions?: {
+    radioId: string;
+    permissions: (
+      | "radio.listen"
+      | "radio.control"
+      | "radio.transmit"
+      | "radio.configure"
+      | "history.read"
+      | "history.write"
+      | "recording.export"
+      | "incident.read"
+      | "incident.manage"
+      | "aprs.read"
+      | "processing.manage"
+      | "notifications.read"
+      | "notifications.manage"
+      | "instance.admin"
+    )[];
+  }[];
+}
+
+export interface UpdateUserRequest {
+  role?: "listener" | "operator" | "administrator";
+  enabled?: boolean;
+  radioPermissions?: {
+    radioId: string;
+    permissions: (
+      | "radio.listen"
+      | "radio.control"
+      | "radio.transmit"
+      | "radio.configure"
+      | "history.read"
+      | "history.write"
+      | "recording.export"
+      | "incident.read"
+      | "incident.manage"
+      | "aprs.read"
+      | "processing.manage"
+      | "notifications.read"
+      | "notifications.manage"
+      | "instance.admin"
+    )[];
+  }[];
+}
+
+export interface ResetPasswordRequest {
+  password: string;
+}
+
+export interface RefreshRequest {
+  refreshToken?: string;
+}
+
+export interface ControlLease {
+  grantId: string;
+  radioId: string;
+  ownerId: string;
+  sessionId: string;
+  generation: string;
+  fencing: number;
+  expiresAt: number;
+}
+
 export interface RecordingRecord {
   id: string;
   artifactId: string;
@@ -541,6 +608,239 @@ export interface RadioDescriptor {
     physicalTxObservation: boolean;
     independentlyReceivableChannels: number;
     verification: "simulated" | "experimental" | "hardware_verified";
+  };
+}
+
+export interface RadioView {
+  radioId: string;
+  displayName: string;
+  driverId: string;
+  resourceGroupIds: string[];
+  enabled: boolean;
+  descriptor: {
+    radioId: string;
+    displayName: string;
+    driverId: string;
+    /**
+     * @maxItems 20
+     */
+    resourceGroupIds:
+      | []
+      | [string]
+      | [string, string]
+      | [string, string, string]
+      | [string, string, string, string]
+      | [string, string, string, string, string]
+      | [string, string, string, string, string, string]
+      | [string, string, string, string, string, string, string]
+      | [string, string, string, string, string, string, string, string]
+      | [string, string, string, string, string, string, string, string, string]
+      | [string, string, string, string, string, string, string, string, string, string]
+      | [string, string, string, string, string, string, string, string, string, string, string]
+      | [string, string, string, string, string, string, string, string, string, string, string, string]
+      | [string, string, string, string, string, string, string, string, string, string, string, string, string]
+      | [string, string, string, string, string, string, string, string, string, string, string, string, string, string]
+      | [
+          string,
+          string,
+          string,
+          string,
+          string,
+          string,
+          string,
+          string,
+          string,
+          string,
+          string,
+          string,
+          string,
+          string,
+          string
+        ]
+      | [
+          string,
+          string,
+          string,
+          string,
+          string,
+          string,
+          string,
+          string,
+          string,
+          string,
+          string,
+          string,
+          string,
+          string,
+          string,
+          string
+        ]
+      | [
+          string,
+          string,
+          string,
+          string,
+          string,
+          string,
+          string,
+          string,
+          string,
+          string,
+          string,
+          string,
+          string,
+          string,
+          string,
+          string,
+          string
+        ]
+      | [
+          string,
+          string,
+          string,
+          string,
+          string,
+          string,
+          string,
+          string,
+          string,
+          string,
+          string,
+          string,
+          string,
+          string,
+          string,
+          string,
+          string,
+          string
+        ]
+      | [
+          string,
+          string,
+          string,
+          string,
+          string,
+          string,
+          string,
+          string,
+          string,
+          string,
+          string,
+          string,
+          string,
+          string,
+          string,
+          string,
+          string,
+          string,
+          string
+        ]
+      | [
+          string,
+          string,
+          string,
+          string,
+          string,
+          string,
+          string,
+          string,
+          string,
+          string,
+          string,
+          string,
+          string,
+          string,
+          string,
+          string,
+          string,
+          string,
+          string,
+          string
+        ];
+    capabilities: {
+      memories?: {
+        read: boolean;
+        write: boolean;
+        select: boolean;
+      };
+      tuning: {
+        writable: boolean;
+        /**
+         * @minItems 1
+         */
+        ranges: [
+          {
+            minHz: number;
+            maxHz: number;
+          },
+          ...{
+            minHz: number;
+            maxHz: number;
+          }[]
+        ];
+        /**
+         * @minItems 1
+         */
+        modes: ["FM" | "AM" | "USB" | "LSB" | "CW" | "DIGITAL", ...("FM" | "AM" | "USB" | "LSB" | "CW" | "DIGITAL")[]];
+      };
+      rxAudio: boolean;
+      txAudio: boolean;
+      ptt: "explicit" | "audio_coupled" | "unsupported";
+      physicalTxObservation: boolean;
+      independentlyReceivableChannels: number;
+      verification: "simulated" | "experimental" | "hardware_verified";
+    };
+  } | null;
+  snapshot: {
+    selectedMemoryId?: string;
+    radioId: string;
+    generation: string;
+    revision: number;
+    connection: "disconnected" | "connecting" | "synchronizing" | "ready" | "degraded" | "recovering";
+    observedTuning?: {
+      rxHz: number;
+      txHz?: number;
+      mode: "FM" | "AM" | "USB" | "LSB" | "CW" | "DIGITAL";
+    };
+    desiredTuning?: {
+      rxHz: number;
+      txHz?: number;
+      mode: "FM" | "AM" | "USB" | "LSB" | "CW" | "DIGITAL";
+    };
+    tuningConfidence: "confirmed" | "inferred" | "unknown";
+    txState: "idle" | "preparing" | "transmitting" | "stopping" | "stop_unconfirmed" | "unknown";
+  } | null;
+  control: {
+    grantId: string;
+    radioId: string;
+    ownerId: string;
+    sessionId: string;
+    generation: string;
+    fencing: number;
+    expiresAt: number;
+  } | null;
+  health: {
+    state: "configured" | "connected" | "failed";
+    errorCode?:
+      | "INVALID_ARGUMENT"
+      | "UNAUTHORIZED"
+      | "FORBIDDEN"
+      | "NOT_FOUND"
+      | "API_INCOMPATIBLE"
+      | "INSTANCE_IDENTITY_CHANGED"
+      | "CAPABILITY_UNSUPPORTED"
+      | "CONTROL_BUSY"
+      | "CONTROL_REQUIRED"
+      | "STALE_REVISION"
+      | "STALE_GENERATION"
+      | "OPERATION_CONFLICT"
+      | "DEADLINE_EXCEEDED"
+      | "RADIO_UNAVAILABLE"
+      | "RADIO_STATE_UNCERTAIN"
+      | "TX_LIMIT_REACHED"
+      | "PROVIDER_UNAVAILABLE"
+      | "REQUIRES_CONFIGURATION"
+      | "INTERNAL_ERROR";
   };
 }
 
