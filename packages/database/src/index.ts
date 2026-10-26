@@ -166,6 +166,7 @@ CREATE TABLE sd_job_attempts (
 );
 `,
   },
+  { id: '002_job_source', sql: 'ALTER TABLE sd_jobs ADD COLUMN source jsonb;' },
 ];
 
 export async function appendOutbox(
@@ -212,7 +213,7 @@ export async function dispatchOutbox(
       radio_id: string | null;
       payload: unknown;
     }>(
-      'SELECT instance_id,id,type,radio_id,payload FROM sd_event_outbox WHERE delivered_at IS NULL ORDER BY occurred_at,id FOR UPDATE SKIP LOCKED LIMIT $1',
+      "SELECT instance_id,id,type,radio_id,payload FROM sd_event_outbox WHERE delivered_at IS NULL AND type <> 'job.enqueue' ORDER BY occurred_at,id FOR UPDATE SKIP LOCKED LIMIT $1",
       [limit],
     );
     for (const row of batch.rows) {

@@ -64,7 +64,7 @@ describe.skipIf(!url)('real PostgreSQL infrastructure', () => {
     ]);
     expect(
       (await db.query('SELECT id FROM sd_schema_migrations')).rows,
-    ).toEqual([{ id: '001_foundation' }]);
+    ).toEqual([{ id: '001_foundation' }, { id: '002_job_source' }]);
     await expect(
       migrate(db, [{ id: '001_foundation', sql: 'SELECT 1' }]),
     ).rejects.toThrow('modified');
