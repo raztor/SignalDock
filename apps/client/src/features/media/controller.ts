@@ -21,7 +21,7 @@ export interface MediaConnection {
   publish(microphone: Microphone): Promise<void>;
 }
 export interface BrowserMediaPort {
-  microphone(): Promise<Microphone>;
+  microphone(onInterrupted: () => void): Promise<Microphone>;
   connect(
     session: MediaSession,
     onInterrupted: () => void,
@@ -168,7 +168,10 @@ export class RadioMediaController {
     this.update({ pending: true, message: 'Preparing microphone…' });
     try {
       // Request microphone permission before starting the short radio lease.
-      mic = await this.options.port.microphone();
+      mic = await this.options.port.microphone(() => {
+        if (this.current(epoch))
+          void this.stopTransmit('Microphone interrupted.');
+      });
       if (!this.current(epoch)) {
         mic.stop();
         return;

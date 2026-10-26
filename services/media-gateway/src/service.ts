@@ -366,8 +366,9 @@ export class MediaService {
           renewing = false;
         });
     }, 250);
-    const iterator = frames(combined)[Symbol.asyncIterator]();
+    let iterator: AsyncIterator<PcmAudioFrame> | undefined;
     try {
+      iterator = frames(combined)[Symbol.asyncIterator]();
       while (true) {
         const remaining = tx.grant.maxUntil - Date.now();
         if (remaining <= 0)
@@ -391,7 +392,7 @@ export class MediaService {
       clearInterval(renewal);
       controller.abort();
       this.preparedSources.delete(tx.grant.txGrantId);
-      void Promise.resolve(iterator.return?.()).catch(() => undefined);
+      void Promise.resolve(iterator?.return?.()).catch(() => undefined);
       await this.options.supervisor.stop(
         tx.grant.txGrantId,
         'prepared_audio_finished',

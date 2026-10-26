@@ -73,6 +73,7 @@ interface ActiveTx extends TxStatus {
   lastMediaTimeUs: number;
   writing: boolean;
   openingSettled: boolean;
+  pendingOperations: number;
   tuningKey: string;
   nextObservationAt: number;
   observing: boolean;
@@ -186,6 +187,7 @@ export class TxSupervisor {
       lastMediaTimeUs: -1,
       writing: false,
       openingSettled: false,
+      pendingOperations: 0,
       tuningKey: JSON.stringify(snapshot.observedTuning),
       nextObservationAt: 0,
       observing: false,
@@ -203,10 +205,8 @@ export class TxSupervisor {
     this.byRadio.set(input.radioId, grant.txGrantId);
     this.notify(tx);
     try {
-      const opening = tx.driver.prepare(
-        { ...grant },
-        format,
-        tx.controller.signal,
+      const opening = Promise.resolve().then(() =>
+        tx.driver.prepare({ ...grant }, format, tx.controller.signal),
       );
       void opening.then(
         () => {
@@ -263,7 +263,9 @@ export class TxSupervisor {
         lease.expiresAt,
       );
       await bounded(
-        tx.driver.renew({ ...tx.grant }, tx.controller.signal),
+        this.admitted(tx, () =>
+          tx.driver.renew({ ...tx.grant }, tx.controller.signal),
+        ),
         tx.controller.signal,
         Math.min(this.timeoutMs, this.leaseMs),
       );
@@ -298,34 +300,39 @@ export class TxSupervisor {
         'The transmission destination changed.',
       );
     }
-    this.assertFormat(frame.format);
-    if (
-      frame.format.sampleRateHz !== tx.format.sampleRateHz ||
-      frame.format.channels !== tx.format.channels ||
-      frame.data.byteLength === 0 ||
-      frame.data.byteLength % (2 * frame.format.channels) ||
-      frame.data.byteLength >
-        (frame.format.sampleRateHz * frame.format.channels * 2) / 10 ||
-      !frame.streamId ||
-      !Number.isSafeInteger(frame.sequence) ||
-      frame.sequence < 0 ||
-      frame.sequence <= tx.lastSequence ||
-      !Number.isSafeInteger(frame.mediaTimeUs) ||
-      frame.mediaTimeUs < 0 ||
-      frame.mediaTimeUs < tx.lastMediaTimeUs ||
-      frame.tuningRevision !== tx.grant.tuningRevision ||
-      (tx.streamId && tx.streamId !== frame.streamId)
-    ) {
-      throw new SignalDockError(
-        'INVALID_ARGUMENT',
-        'Audio frame format, sequence, size, or radio context is invalid.',
-      );
+    try {
+      this.assertFormat(frame.format);
+      if (
+        frame.format.sampleRateHz !== tx.format.sampleRateHz ||
+        frame.format.channels !== tx.format.channels ||
+        frame.data.byteLength === 0 ||
+        frame.data.byteLength % (2 * frame.format.channels) ||
+        frame.data.byteLength >
+          (frame.format.sampleRateHz * frame.format.channels * 2) / 10 ||
+        !frame.streamId ||
+        !Number.isSafeInteger(frame.sequence) ||
+        frame.sequence < 0 ||
+        frame.sequence <= tx.lastSequence ||
+        !Number.isSafeInteger(frame.mediaTimeUs) ||
+        frame.mediaTimeUs < 0 ||
+        frame.mediaTimeUs < tx.lastMediaTimeUs ||
+        frame.tuningRevision !== tx.grant.tuningRevision ||
+        (tx.streamId && tx.streamId !== frame.streamId)
+      ) {
+        throw new SignalDockError(
+          'INVALID_ARGUMENT',
+          'Audio frame format, sequence, size, or radio context is invalid.',
+        );
+      }
+      if (tx.writing)
+        throw new SignalDockError(
+          'CONTROL_BUSY',
+          'TX audio backpressure requires serial writes.',
+        );
+    } catch (error) {
+      await this.stop(txGrantId, 'invalid_audio');
+      throw error;
     }
-    if (tx.writing)
-      throw new SignalDockError(
-        'CONTROL_BUSY',
-        'TX audio backpressure requires serial writes.',
-      );
     tx.writing = true;
     try {
       const acceptedFrame = {
@@ -334,7 +341,9 @@ export class TxSupervisor {
         data: frame.data.slice(),
       };
       await bounded(
-        tx.driver.write({ ...tx.grant }, acceptedFrame, tx.controller.signal),
+        this.admitted(tx, () =>
+          tx.driver.write({ ...tx.grant }, acceptedFrame, tx.controller.signal),
+        ),
         tx.controller.signal,
         Math.min(this.timeoutMs, this.leaseMs),
       );
@@ -403,6 +412,8 @@ export class TxSupervisor {
     this.notify(tx);
     tx.stopPromise = (async () => {
       let confirmed = false;
+      const operationsSettledBeforeEnd =
+        tx.openingSettled && tx.pendingOperations === 0;
       try {
         const observed = await bounded(
           tx.driver.end({ ...tx.grant }, reason),
@@ -410,7 +421,7 @@ export class TxSupervisor {
           this.timeoutMs,
         );
         confirmed =
-          tx.openingSettled &&
+          operationsSettledBeforeEnd &&
           observed.state === 'idle' &&
           observed.physicallyConfirmed;
       } catch {
@@ -453,7 +464,12 @@ export class TxSupervisor {
     const id = this.byRadio.get(radioId);
     if (!id) return true;
     const tx = this.require(id);
-    if (tx.state !== 'stop_unconfirmed' || !tx.openingSettled) return false;
+    if (
+      tx.state !== 'stop_unconfirmed' ||
+      !tx.openingSettled ||
+      tx.pendingOperations !== 0
+    )
+      return false;
     const observed = await bounded(
       tx.driver.observe({ ...tx.grant }),
       undefined,
@@ -496,6 +512,19 @@ export class TxSupervisor {
   }
   private expired(tx: ActiveTx): boolean {
     return this.now() >= Math.min(tx.grant.expiresAt, tx.grant.maxUntil);
+  }
+  private admitted<T>(tx: ActiveTx, work: () => Promise<T>): Promise<T> {
+    tx.pendingOperations++;
+    const pending = Promise.resolve().then(work);
+    void pending.then(
+      () => {
+        tx.pendingOperations--;
+      },
+      () => {
+        tx.pendingOperations--;
+      },
+    );
+    return pending;
   }
   private require(id: string, ownerId?: string, sessionId?: string): ActiveTx {
     const tx = this.active.get(id);

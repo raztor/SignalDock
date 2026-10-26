@@ -16,11 +16,17 @@ interface BrowserMicrophone extends Microphone {
   track: LocalAudioTrack;
 }
 export const browserMediaPort: BrowserMediaPort = {
-  async microphone() {
+  async microphone(onInterrupted) {
     const track = await createLocalAudioTrack({
       echoCancellation: true,
       noiseSuppression: true,
       autoGainControl: true,
+    });
+    track.mediaStreamTrack.addEventListener('ended', onInterrupted, {
+      once: true,
+    });
+    track.mediaStreamTrack.addEventListener('mute', onInterrupted, {
+      once: true,
     });
     return { track, stop: () => track.stop() } as BrowserMicrophone;
   },
@@ -34,6 +40,14 @@ export const browserMediaPort: BrowserMediaPort = {
     room.on(RoomEvent.Reconnecting, () => onInterrupted());
     room.on(RoomEvent.Disconnected, () => {
       if (!closing) onInterrupted();
+    });
+    room.on(RoomEvent.ParticipantDisconnected, (participant) => {
+      if (
+        participant.identity ===
+          `bridge-${session.instanceId}-${session.radioId}` &&
+        !closing
+      )
+        onInterrupted();
     });
     room.on(RoomEvent.TrackSubscribed, (track, _publication, participant) => {
       if (

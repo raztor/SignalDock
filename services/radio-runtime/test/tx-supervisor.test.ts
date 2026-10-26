@@ -211,4 +211,65 @@ describe('local TX supervisor', () => {
     );
     expect(f.releases).toEqual([false]);
   });
+  it('retains uncertainty until a cancelled write settles and idle is observed again', async () => {
+    const f = fixture();
+    const tx = await f.start();
+    let finish!: () => void;
+    f.driver.write = () =>
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+    const writing = f.supervisor.push(tx.grant.txGrantId, f.frame());
+    const rejected = expect(writing).rejects.toThrow();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect((await f.supervisor.stop(tx.grant.txGrantId)).state).toBe(
+      'stop_unconfirmed',
+    );
+    await rejected;
+    expect(await f.supervisor.reconcile(f.state.radioId)).toBe(false);
+    expect(f.releases).toEqual([false]);
+    finish();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(await f.supervisor.reconcile(f.state.radioId)).toBe(true);
+    expect(f.releases).toEqual([false, true]);
+  });
+  it('retains uncertainty while a cancelled renewal is still admitted', async () => {
+    const f = fixture();
+    const tx = await f.start();
+    let finish!: () => void;
+    f.driver.renew = () =>
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+    const renewing = f.supervisor.renew(
+      tx.grant.txGrantId,
+      f.ownerId,
+      f.sessionId,
+    );
+    const rejected = expect(renewing).rejects.toThrow();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect((await f.supervisor.stop(tx.grant.txGrantId)).state).toBe(
+      'stop_unconfirmed',
+    );
+    await rejected;
+    expect(await f.supervisor.reconcile(f.state.radioId)).toBe(false);
+    finish();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(await f.supervisor.reconcile(f.state.radioId)).toBe(true);
+  });
+  it('settles synchronous preparation failures and stops malformed active audio', async () => {
+    const failed = fixture();
+    failed.driver.prepare = () => {
+      throw new Error('synchronous');
+    };
+    await expect(failed.start()).rejects.toThrow('synchronous');
+    expect(failed.releases).toEqual([true]);
+    const f = fixture();
+    const tx = await f.start();
+    await f.supervisor.push(tx.grant.txGrantId, f.frame());
+    await expect(
+      f.supervisor.push(tx.grant.txGrantId, { ...f.frame(1), mediaTimeUs: -1 }),
+    ).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' });
+    expect(f.supervisor.get(tx.grant.txGrantId).state).toBe('idle');
+  });
 });
