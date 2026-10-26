@@ -173,6 +173,68 @@ describe.skipIf(!url)('authenticated history API with PostgreSQL 18', () => {
     expect(invalid.statusCode).toBe(416);
     expect(invalid.headers['content-range']).toBe('bytes */8');
   });
+  it('publishes normalized coverage and filters frequency conversations before pagination', async () => {
+    const generation = randomUUID();
+    const coverageId = await history.openCoverage({
+      instanceId,
+      radioId,
+      generation,
+      frequencyHz: 147540000,
+      attribution: 'confirmed',
+      startedAt: '2026-10-26T01:00:00.000Z',
+    });
+    await history.closeCoverage(
+      instanceId,
+      coverageId,
+      '2026-10-26T01:02:00.000Z',
+      'radio_disconnected',
+    );
+    const coverage = await app.inject({
+      url: `/api/v1/radios/${radioId}/coverage`,
+      headers,
+    });
+    expect(coverage.statusCode).toBe(200);
+    expect(coverage.json().items).toEqual([
+      {
+        id: coverageId,
+        radioId,
+        generation,
+        frequencyHz: 147540000,
+        attribution: 'confirmed',
+        startedAt: '2026-10-26T01:00:00.000Z',
+        endedAt: '2026-10-26T01:02:00.000Z',
+        reason: 'radio_disconnected',
+      },
+    ]);
+    expect(
+      (
+        await app.inject({
+          url: `/api/v1/radios/${hiddenRadioId}/coverage`,
+          headers,
+        })
+      ).statusCode,
+    ).toBe(403);
+    const unknown = await history.ingest({
+      id: randomUUID(),
+      instanceId,
+      radioId,
+      kind: 'received_voice',
+      direction: 'rx',
+      frequencyAttribution: 'unknown',
+      startedAt: '2000-01-01T00:00:00.000Z',
+      endedAt: '2000-01-01T00:00:01.000Z',
+      context: {},
+    });
+    const page = await app.inject({
+      url: `/api/v1/communications?conversationId=${unknown.conversationId}&limit=1`,
+      headers,
+    });
+    expect(page.statusCode).toBe(200);
+    expect(page.json().items.map((item: { id: string }) => item.id)).toEqual([
+      unknown.id,
+    ]);
+    expect(page.json().nextCursor).toBeUndefined();
+  });
   it('requires write permission and handles stale operator changes explicitly', async () => {
     const body = { expectedRevision: 1, notes: ['test'] };
     expect(

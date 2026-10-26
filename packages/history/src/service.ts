@@ -4,6 +4,7 @@ import { appendOutbox } from '@signaldock/database';
 import {
   CommunicationSchema,
   ConversationSchema,
+  CoverageIntervalSchema,
   IdSchema,
   SignalDockError,
   TimestampSchema,
@@ -12,6 +13,7 @@ import {
   type ArtifactStoragePort,
   type Communication,
   type Conversation,
+  type CoverageInterval,
   type DatabasePort,
   type HistoryQuery,
   type JobInput,
@@ -273,6 +275,7 @@ export class HistoryService {
     };
     if (allowedRadioIds) add('c.radio_id=ANY(?::uuid[])', allowedRadioIds);
     if (query.radioId) add('c.radio_id=?', query.radioId);
+    if (query.conversationId) add('c.conversation_id=?', query.conversationId);
     if (query.frequencyHz !== undefined) add('c.rx_hz=?', query.frequencyHz);
     if (query.direction) add('c.direction=?', query.direction);
     if (query.search) {
@@ -763,13 +766,32 @@ export class HistoryService {
   async coverage(
     instanceId: string,
     radioId: string,
-  ): Promise<Record<string, unknown>[]> {
-    return (
-      await this.database.query(
-        'SELECT id,radio_id,generation,rx_hz,attribution,started_at,ended_at,reason FROM sd_coverage_intervals WHERE instance_id=$1 AND radio_id=$2 ORDER BY started_at DESC LIMIT 200',
-        [instanceId, radioId],
-      )
-    ).rows;
+  ): Promise<CoverageInterval[]> {
+    const rows = await this.database.query<{
+      id: string;
+      radio_id: string;
+      generation: string;
+      rx_hz: string | null;
+      attribution: CoverageInterval['attribution'];
+      started_at: Date;
+      ended_at: Date | null;
+      reason: string | null;
+    }>(
+      'SELECT id,radio_id,generation,rx_hz,attribution,started_at,ended_at,reason FROM sd_coverage_intervals WHERE instance_id=$1 AND radio_id=$2 ORDER BY started_at DESC LIMIT 200',
+      [instanceId, radioId],
+    );
+    return rows.rows.map((row) =>
+      CoverageIntervalSchema.parse({
+        id: row.id,
+        radioId: row.radio_id,
+        generation: row.generation,
+        ...(row.rx_hz ? { frequencyHz: Number(row.rx_hz) } : {}),
+        attribution: row.attribution,
+        startedAt: row.started_at.toISOString(),
+        ...(row.ended_at ? { endedAt: row.ended_at.toISOString() } : {}),
+        ...(row.reason === null ? {} : { reason: row.reason }),
+      }),
+    );
   }
   async openCoverage(input: {
     instanceId: string;
@@ -780,6 +802,17 @@ export class HistoryService {
     startedAt: string;
   }): Promise<string> {
     const id = randomUUID();
+    IdSchema.parse(input.instanceId);
+    CoverageIntervalSchema.parse({
+      id,
+      radioId: input.radioId,
+      generation: input.generation,
+      attribution: input.attribution,
+      startedAt: input.startedAt,
+      ...(input.frequencyHz === undefined
+        ? {}
+        : { frequencyHz: input.frequencyHz }),
+    });
     await this.database.query(
       'INSERT INTO sd_coverage_intervals(instance_id,id,radio_id,generation,rx_hz,attribution,started_at) VALUES($1,$2,$3,$4,$5,$6,$7)',
       [
@@ -800,6 +833,14 @@ export class HistoryService {
     endedAt: string,
     reason: string,
   ): Promise<void> {
+    IdSchema.parse(instanceId);
+    IdSchema.parse(id);
+    TimestampSchema.parse(endedAt);
+    if (reason.length > 200)
+      throw new SignalDockError(
+        'INVALID_ARGUMENT',
+        'Coverage reason exceeds the limit.',
+      );
     await this.database.query(
       'UPDATE sd_coverage_intervals SET ended_at=$3,reason=$4 WHERE instance_id=$1 AND id=$2 AND ended_at IS NULL',
       [instanceId, id, endedAt, reason],

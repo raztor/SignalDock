@@ -77,6 +77,22 @@ describe.skipIf(!url)('PostgreSQL 18 communication lifecycle', () => {
     expect(a.conversationId).toBe(b.conversationId);
     expect(a.conversationId).not.toBe(c.conversationId);
     expect(unknown.conversationId).not.toBe(a.conversationId);
+    const unknownPage = await history.list(
+      instanceId,
+      { conversationId: unknown.conversationId, limit: 1 },
+      [radioId],
+    );
+    expect(unknownPage.items.map((item) => item.id)).toEqual([unknown.id]);
+    expect(unknownPage.nextCursor).toBeUndefined();
+    expect(
+      (
+        await history.list(
+          instanceId,
+          { conversationId: unknown.conversationId },
+          [secondRadio],
+        )
+      ).items,
+    ).toEqual([]);
     expect(
       (await history.conversations(instanceId)).find(
         (x) => x.id === unknown.conversationId,

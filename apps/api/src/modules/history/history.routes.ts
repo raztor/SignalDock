@@ -14,6 +14,7 @@ import { requirePrincipal } from '../../shared/http/auth.js';
 
 const parameters = z.strictObject({ id: IdSchema });
 const querySchema = z.strictObject({
+  conversationId: IdSchema.optional(),
   radioId: IdSchema.optional(),
   frequencyHz: z.coerce.number().int().positive().safe().optional(),
   search: z.string().max(2000).optional(),
@@ -72,6 +73,7 @@ export async function registerHistoryRoutes(
     if (query.radioId)
       await auth.authorize(principal, 'history.read', query.radioId);
     const historyQuery: HistoryQuery = {
+      ...(query.conversationId ? { conversationId: query.conversationId } : {}),
       ...(query.radioId ? { radioId: query.radioId } : {}),
       ...(query.frequencyHz === undefined
         ? {}

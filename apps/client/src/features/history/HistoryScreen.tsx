@@ -49,6 +49,7 @@ function HistoryWorkspace({ session, radioId }: FeatureScreenProps) {
       setBusy(true);
       setError('');
       const params = new URLSearchParams({ limit: '30' });
+      if (conversation) params.set('conversationId', conversation.id);
       const selectedRadio = conversation?.radioId ?? radioId;
       if (selectedRadio) params.set('radioId', selectedRadio);
       if (conversation?.frequencyHz)
@@ -60,20 +61,19 @@ function HistoryWorkspace({ session, radioId }: FeatureScreenProps) {
       }
       try {
         const [data, groups] = await Promise.all([
-          apiRequest<Page>(session, `communications?${params}`, {
-            signal: current.controller.signal,
-          }),
+          apiRequest<Page>(
+            session,
+            `communications?${params.toString().replace(/\+/g, '%20')}`,
+            {
+              signal: current.controller.signal,
+            },
+          ),
           apiRequest<{ items: Conversation[] }>(session, 'conversations', {
             signal: current.controller.signal,
           }),
         ]);
         if (request.current.generation !== current.generation) return;
-        const filtered =
-          conversation && conversation.frequencyHz === undefined
-            ? data.items.filter(
-                (item) => item.conversationId === conversation.id,
-              )
-            : data.items;
+        const filtered = data.items;
         setPage((prior) => ({
           ...data,
           items: append
