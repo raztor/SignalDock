@@ -29,6 +29,7 @@ type JobRow = {
 
 export interface PostgresJobQueueOptions {
   connectionString: string;
+  instanceId?: string;
   schema?: string;
   concurrency?: number;
   maxPendingPerInstance?: number;
@@ -74,9 +75,14 @@ export class PostgresJobQueue implements JobQueuePort {
     private readonly database: DatabasePort,
     private readonly options: PostgresJobQueueOptions,
   ) {
+    if (options.instanceId !== undefined) IdSchema.parse(options.instanceId);
     this.boss = new PgBoss({
       connectionString: options.connectionString,
-      schema: options.schema ?? 'sd_queue',
+      schema:
+        options.schema ??
+        (options.instanceId
+          ? `sd_queue_${options.instanceId.replaceAll('-', '').toLowerCase()}`
+          : 'sd_queue'),
       max: 4,
     });
     this.boss.on('error', (error: Error) => options.onError?.(error));
@@ -101,6 +107,7 @@ export class PostgresJobQueue implements JobQueuePort {
     transaction?: DatabasePort,
   ): Promise<{ jobId: string; duplicate: boolean }> {
     IdSchema.parse(input.instanceId);
+    this.assertInstance(input.instanceId);
     IdSchema.parse(input.jobId);
     if (
       !/^[a-z][a-z0-9_.-]{0,99}$/.test(input.kind) ||
@@ -193,6 +200,7 @@ export class PostgresJobQueue implements JobQueuePort {
       : this.database.transaction(persist);
   }
   async get(instanceId: string, jobId: string): Promise<JobSnapshot | null> {
+    if (!this.includesInstance(instanceId)) return null;
     const result = await this.database.query<JobRow>(
       'SELECT * FROM sd_jobs WHERE instance_id=$1 AND id=$2',
       [instanceId, jobId],
@@ -209,6 +217,7 @@ export class PostgresJobQueue implements JobQueuePort {
       : null;
   }
   async cancel(instanceId: string, jobId: string): Promise<void> {
+    this.assertInstance(instanceId);
     await this.database.query(
       "UPDATE sd_jobs SET state='cancelled',cancelled_at=now(),updated_at=now() WHERE instance_id=$1 AND id=$2 AND state IN ('queued','running','retry_wait','requires_configuration')",
       [instanceId, jobId],
@@ -266,7 +275,10 @@ export class PostgresJobQueue implements JobQueuePort {
           id: string;
           payload: { instanceId: string; jobId: string };
         }>(
-          "SELECT instance_id,id,payload FROM sd_event_outbox WHERE type='job.enqueue' AND delivered_at IS NULL ORDER BY occurred_at,id FOR UPDATE SKIP LOCKED LIMIT 50",
+          `SELECT instance_id,id,payload FROM sd_event_outbox WHERE type='job.enqueue' AND delivered_at IS NULL${this.options.instanceId === undefined ? '' : ' AND instance_id=$1::uuid'} ORDER BY occurred_at,id FOR UPDATE SKIP LOCKED LIMIT 50`,
+          this.options.instanceId === undefined
+            ? []
+            : [this.options.instanceId],
         );
         for (const event of events.rows) {
           const records = await tx.query<JobRow>(
@@ -320,6 +332,7 @@ export class PostgresJobQueue implements JobQueuePort {
       : false;
   }
   private async execute(instanceId: string, jobId: string): Promise<void> {
+    if (!this.includesInstance(instanceId)) return;
     const claimed = await this.database.transaction(async (tx) => {
       const preview = await tx.query<JobRow>(
         'SELECT * FROM sd_jobs WHERE instance_id=$1 AND id=$2',
@@ -480,6 +493,19 @@ export class PostgresJobQueue implements JobQueuePort {
         [instanceId, jobId, row.attempt],
       );
     }
+  }
+  private includesInstance(instanceId: string): boolean {
+    return (
+      this.options.instanceId === undefined ||
+      this.options.instanceId.toLowerCase() === instanceId.toLowerCase()
+    );
+  }
+  private assertInstance(instanceId: string): void {
+    if (!this.includesInstance(instanceId))
+      throw new SignalDockError(
+        'FORBIDDEN',
+        'This worker belongs to another instance.',
+      );
   }
 }
 
