@@ -21,6 +21,7 @@
     "@signaldock/history": "*",
     "@signaldock/artifact-storage": "*",
     "@signaldock/job-queue": "*",
-    "@signaldock/processing-connectors": "*"
+    "@signaldock/processing-connectors": "*",
+    "@signaldock/processing-tasks": "*"
   }
 }

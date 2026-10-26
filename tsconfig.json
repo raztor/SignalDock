@@ -35,6 +35,9 @@
       "path": "services/processing-connectors"
     },
     {
+      "path": "services/processing-tasks"
+    },
+    {
       "path": "apps/api"
     }
   ]
