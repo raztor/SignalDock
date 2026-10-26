@@ -21,6 +21,9 @@
     },
     {
       "path": "../../services/media-gateway"
+    },
+    {
+      "path": "../../packages/history"
     }
   ]
 }
