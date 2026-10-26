@@ -14,7 +14,17 @@ import type { RecentServer, ServerInfo } from '@signaldock/contracts';
 import { recentServerStore as store } from '../data/recent-server-store';
 import { DEFAULT_SERVER_URL } from '../../../shared/config/defaults';
 
-export default function ServerConnectionScreen() {
+export interface ServerConnectionScreenProps {
+  onServerSelected?: (
+    baseUrl: string,
+    info: ServerInfo,
+  ) => void | Promise<void>;
+  onServerRemoved?: (server: RecentServer) => void | Promise<void>;
+}
+export default function ServerConnectionScreen({
+  onServerSelected,
+  onServerRemoved,
+}: ServerConnectionScreenProps = {}) {
   const [url, setUrl] = useState(DEFAULT_SERVER_URL);
   const [recent, setRecent] = useState<RecentServer[]>([]);
   const [result, setResult] = useState<ServerInfo | null>(null);
@@ -70,6 +80,12 @@ export default function ServerConnectionScreen() {
       if (request.current.generation !== current.generation) return;
       setResult(info);
       setRecent(await store.list());
+      if (
+        request.current.generation === current.generation &&
+        onServerSelected &&
+        info.features.authentication === 'local'
+      )
+        await onServerSelected(client.baseUrl, info);
     } catch (failure) {
       if (request.current.generation === current.generation) {
         setError(
@@ -93,8 +109,16 @@ export default function ServerConnectionScreen() {
       /* An incomplete input cannot identify an active server. */
     }
     try {
+      let removalError = '';
+      try {
+        await onServerRemoved?.(server);
+      } catch {
+        removalError =
+          'Forgot this server locally. Its session revocation could not be confirmed.';
+      }
       await store.remove(server.baseUrl);
       setRecent(await store.list());
+      if (removalError) setError(removalError);
     } catch {
       setError('The saved server could not be removed.');
     }
@@ -179,8 +203,9 @@ export default function ServerConnectionScreen() {
             {result.identity.keyId}
           </Text>
           <Text style={styles.muted}>
-            Discovery is available. Sign-in, the radio dashboard, and live audio
-            are coming in the next implementation stages.
+            {result.features.authentication === 'local'
+              ? 'This server supports local sign-in. Continue with your station account.'
+              : 'This server currently exposes discovery only. Local sign-in is unavailable.'}
           </Text>
         </View>
       )}
