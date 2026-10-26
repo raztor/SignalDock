@@ -1,0 +1,12 @@
+# Validated Python 3.13 macOS environment; benlink pinned to the inspected revision.
+benlink @ git+https://github.com/khusmann/benlink.git@c4b9d22112402ea193d376f412bc028d1778fdb4
+annotated-types==0.8.0
+bleak==3.0.2
+pydantic==2.14.1
+pydantic_core==2.50.1
+pyobjc-core==12.2.2
+pyobjc-framework-Cocoa==12.2.2
+pyobjc-framework-CoreBluetooth==12.2.2
+pyobjc-framework-libdispatch==12.2.2
+typing-inspection==0.4.4
+typing_extensions==4.16.0
