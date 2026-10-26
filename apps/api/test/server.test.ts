@@ -4,8 +4,8 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ServerInfoSchema } from '@signaldock/contracts';
 import { SignalDockClient } from '@signaldock/client-sdk';
-import { loadInstanceIdentity } from '../src/identity.js';
-import { buildServer } from '../src/server.js';
+import { loadInstanceIdentity } from '../src/modules/instance/identity-store.js';
+import { buildServer } from '../src/app/create-server.js';
 
 const directories: string[] = [];
 async function directory() {

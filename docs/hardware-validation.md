@@ -6,8 +6,8 @@ Test date: October 26, 2026. These results establish the first SignalDock driver
 
 - macOS development host, Python 3.13.15 in `.venv`.
 - benlink 0.1.1 installed from revision `c4b9d22112402ea193d376f412bc028d1778fdb4` of [khusmann/benlink](https://github.com/khusmann/benlink).
-- Dependency versions in `requirements.lock.txt`; upstream source in ignored `vendor/benlink`.
-- Native Mac audio access through a temporary signed utility in `tools/`; frame parsing/generation through benlink; SBC conversion through the existing FFmpeg installation.
+- Dependency versions in `services/drivers/vgc-benlink/requirements-validation-macos.lock.txt`; upstream source in ignored `vendor/benlink`.
+- Native Mac audio access through a temporary signed utility in `services/drivers/vgc-benlink/transports/macos/`; frame parsing/generation through benlink; SBC conversion through the existing FFmpeg installation.
 
 ## Verified results
 
@@ -35,7 +35,7 @@ Initial memories were `EPU1` at 462.3000 MHz, `EPU2` at 462.3125 MHz, and `EPU3`
 Memory index `9`, device label `Largo 1`, region `0`: RX changed from 147.5400 to 147.5525 MHz for three seconds. Only `rx_freq` changed. All original fields, including TX frequency, were restored and checked by readback. No audio/PTT was sent.
 
 ```sh
-.venv/bin/python frequency_probe.py --address RADIO_BLE_UUID --channel 9 --rx-mhz 147.5525 --hold 3 --apply
+.venv/bin/python services/drivers/vgc-benlink/validation/frequency_probe.py --address RADIO_BLE_UUID --channel 9 --rx-mhz 147.5525 --hold 3 --apply
 ```
 
 Without `--apply`, the tool only reads/prepares. An explicit memory index is required. The original snapshot is written atomically and synchronized before sending. A write timeout can still mean the device changed, so restoration is armed before the first write and attempted in `finally`.
@@ -43,7 +43,7 @@ Without `--apply`, the tool only reads/prepares. An explicit memory index is req
 If restoration cannot be confirmed, preserve the report and use its recovery path:
 
 ```sh
-.venv/bin/python frequency_probe.py --restore-from results/REPORT-frequency.json --apply
+.venv/bin/python services/drivers/vgc-benlink/validation/frequency_probe.py --restore-from results/REPORT-frequency.json --apply
 ```
 
 A persistent Bluetooth outage or forced process termination may require manual recovery. Do not change regions or edit the same memory from another controller during the test. Recovery refuses to overwrite a different region.
@@ -57,9 +57,9 @@ macOS cached services included `SPP Dev` channel 4, `Voice Gateway` channel 1, a
 Read-only service discovery and receive-only capture:
 
 ```sh
-bash tools/run_mac_bluetooth_probe.sh
-bash tools/run_mac_bluetooth_probe.sh --audio-rx
-.venv/bin/python decode_audio_capture.py results/REPORT-classic.json
+bash services/drivers/vgc-benlink/transports/macos/run_mac_bluetooth_probe.sh
+bash services/drivers/vgc-benlink/transports/macos/run_mac_bluetooth_probe.sh --audio-rx
+.venv/bin/python services/drivers/vgc-benlink/validation/decode_audio_capture.py results/REPORT-classic.json
 afplay results/REPORT-classic.wav
 ```
 
@@ -70,8 +70,8 @@ The helper is compiled into a temporary app and removed afterward. Existing deve
 ## TX/PTT proof
 
 ```sh
-.venv/bin/python prepare_tx_test.py
-.venv/bin/python tx_probe.py --address RADIO_BLE_UUID --frequency 147.54 --channel 9
+.venv/bin/python services/drivers/vgc-benlink/validation/prepare_tx_test.py
+.venv/bin/python services/drivers/vgc-benlink/validation/tx_probe.py --address RADIO_BLE_UUID --frequency 147.54 --channel 9
 ```
 
 The second command only prepares without `--apply`. The confirmed transmission used `--apply` after the receiver was ready. It selected both A/B memories to index 9, disabled dual watch for the test, verified minimum-power flags, and sent 100 blocks at 20 ms intervals containing a two-second signal with 880 Hz and 1320 Hz tones and pauses.

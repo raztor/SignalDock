@@ -18,7 +18,9 @@ jobs:
           python-version: '3.13'
       - run: npm ci
       - run: python -m venv .venv-codegen
-      - run: .venv-codegen/bin/python -m pip install -r scripts/requirements-codegen.txt
+      - run: .venv-codegen/bin/python -m pip install -r scripts/codegen/requirements.txt
+      - run: python -m compileall -q services/drivers/vgc-benlink/validation
+      - run: bash -n services/drivers/vgc-benlink/transports/macos/run_mac_bluetooth_probe.sh
       - run: npm run generate:driver
       - run: git diff --exit-code -- packages/radio-driver-sdk/src/generated packages/radio-driver-sdk/generated
       - run: npm run check

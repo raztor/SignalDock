@@ -6,6 +6,20 @@ Repository: [raztor/SignalDock](https://github.com/raztor/SignalDock). The proje
 
 The project has a TypeScript/Expo foundation: shared contracts, radio/provider simulators, persistent server identity, discovery API, and a server selector with recent connections. Operational radio control, sign-in, live media, mobile releases, and the push relay remain planned work. See [development setup and current limitations](docs/development.md).
 
+## Repository structure
+
+| Area | Location |
+|---|---|
+| Web/mobile frontend | [apps/client](apps/client/README.md) |
+| Backend API and domain modules | [apps/api](apps/api/README.md) |
+| Background worker and optional push relay | [apps](apps/README.md) |
+| Shared contracts, SDKs, and presentation | [packages](packages/README.md) |
+| Radio runtime and hardware/provider integrations | [services](services/README.md) |
+| Generation, checks, development, and maintenance | [scripts](scripts/README.md) |
+| Docker and deployment | [deploy](deploy/README.md) |
+
+The [full folder/module map](docs/architecture/repository-layout.md) distinguishes implemented foundations from reserved modules.
+
 ## Start development
 
 ```sh
@@ -36,13 +50,15 @@ All maintained documentation, comments, interface copy, and CLI messages use Eng
 
 Current proofs use a VR-N7500, Python 3.13/benlink, and a minimal macOS `IOBluetooth` transport. See [hardware validation](docs/hardware-validation.md) for results, commands, limitations, and recovery notes.
 
+The tools now live in the [VGC module](services/drivers/vgc-benlink/README.md), whose README credits [khusmann/benlink](https://github.com/khusmann/benlink) and links its upstream license.
+
 Confirmed: device/configuration reads, temporary RX-frequency write and full restoration, clear received voice playback on Mac, two-tone transmission, observed PTT activation/release, and receiver-side confirmation. This does not establish live network microphone operation or production Linux compatibility.
 
 Create the validated Mac environment:
 
 ```sh
 python3.13 -m venv .venv
-.venv/bin/python -m pip install -r requirements.lock.txt
+.venv/bin/python -m pip install -r services/drivers/vgc-benlink/requirements-validation-macos.lock.txt
 ```
 
 The lock file is specific to the tested Mac environment. Linux dependencies and driver packaging will be validated separately; PyObjC packages are not portable Linux requirements.
@@ -50,8 +66,8 @@ The lock file is specific to the tested Mac environment. Linux dependencies and 
 Read-only discovery and probe:
 
 ```sh
-.venv/bin/python radio_probe.py scan --seconds 12
-.venv/bin/python radio_probe.py probe RADIO_BLE_UUID --watch 15
+.venv/bin/python services/drivers/vgc-benlink/validation/radio_probe.py scan --seconds 12
+.venv/bin/python services/drivers/vgc-benlink/validation/radio_probe.py probe RADIO_BLE_UUID --watch 15
 ```
 
 `frequency_probe.py` and `tx_probe.py` require `--apply` to perform writes or transmit. Do not run hardware commands simply to validate documentation or syntax. Reports/recordings in `results/`, the virtual environment, native build outputs, and upstream checkout are excluded from source control.

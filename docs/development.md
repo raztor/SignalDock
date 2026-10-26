@@ -2,6 +2,8 @@
 
 The repository contains a working foundation for W0 plus the discovery portion of W1. It is not yet an operational radio application. The full scope remains in the [implementation plan](specifications/15-implementation-acceptance.md).
 
+The [repository layout](architecture/repository-layout.md) describes frontend/backend feature modules, shared packages, integrations, and script categories. Frontend composition lives in `apps/client/src/app`; backend composition in `apps/api/src/app`. Module indexes mark implemented and planned areas explicitly.
+
 ## Run locally
 
 Use Node 24 (`.nvmrc`) and npm 11. No radio, cloud account, database, or Python environment is needed for the TypeScript simulation and discovery UI.
@@ -33,8 +35,11 @@ The client requires HTTPS outside loopback development. A phone needs a reachabl
 | `packages/radio-driver-sdk` | Control abstraction, two simulator capability sets, private protobuf contract and generated TS/Python bindings |
 | `services/radio-runtime` | In-memory registry, per-radio control leases, resource-group exclusion, tuning revisions/deadlines and bounded idempotency records |
 | `packages/processing-sdk` | Connector registry, connection/profile/owner boundaries, local-only policy, cancellation and deterministic text/STT fixtures |
-| `apps/api` | Fastify discovery/health, durable Ed25519 instance identity, configured CORS and URL prefixes |
-| `apps/client` | Expo web/mobile source for server discovery and recent servers |
+| `apps/api` | `src/app` composition, implemented instance/health modules, shared HTTP policy, and reserved domain modules |
+| `apps/client` | `src/app` composition, implemented servers feature, shared configuration, and reserved frontend features |
+| `services/drivers/vgc-benlink` | Existing hardware validation and native Mac transport, plus the planned production adapter boundary |
+| `services/processing-connectors` | Documented provider module boundaries; no live provider implementation yet |
+| `scripts/codegen`, `scripts/checks` | Shared generation tooling and offline interoperability verification |
 | `deploy` | Discovery API container and Compose definition; no hardware access requested |
 
 The runtime and fixture connectors are exercised by tests and the simulation command; they are not exposed through unauthenticated API routes. Simulator audio/PTT capabilities are disabled. Fixture transcripts are known text selected by artifact ID, not speech recognition. No external processing is called.
@@ -73,7 +78,7 @@ The independent private wire authority is `packages/radio-driver-sdk/proto/signa
 
 ```sh
 python3.13 -m venv .venv-codegen
-.venv-codegen/bin/python -m pip install -r scripts/requirements-codegen.txt
+.venv-codegen/bin/python -m pip install -r scripts/codegen/requirements.txt
 npm run generate:driver
 npm run build
 npm run check:driver

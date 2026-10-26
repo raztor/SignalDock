@@ -1,6 +1,6 @@
 import { fileURLToPath } from 'node:url';
-import { loadInstanceIdentity } from './identity.js';
-import { buildServer } from './server.js';
+import { loadInstanceIdentity } from './modules/instance/identity-store.js';
+import { buildServer } from './app/create-server.js';
 
 const port = Number(process.env['PORT'] ?? 3000);
 if (!Number.isInteger(port) || port < 1 || port > 65535)
