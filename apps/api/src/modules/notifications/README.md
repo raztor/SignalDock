@@ -1,7 +1,17 @@
 # Notification orchestration
 
-Planned: durable notification history/outbox, preferences, subscriptions, and delivery adapters.
+Durable, instance-scoped notification history, preferences, device subscriptions, and delivery orchestration. The browser and history work without a relay or cloud credentials.
 
-The optional public relay is a separate application. Its credentials and device enrollment are independent of instance user sessions.
+`PostgresNotificationRepository` uses migration `050_notifications`; `NotificationService` receives the authentication port, a fresh-user audience port, and an optional relay port. `registerNotificationRoutes` mounts beneath the application's `/api/v1` prefix. Background delivery uses `NotificationAudiencePort.authorizeUser`, without inventing an active login session.
+
+Routes include `GET notifications`, `POST notifications/:id/read`, `GET/PUT notification-preferences`, `POST notifications/presence`, `GET push/configuration`, and `GET/POST/DELETE push/subscriptions`. IDs, users, radios, and grants are checked against the authenticated instance. Cursor pagination never changes the credential destination.
+
+Call `publishForUser(userId, event, context)` after a finalized communication, transcript, incident, or other domain event. It deduplicates by instance/user/event/category and atomically creates the delivery outbox entry. No transcript, callsign, or recording text enters the relay payload. Preferences support category, authorized radio/frequency, quiet hours, cooldown, and live-listening suppression. Incidents bypass listening suppression; other preferences still apply.
+
+The worker consumes `notification.delivery_requested` as `notifications.deliver`, and `notification.subscription_revoked` as `notifications.revoke`. Connect identity logout/revocation callbacks to `revokeForUser(instanceId, userId, sessionId?)`. Media clients refresh authenticated presence while listening; presence expires after 45 seconds. Superseded device grants are queued for revocation atomically.
+
+The optional relay is independent of instance credentials. Only verified installation grants are accepted; raw tokens and caller-selected relay URLs are rejected. Native enrollment remains restricted to private testing. A provider receipt means provider acceptance; only authenticated application opening marks an item read.
+
+Implementation details and acceptance gates: [notification delivery](../../../../../docs/implementation/notifications.md).
 
 Specification: [10-notifications-relay.md](../../../../../docs/specifications/10-notifications-relay.md).
