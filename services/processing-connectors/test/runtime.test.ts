@@ -7,9 +7,11 @@ import {
   type Communication,
   type DatabasePort,
   type JobQueuePort,
+  type JobExecutionContext,
   type Principal,
   type ProcessingProfile,
   type ProcessingRequest,
+  type ProcessingResult,
 } from '@signaldock/contracts';
 import {
   ProcessingRegistry,
@@ -123,28 +125,36 @@ function fixture(overrides: Partial<ProcessingRuntimeOptions> = {}) {
       simulated: true,
       execution: 'local',
     }),
-    execute: vi.fn(async (input, _connection, _profile, signal, context) => {
-      const output = await context!.writeArtifact!(
-        {
-          bytes: new Uint8Array([1, 2]),
-          contentType: 'audio/wav',
-          jobId: input.jobId,
-        },
+    execute: vi.fn(
+      async (
+        input,
+        _connection,
+        _profile,
         signal,
-      );
-      return {
-        jobId: input.jobId,
-        profileRevision: 1,
-        connectorId: 'fixture.speech',
-        simulated: true,
-        output: {
-          kind: 'audio',
-          artifactId: output.artifactId,
-          contentType: 'audio/wav',
-          byteLength: 2,
-        },
-      };
-    }),
+        context,
+      ): Promise<ProcessingResult> => {
+        const output = await context!.writeArtifact!(
+          {
+            bytes: new Uint8Array([1, 2]),
+            contentType: 'audio/wav',
+            jobId: input.jobId,
+          },
+          signal,
+        );
+        return {
+          jobId: input.jobId,
+          profileRevision: 1,
+          connectorId: 'fixture.speech',
+          simulated: true,
+          output: {
+            kind: 'audio',
+            artifactId: output.artifactId,
+            contentType: 'audio/wav',
+            byteLength: 2,
+          },
+        };
+      },
+    ),
   };
   const registry = new ProcessingRegistry();
   registry.register(connector);
@@ -355,11 +365,13 @@ describe('processing job authorization and terminal commit', () => {
       expect.objectContaining({ maxAttempts: 1 }),
       f.db,
     );
-    const commit = vi.fn(
-      async (write: (db: DatabasePort) => Promise<unknown>) => write(f.db),
-    );
+    const committed = vi.fn();
+    const commit: JobExecutionContext['commit'] = async (write) => {
+      committed();
+      return write(f.db);
+    };
     await f.runtime.execute(f.job, new AbortController().signal, { commit });
-    expect(commit).toHaveBeenCalledOnce();
+    expect(committed).toHaveBeenCalledOnce();
     expect(f.onCompleted).toHaveBeenCalledOnce();
     expect(f.auth.authorize).toHaveBeenCalledTimes(3);
     expect(f.artifacts.delete).not.toHaveBeenCalled();
