@@ -340,6 +340,10 @@ export class RelayService {
         expiresAt: request.expiresAt,
         state: 'relay_accepted',
         receiptChecked: false,
+        receiptAttempts: 0,
+        receiptNextCheckAt: this.iso(),
+        receiptRetryUntil: this.iso(86400000),
+        receiptLastCheckedAt: null,
       };
       await tx.saveDelivery(delivery);
       return { delivery, installation: installation! };
@@ -471,20 +475,48 @@ export class RelayService {
 
   async pollReceipts(): Promise<number> {
     const deliveries = await this.store.transaction((tx) =>
-      tx.pendingReceipts(),
+      tx.pendingReceipts(this.iso()),
     );
     if (!deliveries.length) return 0;
-    const receipts = await this.transport.receipts(
-      deliveries.flatMap((delivery) =>
-        delivery.ticketId ? [delivery.ticketId] : [],
-      ),
+    const ids = deliveries.flatMap((delivery) =>
+      delivery.ticketId && Date.parse(delivery.receiptRetryUntil) > this.now()
+        ? [delivery.ticketId]
+        : [],
     );
+    let receipts: Awaited<ReturnType<PushTransport['receipts']>> = {};
+    if (ids.length) {
+      try {
+        receipts = await this.transport.receipts(ids);
+      } catch {
+        /* Persist bounded retries without blocking newer receipt batches. */
+      }
+    }
     let count = 0;
     for (const delivery of deliveries) {
       const receipt = delivery.ticketId
         ? receipts[delivery.ticketId]
         : undefined;
-      if (!receipt) continue;
+      delivery.receiptLastCheckedAt = this.iso();
+      if (!receipt) {
+        if (Date.parse(delivery.receiptRetryUntil) <= this.now()) {
+          delivery.receiptChecked = true;
+          delivery.state = 'failed';
+          delivery.errorCode = 'ReceiptUnavailable';
+        } else
+          delivery.receiptNextCheckAt = new Date(
+            Math.min(
+              Date.parse(delivery.receiptRetryUntil),
+              this.now() +
+                Math.min(
+                  300000,
+                  15000 * 2 ** Math.min(delivery.receiptAttempts - 1, 5),
+                ),
+            ),
+          ).toISOString();
+        await this.store.transaction((tx) => tx.saveDelivery(delivery));
+        count++;
+        continue;
+      }
       delivery.receiptChecked = true;
       if (receipt.status === 'error') {
         delivery.state = 'failed';

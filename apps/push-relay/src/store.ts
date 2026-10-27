@@ -16,6 +16,10 @@ export interface StoredDelivery extends DeliveryResult {
   createdAt: string;
   expiresAt: string;
   receiptChecked: boolean;
+  receiptAttempts: number;
+  receiptNextCheckAt: string;
+  receiptRetryUntil: string;
+  receiptLastCheckedAt: string | null;
 }
 export interface RelayTransaction {
   getChallenge(id: string): Promise<RelayChallenge | null>;
@@ -42,7 +46,7 @@ export interface RelayTransaction {
     since: string,
   ): Promise<{ installation: number; grant: number }>;
   saveDelivery(delivery: StoredDelivery): Promise<void>;
-  pendingReceipts(): Promise<StoredDelivery[]>;
+  pendingReceipts(time: string): Promise<StoredDelivery[]>;
 }
 export interface RelayStore {
   transaction<T>(action: (tx: RelayTransaction) => Promise<T>): Promise<T>;
@@ -84,6 +88,15 @@ WHERE NOT (document ? 'registrationId');
 UPDATE sd_relay.deliveries
 SET document=jsonb_set(document,'{registrationId}','null'::jsonb)
 WHERE NOT (document ? 'registrationId');
+`,
+  },
+  {
+    id: '003_receipt_schedule',
+    sql: `
+UPDATE sd_relay.deliveries SET document=document || jsonb_build_object(
+ 'receiptAttempts',0,'receiptNextCheckAt',created_at,'receiptRetryUntil',created_at+interval '24 hours','receiptLastCheckedAt',NULL
+) WHERE NOT (document ? 'receiptRetryUntil');
+CREATE INDEX IF NOT EXISTS relay_receipts_due ON sd_relay.deliveries((document->>'receiptNextCheckAt')) WHERE document->>'receiptChecked'='false' AND document->>'state'='provider_accepted';
 `,
   },
 ];
@@ -249,11 +262,18 @@ class PostgresRelayTransaction implements RelayTransaction {
         'An idempotency identifier cannot be replaced.',
       );
   }
-  async pendingReceipts(): Promise<StoredDelivery[]> {
-    return (
+  async pendingReceipts(time: string): Promise<StoredDelivery[]> {
+    const rows = (
       await this.db.query<{ document: StoredDelivery }>(
-        "SELECT document FROM sd_relay.deliveries WHERE document->>'receiptChecked'='false' AND document->>'state'='provider_accepted' ORDER BY created_at LIMIT 100",
+        "SELECT document FROM sd_relay.deliveries WHERE document->>'receiptChecked'='false' AND document->>'state'='provider_accepted' AND (document->>'receiptNextCheckAt')::timestamptz<=$1 ORDER BY (document->>'receiptNextCheckAt')::timestamptz,created_at,id FOR UPDATE SKIP LOCKED LIMIT 100",
+        [time],
       )
     ).rows.map((row) => row.document);
+    for (const row of rows) {
+      row.receiptAttempts++;
+      row.receiptNextCheckAt = new Date(Date.parse(time) + 60000).toISOString();
+      await this.saveDelivery(row);
+    }
+    return rows;
   }
 }

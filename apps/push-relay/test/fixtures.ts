@@ -76,13 +76,29 @@ export class FixtureRelayStore implements RelayStore {
             grant: all.filter((value) => value.grantId === grantId).length,
           };
         },
-        pendingReceipts: async () =>
-          clone(
-            [...state.deliveries.values()].filter(
+        pendingReceipts: async (time) => {
+          const selected = [...state.deliveries.values()]
+            .filter(
               (value) =>
-                value.state === 'provider_accepted' && !value.receiptChecked,
-            ),
-          ),
+                value.state === 'provider_accepted' &&
+                !value.receiptChecked &&
+                value.receiptNextCheckAt <= time,
+            )
+            .sort(
+              (a, b) =>
+                a.receiptNextCheckAt.localeCompare(b.receiptNextCheckAt) ||
+                a.createdAt.localeCompare(b.createdAt) ||
+                a.requestId.localeCompare(b.requestId),
+            )
+            .slice(0, 100);
+          for (const delivery of selected) {
+            delivery.receiptAttempts++;
+            delivery.receiptNextCheckAt = new Date(
+              Date.parse(time) + 60000,
+            ).toISOString();
+          }
+          return clone(selected);
+        },
       };
       const value = await action(tx);
       this.state = state;

@@ -480,6 +480,74 @@ describe('private relay security and delivery', () => {
     expect(c.store.state.installations.get(c.installationId)).toEqual(current);
     expect(c.store.state.grants.get(g.grantId)?.revokedAt).toBeNull();
   });
+  it('advances more than100 missing receipts so a newer invalid-token receipt is processed', async () => {
+    const c = context(),
+      g = await grant(c),
+      payload = event(c, g.grantId);
+    await c.service.send({
+      payload,
+      signature: signRelayPayload('send', payload, c.instance.privateKey),
+    });
+    const newest = c.store.state.deliveries.get(payload.requestId)!;
+    for (let i = 0; i < 121; i++) {
+      const requestId = randomUUID();
+      c.store.state.deliveries.set(requestId, {
+        ...newest,
+        requestId,
+        ticketId: `missing-${i}`,
+        createdAt: new Date(Date.parse(c.time()) - 3600000).toISOString(),
+        receiptNextCheckAt: new Date(
+          Date.parse(c.time()) - 3600000,
+        ).toISOString(),
+      });
+    }
+    c.push.receipts = async (ids) =>
+      Object.fromEntries(
+        ids
+          .filter((id) => id === newest.ticketId)
+          .map((id) => [
+            id,
+            { status: 'error' as const, error: 'DeviceNotRegistered' },
+          ]),
+      );
+    expect(await c.service.pollReceipts()).toBe(100);
+    expect(
+      c.store.state.installations.get(c.installationId)?.revokedAt,
+    ).toBeNull();
+    expect(await c.service.pollReceipts()).toBe(22);
+    expect(
+      c.store.state.installations.get(c.installationId)?.tokenCiphertext,
+    ).toBe('');
+    expect(
+      c.store.state.deliveries.get(payload.requestId)?.receiptChecked,
+    ).toBe(true);
+  });
+  it('persists backoff and terminalizes receipts after the bounded24-hour horizon', async () => {
+    const c = context(),
+      g = await grant(c),
+      payload = event(c, g.grantId);
+    await c.service.send({
+      payload,
+      signature: signRelayPayload('send', payload, c.instance.privateKey),
+    });
+    c.push.receipts = async () => {
+      throw new Error('Fixture outage');
+    };
+    expect(await c.service.pollReceipts()).toBe(1);
+    expect(await c.service.pollReceipts()).toBe(0);
+    c.advance(15000);
+    expect(await c.service.pollReceipts()).toBe(1);
+    expect(
+      c.store.state.deliveries.get(payload.requestId)?.receiptAttempts,
+    ).toBe(2);
+    c.advance(86400000);
+    expect(await c.service.pollReceipts()).toBe(1);
+    expect(c.store.state.deliveries.get(payload.requestId)).toMatchObject({
+      receiptChecked: true,
+      state: 'failed',
+      errorCode: 'ReceiptUnavailable',
+    });
+  });
   it('refuses public activation and invalid HTTP payloads', async () => {
     const c = context();
     expect(

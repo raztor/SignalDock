@@ -29,6 +29,8 @@ Startup applies the private relay migration and refuses a database containing th
 
 Delivery reservations commit before external sending. Retries return the persisted result for the same ID. A process crash or ambiguous provider failure after reservation does not automatically resend: this deliberately avoids duplicate alerts and does not promise exactly-once external delivery. Receipt polling runs every 30 seconds; provider acceptance never means a user saw the alert.
 
+Migration `003_receipt_schedule` adds persisted receipt attempt/check times and a 24-hour lookup horizon. Due batches claim up to 100 rows with a short database lease and release all locks before provider IO. Missing responses and provider outages back off from 15 seconds to five minutes; their next check moves behind other due tickets, so an old missing batch cannot monopolize polling. After the horizon an unresolved receipt becomes `ReceiptUnavailable` and leaves the polling queue. Restart preserves scheduling; none of these retries resend a notification.
+
 Public activation still requires signed native development-build token ownership, project attestation policy, persistent abuse controls, operational key rotation, real Expo delivery/receipt checks, and independent revocation/navigation acceptance. The current mode cannot be switched to public by an environment flag.
 
 See [implementation and gates](../../docs/implementation/notifications.md) and [relay specification](../../docs/specifications/10-notifications-relay.md).

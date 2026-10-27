@@ -313,6 +313,85 @@ describe.skipIf(!url)('persistent private relay', () => {
       await isolated.close();
     }
   });
+  it('persists fair receipt scheduling across restart with121 missing tickets before a newer invalid ticket', async () => {
+    const store = new PostgresRelayStore(database, schema),
+      push = new FixturePushTransport(),
+      vault = new TokenVault(randomBytes(32)),
+      device = keys(),
+      installationId = randomUUID(),
+      registrationId = randomUUID(),
+      now = new Date().toISOString(),
+      old = new Date(Date.now() - 3600000).toISOString(),
+      future = new Date(Date.now() + 86400000).toISOString();
+    const delivery: StoredDelivery = {
+      requestId: randomUUID(),
+      installationId,
+      registrationId,
+      grantId: randomUUID(),
+      fingerprint: 'fixture',
+      createdAt: now,
+      expiresAt: future,
+      state: 'provider_accepted',
+      receiptChecked: false,
+      ticketId: 'new-invalid',
+      receiptAttempts: 0,
+      receiptNextCheckAt: now,
+      receiptRetryUntil: future,
+      receiptLastCheckedAt: null,
+    };
+    await store.transaction(async (tx) => {
+      await tx.saveInstallation({
+        installationId,
+        registrationId,
+        publicKey: device.publicKey,
+        projectId: randomUUID(),
+        tokenCiphertext: vault.encrypt(
+          installationId,
+          'ExpoPushToken[current]',
+        ),
+        verifiedAt: now,
+        revokedAt: null,
+      });
+      for (let i = 0; i < 121; i++)
+        await tx.saveDelivery({
+          ...delivery,
+          requestId: randomUUID(),
+          createdAt: old,
+          receiptNextCheckAt: old,
+          ticketId: `missing-${i}`,
+        });
+      await tx.saveDelivery(delivery);
+    });
+    push.receipts = async (ids) =>
+      Object.fromEntries(
+        ids
+          .filter((id) => id === 'new-invalid')
+          .map((id) => [
+            id,
+            { status: 'error' as const, error: 'DeviceNotRegistered' },
+          ]),
+      );
+    const make = () =>
+      new RelayService(new PostgresRelayStore(database, schema), vault, push, {
+        mode: 'private-test',
+        projectId: randomUUID(),
+        enrollmentSecretHash: hashSecret('fixture'),
+      });
+    expect(await make().pollReceipts()).toBe(100);
+    expect(
+      (await store.transaction((tx) => tx.getInstallation(installationId)))
+        ?.revokedAt,
+    ).toBeNull();
+    expect(await make().pollReceipts()).toBe(22);
+    expect(
+      (await store.transaction((tx) => tx.getInstallation(installationId)))
+        ?.tokenCiphertext,
+    ).toBe('');
+    expect(
+      (await store.transaction((tx) => tx.getDelivery(delivery.requestId)))
+        ?.receiptChecked,
+    ).toBe(true);
+  });
   it.each(['rotation', 'revocation'] as const)(
     'does not let a stale receipt alter a concurrent %s of a newer registration',
     async (mode) => {
@@ -352,6 +431,10 @@ describe.skipIf(!url)('persistent private relay', () => {
         expiresAt,
         state: 'provider_accepted',
         receiptChecked: false,
+        receiptAttempts: 0,
+        receiptNextCheckAt: createdAt,
+        receiptRetryUntil: expiresAt,
+        receiptLastCheckedAt: null,
         ticketId: 'old-ticket',
       };
       await store.transaction(async (tx) => {
