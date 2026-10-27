@@ -27,6 +27,8 @@ class CodecTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(sbc)
             for payload, count in sbc:
                 self.assertLessEqual(count, 640)
+                self.assertEqual(payload[1:3], bytes((0x71, 16)))
+                self.assertEqual(len(payload), count // 128 * 40)
                 self.assertGreaterEqual(sbc_frame_length(payload[:4]), 4)
                 await codec.receive(audio_data(payload))
             await codec.end_burst()

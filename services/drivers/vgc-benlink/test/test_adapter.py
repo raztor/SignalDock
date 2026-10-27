@@ -245,15 +245,16 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.transport.writes, [])
 
     async def test_renewal_cannot_extend_the_absolute_tx_limit(self):
-        self.driver.config = replace(self.config, idle_tx_seconds=0.12, max_tx_seconds=0.25)
-        grant = await self.prepare()
+        self.driver.config = replace(self.config, idle_tx_seconds=1, max_tx_seconds=1.2)
+        grant = str(uuid.uuid4())
+        await self.driver.prepare_tx(operation(self.driver), grant, deadline(1), deadline(1.2), 1)
         absolute = self.driver.transmission.absolute_limit
         for _ in range(3):
-            await asyncio.sleep(0.06)
+            await asyncio.sleep(0.2)
             await self.driver.renew_tx(grant, deadline(1), 1)
             self.assertEqual(self.driver.transmission.absolute_limit, absolute)
             self.assertLessEqual(self.driver.transmission.expires, absolute)
-        await asyncio.sleep(0.22)
+        await asyncio.sleep(0.8)
         self.assertIsNone(self.driver.transmission)
         self.assertEqual(self.driver.observe_tx(grant).state, "idle")
 
@@ -282,7 +283,7 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
         gate = asyncio.Event()
         reopening = FakeTransport(self.control, gate)
         self.driver.transport_factory = lambda _: reopening
-        changed = await asyncio.wait_for(self.driver.tune(operation(self.driver), Tuning(145500000)), 0.1)
+        changed = await asyncio.wait_for(self.driver.tune(operation(self.driver), Tuning(145500000)), 0.5)
         self.assertEqual(changed.observed_tuning.rx_hz, 145500000)
         self.assertEqual(changed.tuning_confidence, "confirmed")
         await reopening.opened.wait()
@@ -336,6 +337,102 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(current.ready)
         self.assertEqual(self.driver.state.connection, "ready")
         self.assertEqual(self.driver.state.observed_tuning.rx_hz, 146520000)
+
+    async def test_late_encoder_io_blocks_idle_and_cannot_replay_into_another_grant(self):
+        started, release = asyncio.Event(), asyncio.Event()
+        codecs = []
+        class LateCodec(FakeCodec):
+            async def write_pcm(codec, pcm):
+                started.set()
+                while not release.is_set():
+                    try:
+                        await release.wait()
+                    except asyncio.CancelledError:
+                        continue
+                await codec.on_sbc(b"late-encoder-audio", 640)
+        def factory(*args):
+            codec = LateCodec(*args)
+            codecs.append(codec)
+            return codec
+        self.driver.codec_factory = factory
+        grant = await self.prepare()
+        frame = PcmFrame("source", 0, 0, bytes(1280), self.driver.transmission.tuning_revision)
+        writing = asyncio.create_task(self.driver.write_tx(grant, frame, 1))
+        await started.wait()
+        ending = await self.driver.end_tx(grant, "cancelled", 1)
+        self.assertEqual(ending.state, "stop_unconfirmed")
+        self.assertEqual((await self.driver.reconcile()).tx_state, "stop_unconfirmed")
+        with self.assertRaises(DriverError):
+            await self.prepare()
+        release.set()
+        await asyncio.gather(writing, return_exceptions=True)
+        await asyncio.gather(*self.driver._codec_cleanups)
+        self.assertEqual(self.transport.writes, [audio_end(), audio_end()])
+        self.assertEqual((await self.driver.reconcile()).tx_state, "idle")
+        fresh = FakeTransport(self.control)
+        self.driver.transport_factory = lambda _: fresh
+        next_grant = await self.prepare()
+        await codecs[0].on_sbc(b"retired-encoder-callback", 640)
+        self.assertEqual(fresh.writes, [])
+        await self.driver.end_tx(next_grant)
+
+    async def test_uncancellable_native_write_prevents_idle_proof_until_settled(self):
+        started, release = asyncio.Event(), asyncio.Event()
+        original_write = self.transport.write
+        async def delayed_write(data):
+            if data != audio_end():
+                started.set()
+                while not release.is_set():
+                    try:
+                        await release.wait()
+                    except asyncio.CancelledError:
+                        continue
+            await original_write(data)
+        self.transport.write = delayed_write
+        grant = await self.prepare()
+        frame = PcmFrame("source", 0, 0, bytes(1280), self.driver.transmission.tuning_revision)
+        writing = asyncio.create_task(self.driver.write_tx(grant, frame, 1))
+        await started.wait()
+        ending = await self.driver.end_tx(grant, "cancelled", 1)
+        self.assertFalse(ending.physically_confirmed)
+        self.assertEqual((await self.driver.reconcile()).tx_state, "stop_unconfirmed")
+        release.set()
+        await asyncio.gather(writing, return_exceptions=True)
+        await asyncio.gather(*self.driver._codec_cleanups)
+        self.assertEqual(self.transport.writes, [audio_end(), audio_end()])
+        self.assertEqual((await self.driver.reconcile()).tx_state, "idle")
+
+    async def test_verified_tx_end_returns_before_rx_only_open_and_stays_idle(self):
+        grant = await self.prepare()
+        self.driver._subscribers["fixture-listener"] = asyncio.Queue(maxsize=50)
+        release = asyncio.Event()
+        receiver = FakeTransport(self.control, release)
+        self.driver.transport_factory = lambda _: receiver
+        ending = await asyncio.wait_for(self.driver.end_tx(grant, "released", 1), 0.5)
+        self.assertTrue(ending.physically_confirmed)
+        self.assertEqual(ending.state, "idle")
+        await receiver.opened.wait()
+        self.assertFalse(receiver.ready)
+        self.assertEqual((await self.driver.reconcile()).tx_state, "idle")
+        release.set()
+        await asyncio.gather(*self.driver._rx_resumes)
+        self.assertEqual(receiver.arms, [])
+
+    async def test_reconcile_does_not_report_idle_while_termination_write_is_pending(self):
+        grant = await self.prepare()
+        started, release = asyncio.Event(), asyncio.Event()
+        original_write = self.transport.write
+        async def delayed_end(data):
+            if data == audio_end():
+                started.set()
+                await release.wait()
+            await original_write(data)
+        self.transport.write = delayed_end
+        ending = asyncio.create_task(self.driver.end_tx(grant, "released", 1))
+        await started.wait()
+        self.assertEqual((await self.driver.reconcile()).tx_state, "stopping")
+        release.set()
+        self.assertEqual((await ending).state, "idle")
 
     def test_string_tx_opt_in_and_invalid_limits_are_rejected(self):
         with self.assertRaises(DriverError):

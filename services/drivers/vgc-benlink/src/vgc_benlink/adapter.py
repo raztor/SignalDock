@@ -47,6 +47,13 @@ class VgcDriver:
         self._monitor = None
         self._watchdog = None
         self._rx_resumes: set[asyncio.Task] = set()
+        self._tx_io_tasks: set[asyncio.Task] = set()
+        self._codec_cleanups: set[asyncio.Task] = set()
+        self._tx_codec_cleanups: set[asyncio.Task] = set()
+        self._tx_openings: set[asyncio.Task] = set()
+        self._audio_epoch = None
+        self._audio_can_tx = False
+        self._audio_cleanup_failed = False
         self._subscribers: dict[str, asyncio.Queue] = {}
         self._watchers: set[asyncio.Queue] = set()
         self._events = deque(maxlen=256)
@@ -81,6 +88,28 @@ class VgcDriver:
             raise DriverError("NOT_FOUND", "Unknown radio.")
         if generation is not None and generation != self.state.generation:
             raise DriverError("STALE_GENERATION", "The driver generation changed.")
+
+    def _pending_audio_work(self):
+        # An RX-only opening cannot emit RF; only unsettled TX-capable work
+        # prevents fresh physical idle from clearing stop uncertainty.
+        return (self._audio_cleanup_failed
+            or any(not task.done() for task in self._tx_io_tasks | self._tx_codec_cleanups | self._tx_openings))
+
+    async def _run_tx_io(self, awaitable, timeout=None):
+        task = asyncio.create_task(awaitable)
+        self._tx_io_tasks.add(task)
+        def finished(value):
+            self._tx_io_tasks.discard(value)
+            if not value.cancelled():
+                value.exception()
+        task.add_done_callback(finished)
+        if timeout is None:
+            return await task
+        done, _ = await asyncio.wait((task,), timeout=timeout)
+        if task not in done:
+            task.cancel()
+            raise TimeoutError("A radio audio write did not settle before its deadline.")
+        return task.result()
 
     def _check_operation(self, operation: Operation):
         self._check_radio(operation.radio_id, operation.generation)
@@ -120,7 +149,7 @@ class VgcDriver:
             else:
                 self.state.tx_state = "transmitting"
         elif observation.tx_active is False and self.transmission is None:
-            self.state.tx_state = "stop_unconfirmed" if self._opening is not None and not self._opening.done() else "idle"
+            self.state.tx_state = "stop_unconfirmed" if self._pending_audio_work() or self._stop_lock.locked() else "idle"
             if self.state.tx_state == "idle" and self.last_tx.tx_grant_id and self.last_tx.generation == self.state.generation:
                 self.last_tx = TxObservation(self.config.radio_id, self.state.generation, self.last_tx.tx_grant_id, "idle", True)
         if changed or previous_tx != self.state.tx_state:
@@ -140,7 +169,7 @@ class VgcDriver:
         try:
             async with self._control_lock:
                 observation = await asyncio.wait_for(self.control.connect(), 20)
-            if observation.tx_active is not False or (self._opening is not None and not self._opening.done()):
+            if observation.tx_active is not False or self._pending_audio_work() or self._stop_lock.locked():
                 self.state.tx_state = "stop_unconfirmed"
                 raise DriverError("RADIO_STATE_UNCERTAIN", "A fresh physical idle observation and settled audio opening are required before resetting control ownership.")
             self.state = Snapshot(self.config.radio_id, connection="connecting", tx_state="unknown")
@@ -193,7 +222,7 @@ class VgcDriver:
             try:
                 observation = await asyncio.wait_for(self.control.connect() if was_disconnected else self.control.observe(), 20 if was_disconnected else 5)
                 self._apply_observation(observation)
-                confirmed = observation.tx_active is False and (self._opening is None or self._opening.done())
+                confirmed = observation.tx_active is False and not self._pending_audio_work() and not self._stop_lock.locked()
             except BaseException:
                 pass
             try:
@@ -420,8 +449,16 @@ class VgcDriver:
                         or (expected_context is not None and expected_context != (self.state.generation, self.state.revision))):
                     await transport.close()
                     raise DriverError("DEADLINE_EXCEEDED", "The audio opening was cancelled before completion.")
-                self.codec = self.codec_factory(self.config.ffmpeg, self._on_pcm, self._on_sbc)
-                self._reader = asyncio.create_task(self._read_audio(transport))
+                epoch = object()
+                self._audio_epoch = epoch
+                self._audio_can_tx = False
+                async def pcm(payload, end):
+                    if epoch is self._audio_epoch:
+                        await self._on_pcm(payload, end)
+                async def sbc(payload, samples):
+                    await self._on_sbc(payload, samples, epoch)
+                self.codec = self.codec_factory(self.config.ffmpeg, pcm, sbc)
+                self._reader = asyncio.create_task(self._read_audio(transport, self.codec, epoch))
             except BaseException:
                 await transport.close()
                 self.transport = None
@@ -430,13 +467,17 @@ class VgcDriver:
                 if self._opening is opening:
                     self._opening = None
 
-    async def _read_audio(self, transport):
+    async def _read_audio(self, transport, codec, epoch):
         try:
             async for data in transport.receive():
-                await self.codec.receive(data)
+                if epoch is not self._audio_epoch:
+                    return
+                await codec.receive(data)
         except asyncio.CancelledError:
             raise
         except BaseException as error:
+            if epoch is not self._audio_epoch:
+                return
             self._rx_discontinuity = True
             for queue in self._subscribers.values():
                 self._queue_latest(queue, DriverError("RADIO_UNAVAILABLE", "Radio audio stream failed."))
@@ -446,6 +487,8 @@ class VgcDriver:
                 await self._close_audio()
 
     async def _close_audio(self):
+        self._audio_epoch = None
+        tx_capable, self._audio_can_tx = self._audio_can_tx, False
         opening = self._opening
         if opening is not None and opening is not asyncio.current_task():
             opening.cancel()
@@ -455,7 +498,25 @@ class VgcDriver:
             await asyncio.gather(reader, return_exceptions=True)
         codec, self.codec = self.codec, None
         if codec is not None:
-            await codec.close()
+            pending = tuple(task for task in self._tx_io_tasks if not task.done())
+            for task in pending:
+                task.cancel()
+            async def cleanup():
+                if pending:
+                    await asyncio.gather(*pending, return_exceptions=True)
+                await codec.close()
+            task = asyncio.create_task(cleanup())
+            self._codec_cleanups.add(task)
+            if tx_capable or pending:
+                self._tx_codec_cleanups.add(task)
+            def finished(value):
+                self._codec_cleanups.discard(value)
+                self._tx_codec_cleanups.discard(value)
+                failed = value.cancelled() or value.exception() is not None
+                if failed and (tx_capable or pending):
+                    self._audio_cleanup_failed = True
+            task.add_done_callback(finished)
+            await asyncio.wait((task,), timeout=0.1)
         transport, self.transport = self.transport, None
         if transport is not None:
             await transport.close()
@@ -481,6 +542,8 @@ class VgcDriver:
 
     async def _prepare_tx(self, operation: Operation, grant_id: str, expires_utc: str, max_until_utc: str, fencing: int) -> TxObservation:
         self._check_operation(operation)
+        if self._audio_cleanup_failed or any(not task.done() for task in self._tx_io_tasks | self._tx_codec_cleanups):
+            raise DriverError("RADIO_STATE_UNCERTAIN", "Prior audio operations have not settled.")
         if not self.config.allow_experimental_tx:
             raise DriverError("CAPABILITY_UNSUPPORTED", "Streaming TX is disabled until explicitly enabled for hardware acceptance.")
         if self.transmission is not None or self.state.tx_state != "idle":
@@ -515,14 +578,20 @@ class VgcDriver:
         self._last_tx_fencing = fencing
         self.state.tx_state = "preparing"
         self._publish()
+        opening_owner = asyncio.current_task()
+        self._tx_openings.add(opening_owner)
         try:
             await self._ensure_audio()
             self._assert_tx(grant_id)
-            await self.transport.arm(grant_id, tx.expires - time.monotonic())
+            self._audio_can_tx = True
+            await self._run_tx_io(self.transport.arm(grant_id, tx.expires - time.monotonic()), max(0.001, tx.expires - time.monotonic()))
+            self._assert_tx(grant_id)
             return self.observe_tx(grant_id)
         except BaseException:
             await self.end_tx(grant_id, "prepare_failed")
             raise
+        finally:
+            self._tx_openings.discard(opening_owner)
 
     def _assert_tx(self, grant_id: str, fencing: int | None = None) -> Transmission:
         tx = self.transmission
@@ -541,7 +610,8 @@ class VgcDriver:
             raise DriverError("DEADLINE_EXCEEDED", "The renewed TX grant expired.")
         tx.expires = min(time.monotonic() + remaining, tx.absolute_limit)
         if self.transport is not None and self._opening is None:
-            await self.transport.arm(grant_id, tx.expires - time.monotonic())
+            await self._run_tx_io(self.transport.arm(grant_id, tx.expires - time.monotonic()), max(0.001, tx.expires - time.monotonic()))
+            self._assert_tx(grant_id, fencing)
         return self.observe_tx(grant_id)
 
     async def write_tx(self, grant_id: str, frame: PcmFrame, fencing: int):
@@ -556,17 +626,22 @@ class VgcDriver:
         self._assert_tx(grant_id)
         tx.next_input = max(tx.next_input, time.monotonic()) + duration
         tx.input_sequence = frame.sequence
-        await self.codec.write_pcm(frame.payload)
+        await self._run_tx_io(self.codec.write_pcm(frame.payload))
+        self._assert_tx(grant_id, fencing)
 
-    async def _on_sbc(self, payload: bytes, samples: int):
+    async def _on_sbc(self, payload: bytes, samples: int, epoch):
+        if epoch is not self._audio_epoch:
+            return
         tx = self.transmission
         if tx is None:
             return
         self._assert_tx(tx.grant_id)
         await asyncio.sleep(max(0, tx.next_output - time.monotonic()))
+        if epoch is not self._audio_epoch:
+            return
         self._assert_tx(tx.grant_id)
         tx.next_output = max(tx.next_output, time.monotonic()) + samples / 32000
-        await self.transport.write(audio_data(payload))
+        await self._run_tx_io(self.transport.write(audio_data(payload)))
         tx.audio_sent = True
 
     def observe_tx(self, grant_id: str) -> TxObservation:
@@ -595,22 +670,22 @@ class VgcDriver:
             tx.stopping = True
             self.state.tx_state = "stopping"
             self._publish()
+            for task in tuple(self._tx_io_tasks):
+                task.cancel()
             stopped = False
             try:
-                if self.codec is not None:
-                    await self.codec.stop_encoder()
                 if self.transport is not None and self._opening is None:
-                    await asyncio.wait_for(self.transport.write(audio_end()), 1)
+                    await self._run_tx_io(self.transport.write(audio_end()), 1)
                     await asyncio.sleep(0.1)
-                    await asyncio.wait_for(self.transport.write(audio_end()), 1)
-                    await self.transport.disarm()
+                    await self._run_tx_io(self.transport.write(audio_end()), 1)
+                    await self._run_tx_io(self.transport.disarm(), 1)
                     if tx.audio_sent:
                         await asyncio.sleep(self.config.drain_seconds)
                 await self._close_audio()
                 async with self._control_lock:
                     observation = await asyncio.wait_for(self.control.observe(), 5)
                 self._apply_observation(observation)
-                stopped = observation.tx_active is False and (self._opening is None or self._opening.done())
+                stopped = observation.tx_active is False and not self._pending_audio_work()
             except BaseException:
                 await self._close_audio()
             self.transmission = None
@@ -619,12 +694,9 @@ class VgcDriver:
             self._completed_tx_fencing = tx.fencing
             self._publish()
             if self._subscribers and stopped and self.state.connection == "ready":
-                try:
-                    await self._ensure_audio()
-                    self._rx_discontinuity = True
-                except BaseException:
-                    for queue in self._subscribers.values():
-                        self._queue_latest(queue, DriverError("RADIO_UNAVAILABLE", "Receive stream could not resume after TX."))
+                self._rx_discontinuity = True
+                await self._on_pcm(b"", True)
+                self._defer_rx_resume()
             return self.last_tx
 
     async def _observe_loop(self):
