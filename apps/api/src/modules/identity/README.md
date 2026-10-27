@@ -8,6 +8,8 @@ Compose `SqlIdentityRepository(database, instanceId)` with `IdentityService`, re
 
 The service implements `AuthenticationPort` and `NotificationAudiencePort`. `authenticate` and `authorize` inspect current database state; `authorizeUser` checks enabled status/current permissions for explicitly authorized background audiences without fabricating a login session. Configure `onAccessRevoked` to invalidate control/TX/media and device subscriptions after session/user changes.
 
+Transaction-bound authorization facades set `passwordHashWarmup: false`: reads never allocate Argon2 work. Normal authentication services keep their dummy-password warmup; a facade used for login initializes its dummy hash on demand.
+
 Use `@node-rs/argon2` 2.2.2. Production passwords use Argon2id with 64 MiB memory, three iterations, and one lane. Access credentials expire after 15 minutes; refresh families expire 30 days after login. Only SHA-256 digests of random tokens are persisted.
 
 ## Session transports
