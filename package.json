@@ -26,6 +26,7 @@
     "check:generated": "node scripts/codegen/generate-contracts.mjs --check",
     "generate:driver": "node scripts/codegen/generate-driver.mjs",
     "check:driver": "node scripts/checks/check-driver-bindings.mjs",
+    "check:dependencies": "npm ls --all && npm exec --workspace=@signaldock/client -- expo install --check",
     "dev:api": "npm run build && npm run dev --workspace=@signaldock/api",
     "dev:client": "npm run build && npm run dev --workspace=@signaldock/client",
     "export:web": "npm run build && npm run export:web --workspace=@signaldock/client",
@@ -39,9 +40,10 @@
   "devDependencies": {
     "@bufbuild/protoc-gen-es": "2.16.0",
     "@types/node": "24.19.2",
+    "@typescript/native": "npm:typescript@7.0.2",
     "json-schema-to-typescript": "16.0.0",
     "prettier": "3.9.10",
-    "typescript": "6.0.3",
+    "typescript": "npm:@typescript/typescript6@6.0.2",
     "vitest": "5.0.5"
   }
 }

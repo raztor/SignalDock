@@ -33,8 +33,9 @@ jobs:
           cache: npm
       - uses: actions/setup-python@v7.1.0
         with:
-          python-version: '3.13'
+          python-version: '3.13.18'
       - run: npm ci
+      - run: npm run check:dependencies
       - run: python -m venv .venv-codegen
       - run: .venv-codegen/bin/python -m pip install -r scripts/codegen/requirements.txt
       - name: Install audio codecs
@@ -52,7 +53,7 @@ jobs:
       - run: npm run export:web
       - run: npm run check:backup
       - run: npm run check:licenses
-      - uses: actions/upload-artifact@v6.0.0
+      - uses: actions/upload-artifact@v7.0.2
         with:
           name: dependency-license-inventory
           path: .local/reports/dependency-licenses.json
