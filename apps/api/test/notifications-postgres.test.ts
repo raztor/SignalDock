@@ -94,7 +94,11 @@ describe.skipIf(!url)('notification PostgreSQL integrity', () => {
       ],
     );
   }
-  function serviceFixture(principal: Principal, relay: RelayDeliveryPort) {
+  function serviceFixture(
+    principal: Principal,
+    relay: RelayDeliveryPort,
+    clock = Date.now,
+  ) {
     const repository = new PostgresNotificationRepository(database);
     const auth: AuthenticationPort = {
       authenticate: async () => principal,
@@ -105,7 +109,7 @@ describe.skipIf(!url)('notification PostgreSQL integrity', () => {
       resolveUser: async () => audienceUser,
       authorizeUser: async () => undefined,
     };
-    return new NotificationService(repository, auth, audience, relay);
+    return new NotificationService(repository, auth, audience, relay, clock);
   }
   function enrollment() {
     const principal: Principal = {
@@ -290,6 +294,215 @@ describe.skipIf(!url)('notification PostgreSQL integrity', () => {
     );
     expect(outbox.rows[0]?.payload.grantId).toBe(first.grantRef);
   });
+  it('does not let a late old-session callback revoke a replacement session enrollment', async () => {
+    const { principal, grant } = enrollment();
+    await seedSession(principal);
+    const replacementSession = randomUUID();
+    await seedSession({ ...principal, sessionId: replacementSession });
+    const repository = new PostgresNotificationRepository(database),
+      sub = {
+        id: randomUUID(),
+        instanceId: principal.instanceId,
+        userId: principal.userId,
+        sessionId: principal.sessionId,
+        deviceRef: grant.installationId,
+        grantRef: grant.grantId,
+        categories: grant.categories,
+        radioIds: [],
+        expiresAt: grant.expiresAt,
+        revokedAt: null,
+      };
+    await repository.saveSubscription(sub);
+    await repository.saveSubscription({
+      ...sub,
+      sessionId: replacementSession,
+      grantRef: randomUUID(),
+    });
+    await repository.revokeSubscription(
+      principal.instanceId,
+      principal.userId,
+      sub.id,
+      new Date().toISOString(),
+      principal.sessionId,
+    );
+    expect(
+      (
+        await repository.subscriptions(principal.instanceId, principal.userId)
+      )[0]?.revokedAt,
+    ).toBeNull();
+    expect(
+      (
+        await database.query<{ count: string }>(
+          'SELECT count(*)::text AS count FROM sd_notification_revocations',
+        )
+      ).rows[0]?.count,
+    ).toBe('1');
+  });
+  it('rolls back local subscription revocation and its durable intent if outbox insertion fails', async () => {
+    const { principal, grant } = enrollment();
+    await seedSession(principal);
+    const repository = new PostgresNotificationRepository(database);
+    const sub = {
+      id: randomUUID(),
+      instanceId: principal.instanceId,
+      userId: principal.userId,
+      sessionId: principal.sessionId,
+      deviceRef: grant.installationId,
+      grantRef: grant.grantId,
+      categories: grant.categories,
+      radioIds: [],
+      expiresAt: grant.expiresAt,
+      revokedAt: null,
+    };
+    await repository.saveSubscription(sub);
+    const failing: DatabasePort = {
+      query: (text, values) => database.query(text, values),
+      transaction: (action) =>
+        database.transaction((tx) =>
+          action({
+            query: (text, values) => {
+              if (text.startsWith('INSERT INTO sd_event_outbox'))
+                throw new Error('Injected revocation outbox failure');
+              return tx.query(text, values);
+            },
+            transaction: (run) => tx.transaction(run),
+          }),
+        ),
+    };
+    await expect(
+      new PostgresNotificationRepository(failing).revokeSubscription(
+        principal.instanceId,
+        principal.userId,
+        sub.id,
+        new Date().toISOString(),
+      ),
+    ).rejects.toThrow('outbox failure');
+    expect(
+      (
+        await repository.subscriptions(principal.instanceId, principal.userId)
+      )[0]?.revokedAt,
+    ).toBeNull();
+    expect(
+      (
+        await database.query<{ count: string }>(
+          'SELECT count(*)::text AS count FROM sd_notification_revocations',
+        )
+      ).rows[0]?.count,
+    ).toBe('0');
+  });
+  it('reconciles a durable remote revocation after its wake-up job is gone and the process restarts', async () => {
+    const { principal, grant } = enrollment();
+    await seedSession(principal);
+    let now = Date.now(),
+      attempts = 0,
+      available = false;
+    const relay: RelayDeliveryPort = {
+      inspect: async () => grant,
+      send: async (payload) => ({
+        requestId: payload.requestId,
+        state: 'provider_accepted',
+      }),
+      revoke: async () => {
+        attempts++;
+        if (!available) throw new Error('Fixture outage');
+      },
+    };
+    const make = () => serviceFixture(principal, relay, () => now),
+      service = make();
+    const sub = await service.subscribe(principal, {
+      deviceRef: grant.installationId,
+      grantRef: grant.grantId,
+    });
+    await service.unsubscribe(principal, sub.id);
+    await service.revokeExternalGrant(grant.grantId, principal.instanceId);
+    await database.query(
+      "UPDATE sd_event_outbox SET delivered_at=now() WHERE type='notification.subscription_revoked'",
+    );
+    now += 600001;
+    available = true;
+    expect(await make().reconcileRevocations(principal.instanceId)).toBe(1);
+    expect(attempts).toBe(2);
+    expect(
+      (
+        await database.query<{ status: string }>(
+          'SELECT status FROM sd_notification_revocations WHERE instance_id=$1 AND grant_ref=$2',
+          [principal.instanceId, grant.grantId],
+        )
+      ).rows[0]?.status,
+    ).toBe('confirmed');
+    expect(await make().reconcileRevocations(principal.instanceId)).toBe(0);
+  });
+  it('recovers a lost logout callback from authoritative sessions and does not hold identity locks across relay IO', async () => {
+    const { principal, grant } = enrollment();
+    await seedSession(principal);
+    let started!: () => void;
+    const sending = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const service = serviceFixture(principal, {
+      inspect: async () => grant,
+      send: async (payload) => ({
+        requestId: payload.requestId,
+        state: 'provider_accepted',
+      }),
+      revoke: async () => {
+        started();
+        await gate;
+      },
+    });
+    await service.subscribe(principal, {
+      deviceRef: grant.installationId,
+      grantRef: grant.grantId,
+    });
+    await database.query(
+      'UPDATE sd_sessions SET revoked_at=clock_timestamp() WHERE instance_id=$1 AND id=$2',
+      [principal.instanceId, principal.sessionId],
+    );
+    const reconciliation = service.reconcileRevocations(principal.instanceId);
+    await sending;
+    await database.query(
+      "UPDATE sd_sessions SET label='Revocation remained responsive' WHERE instance_id=$1 AND id=$2",
+      [principal.instanceId, principal.sessionId],
+    );
+    release();
+    expect(await reconciliation).toBe(1);
+    expect(
+      (
+        await new PostgresNotificationRepository(database).subscriptions(
+          principal.instanceId,
+          principal.userId,
+        )
+      )[0]?.revokedAt,
+    ).toBeTruthy();
+  });
+  it('backfills already-consumed historical revocation outbox references without changing old migrations', async () => {
+    await database.query('DROP TABLE sd_notification_revocations');
+    await database.query(
+      "DELETE FROM sd_schema_migrations WHERE id='052_notifications_revocation'",
+    );
+    const instanceId = randomUUID(),
+      grantId = randomUUID();
+    await database.query(
+      "INSERT INTO sd_event_outbox(instance_id,id,type,payload,delivered_at) VALUES($1,$2,'notification.subscription_revoked',$3,now())",
+      [instanceId, randomUUID(), { grantId }],
+    );
+    await migrate(database, [
+      ...foundationMigrations,
+      ...identityMigrations,
+      ...notificationMigrations,
+    ]);
+    const row = (
+      await database.query<{ grant_ref: string; status: string }>(
+        'SELECT grant_ref,status FROM sd_notification_revocations WHERE instance_id=$1',
+        [instanceId],
+      )
+    ).rows[0];
+    expect(row).toEqual({ grant_ref: grantId, status: 'pending' });
+  });
   it('rejects enrollment when relay inspection returns after logout and its callback completed', async () => {
     const { principal, grant } = enrollment();
     await seedSession(principal);
@@ -419,5 +632,37 @@ describe.skipIf(!url)('notification PostgreSQL integrity', () => {
       await service.deliver(principal.instanceId, notification!.id);
       expect(sends).toBe(mode === 'access_expired' ? 1 : 0);
     }
+  });
+  it('does not let an expired mobile source session suppress foreground admission for a current browser session', async () => {
+    const { principal, grant } = enrollment();
+    await seedSession(principal);
+    const relay: RelayDeliveryPort = {
+      inspect: async () => grant,
+      send: async (payload) => ({
+        requestId: payload.requestId,
+        state: 'provider_accepted',
+      }),
+    };
+    await serviceFixture(principal, relay).subscribe(principal, {
+      deviceRef: grant.installationId,
+      grantRef: grant.grantId,
+    });
+    await database.query(
+      'UPDATE sd_sessions SET revoked_at=clock_timestamp() WHERE instance_id=$1 AND id=$2',
+      [principal.instanceId, principal.sessionId],
+    );
+    const browser = { ...principal, sessionId: randomUUID() };
+    await seedSession(browser);
+    const service = serviceFixture(browser, relay);
+    const item = await service.publishForUser(principal.userId, {
+      instanceId: principal.instanceId,
+      eventId: randomUUID(),
+      category: 'communication',
+      occurredAt: new Date().toISOString(),
+    });
+    await service.deliver(principal.instanceId, item!.id);
+    expect(await service.foreground(browser, item!.id)).toMatchObject({
+      id: item!.id,
+    });
   });
 });

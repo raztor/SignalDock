@@ -33,6 +33,12 @@ export interface DeliveryAttempt {
   state: string;
   errorCode?: string;
 }
+export interface RevocationIntent {
+  instanceId: string;
+  grantRef: string;
+  expiresAt: string;
+  attempts: number;
+}
 export interface NotificationRepository {
   preferences(
     instanceId: string,
@@ -78,6 +84,17 @@ export interface NotificationRepository {
     time: string,
     cooldownSeconds: number,
   ): Promise<boolean>;
+  claimRevocations(
+    instanceId: string,
+    time: string,
+    limit: number,
+    grantRef?: string,
+  ): Promise<RevocationIntent[]>;
+  completeRevocation(
+    intent: RevocationIntent,
+    confirmed: boolean,
+    time: string,
+  ): Promise<void>;
   subscriptions(
     instanceId: string,
     userId: string,
@@ -89,6 +106,7 @@ export interface NotificationRepository {
     userId: string,
     id: string,
     time: string,
+    expectedSessionId?: string,
   ): Promise<void>;
   prepareAttempt(
     instanceId: string,
@@ -364,8 +382,11 @@ export class PostgresNotificationRepository implements NotificationRepository {
       await tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [
         `${value.instanceId}:${value.userId}:${value.deviceRef}`,
       ]);
-      const old = await tx.query<{ grant_ref: string }>(
-        'SELECT grant_ref FROM sd_notification_subscriptions WHERE instance_id=$1 AND user_id=$2 AND device_ref=$3',
+      const old = await tx.query<{
+        grant_ref: string;
+        expires_at: Date | string;
+      }>(
+        'SELECT grant_ref,expires_at FROM sd_notification_subscriptions WHERE instance_id=$1 AND user_id=$2 AND device_ref=$3',
         [value.instanceId, value.userId, value.deviceRef],
       );
       await tx.query(
@@ -382,7 +403,13 @@ export class PostgresNotificationRepository implements NotificationRepository {
           value.expiresAt,
         ],
       );
-      if (old.rows[0] && old.rows[0].grant_ref !== value.grantRef)
+      if (old.rows[0] && old.rows[0].grant_ref !== value.grantRef) {
+        await queueRevocation(
+          tx,
+          value.instanceId,
+          old.rows[0].grant_ref,
+          iso(old.rows[0].expires_at),
+        );
         await tx.query(
           'INSERT INTO sd_event_outbox(instance_id,id,type,payload) VALUES($1,$2,$3,$4)',
           [
@@ -392,6 +419,7 @@ export class PostgresNotificationRepository implements NotificationRepository {
             { grantId: old.rows[0].grant_ref },
           ],
         );
+      }
     });
   }
   /** Fresh send admission. Never hold identity locks across optional push network IO. */
@@ -420,13 +448,23 @@ export class PostgresNotificationRepository implements NotificationRepository {
     userId: string,
     id: string,
     time: string,
+    expectedSessionId?: string,
   ): Promise<void> {
     await this.database.transaction(async (tx) => {
-      const result = await tx.query<{ grant_ref: string }>(
-        'UPDATE sd_notification_subscriptions SET revoked_at=$4 WHERE instance_id=$1 AND user_id=$2 AND id=$3 AND revoked_at IS NULL RETURNING grant_ref',
-        [instanceId, userId, id, time],
+      const result = await tx.query<{
+        grant_ref: string;
+        expires_at: Date | string;
+      }>(
+        'UPDATE sd_notification_subscriptions SET revoked_at=$4 WHERE instance_id=$1 AND user_id=$2 AND id=$3 AND revoked_at IS NULL AND ($5::uuid IS NULL OR session_id=$5) RETURNING grant_ref,expires_at',
+        [instanceId, userId, id, time, expectedSessionId ?? null],
       );
-      if (result.rows[0])
+      if (result.rows[0]) {
+        await queueRevocation(
+          tx,
+          instanceId,
+          result.rows[0].grant_ref,
+          iso(result.rows[0].expires_at),
+        );
         await tx.query(
           'INSERT INTO sd_event_outbox(instance_id,id,type,payload) VALUES($1,$2,$3,$4)',
           [
@@ -436,7 +474,83 @@ export class PostgresNotificationRepository implements NotificationRepository {
             { grantId: result.rows[0].grant_ref },
           ],
         );
+      }
     });
+  }
+  async claimRevocations(
+    instanceId: string,
+    time: string,
+    limit: number,
+    grantRef?: string,
+  ): Promise<RevocationIntent[]> {
+    return this.database.transaction(async (tx) => {
+      // Recover a process crash between authoritative session revocation and its post-commit callback.
+      const stale = await tx.query<{
+        grant_ref: string;
+        expires_at: Date | string;
+      }>(
+        'UPDATE sd_notification_subscriptions s SET revoked_at=$2 WHERE s.instance_id=$1 AND s.revoked_at IS NULL AND NOT EXISTS(SELECT 1 FROM sd_sessions origin WHERE origin.instance_id=s.instance_id AND origin.user_id=s.user_id AND origin.id=s.session_id AND origin.revoked_at IS NULL AND origin.refresh_expires_at>$2) RETURNING s.grant_ref,s.expires_at',
+        [instanceId, time],
+      );
+      for (const row of stale.rows)
+        await queueRevocation(
+          tx,
+          instanceId,
+          row.grant_ref,
+          iso(row.expires_at),
+        );
+      await tx.query(
+        "UPDATE sd_notification_revocations SET status='expired',next_attempt_at=NULL WHERE instance_id=$1 AND status='pending' AND expires_at<=$2",
+        [instanceId, time],
+      );
+      const rows = await tx.query<{
+        grant_ref: string;
+        expires_at: Date;
+        attempts: number;
+      }>(
+        "SELECT grant_ref,expires_at,attempts FROM sd_notification_revocations WHERE instance_id=$1 AND status='pending' AND next_attempt_at<=$2 AND ($3::uuid IS NULL OR grant_ref=$3) ORDER BY next_attempt_at,grant_ref FOR UPDATE SKIP LOCKED LIMIT $4",
+        [instanceId, time, grantRef ?? null, limit],
+      );
+      for (const row of rows.rows)
+        await tx.query(
+          'UPDATE sd_notification_revocations SET attempts=attempts+1,next_attempt_at=$3 WHERE instance_id=$1 AND grant_ref=$2',
+          [
+            instanceId,
+            row.grant_ref,
+            new Date(Date.parse(time) + 60000).toISOString(),
+          ],
+        );
+      return rows.rows.map((row) => ({
+        instanceId,
+        grantRef: row.grant_ref,
+        expiresAt: iso(row.expires_at),
+        attempts: row.attempts + 1,
+      }));
+    });
+  }
+  async completeRevocation(
+    intent: RevocationIntent,
+    confirmed: boolean,
+    time: string,
+  ): Promise<void> {
+    const next = new Date(
+      Math.min(
+        Date.parse(intent.expiresAt),
+        Date.parse(time) +
+          Math.min(3600000, 15000 * 2 ** Math.min(intent.attempts - 1, 8)),
+      ),
+    ).toISOString();
+    await this.database.query(
+      "UPDATE sd_notification_revocations SET status=CASE WHEN $4 THEN 'confirmed' ELSE 'pending' END,confirmed_at=CASE WHEN $4 THEN $5::timestamptz ELSE NULL END,next_attempt_at=CASE WHEN $4 THEN NULL ELSE $6::timestamptz END,last_error=CASE WHEN $4 THEN NULL ELSE 'RelayUnavailable' END WHERE instance_id=$1 AND grant_ref=$2 AND attempts=$3 AND status='pending'",
+      [
+        intent.instanceId,
+        intent.grantRef,
+        intent.attempts,
+        confirmed,
+        time,
+        next,
+      ],
+    );
   }
   async prepareAttempt(
     instanceId: string,
@@ -491,7 +605,7 @@ export class PostgresNotificationRepository implements NotificationRepository {
       const aggregate = await tx.query<{
         state: NotificationRecord['deliveryState'];
       }>(
-        "SELECT CASE WHEN bool_or(state='provider_accepted') THEN 'provider_accepted' WHEN bool_or(state='relay_accepted') THEN 'relay_accepted' WHEN bool_or(state='queued') THEN 'queued' WHEN bool_or(state='failed') THEN 'failed' ELSE 'expired' END AS state FROM sd_notification_delivery_attempts WHERE instance_id=$1 AND notification_id=$2",
+        "SELECT CASE WHEN bool_or(state='provider_accepted') THEN 'provider_accepted' WHEN bool_or(state='relay_accepted') THEN 'relay_accepted' WHEN bool_or(state='queued') THEN 'queued' ELSE 'failed' END AS state FROM sd_notification_delivery_attempts WHERE instance_id=$1 AND notification_id=$2",
         [instanceId, attempt.notificationId],
       );
       await tx.query(
@@ -546,4 +660,15 @@ export class PostgresNotificationRepository implements NotificationRepository {
       )
     ).rows.length;
   }
+}
+async function queueRevocation(
+  tx: DatabasePort,
+  instanceId: string,
+  grantRef: string,
+  expiresAt: string,
+): Promise<void> {
+  await tx.query(
+    'INSERT INTO sd_notification_revocations(instance_id,grant_ref,expires_at,next_attempt_at) VALUES($1,$2,$3,to_timestamp(0)) ON CONFLICT(instance_id,grant_ref) DO NOTHING',
+    [instanceId, grantRef, expiresAt],
+  );
 }

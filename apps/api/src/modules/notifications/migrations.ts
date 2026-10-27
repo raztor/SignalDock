@@ -45,4 +45,23 @@ UPDATE sd_notifications SET alert_admitted_at=created_at WHERE delivery_state IN
 CREATE INDEX sd_notifications_alert_cooldown ON sd_notifications(instance_id,user_id,category,radio_id,alert_admitted_at) WHERE alert_admitted_at IS NOT NULL;
 `,
   },
+  {
+    id: '052_notifications_revocation',
+    sql: `
+CREATE TABLE sd_notification_revocations (
+ instance_id uuid NOT NULL,grant_ref uuid NOT NULL,expires_at timestamptz NOT NULL,
+ requested_at timestamptz NOT NULL DEFAULT now(),next_attempt_at timestamptz,
+ attempts integer NOT NULL DEFAULT 0,status text NOT NULL DEFAULT 'pending' CHECK(status IN('pending','confirmed','expired')),
+ confirmed_at timestamptz,last_error text,PRIMARY KEY(instance_id,grant_ref)
+);
+CREATE INDEX sd_notification_revocations_due ON sd_notification_revocations(instance_id,next_attempt_at) WHERE status='pending';
+INSERT INTO sd_notification_revocations(instance_id,grant_ref,expires_at,requested_at,next_attempt_at)
+ SELECT instance_id,grant_ref,expires_at,revoked_at,now() FROM sd_notification_subscriptions WHERE revoked_at IS NOT NULL
+ ON CONFLICT DO NOTHING;
+INSERT INTO sd_notification_revocations(instance_id,grant_ref,expires_at,requested_at,next_attempt_at)
+ SELECT DISTINCT ON(instance_id,payload->>'grantId') instance_id,(payload->>'grantId')::uuid,occurred_at+interval '30 days',occurred_at,now()
+ FROM sd_event_outbox WHERE type='notification.subscription_revoked' AND payload->>'grantId' ~ '^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$'
+ ORDER BY instance_id,payload->>'grantId',occurred_at DESC ON CONFLICT DO NOTHING;
+`,
+  },
 ];

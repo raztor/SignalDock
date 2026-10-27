@@ -5,6 +5,7 @@ export {
   type StoredNotification,
   type DeviceSubscription,
   type DeliveryAttempt,
+  type RevocationIntent,
 } from './repository.js';
 export { registerNotificationRoutes } from './routes.js';
 export { notificationMigrations } from './migrations.js';

@@ -8,6 +8,7 @@ The current implementation supports durable instance history, preferences, autho
 2. Construct `PostgresNotificationRepository(database)` and `NotificationService(repository, authentication, audience, optionalRelay)`; mount `registerNotificationRoutes` under the application API prefix.
 3. Connect finalized domain events to `publishForUser`. Resolve recipients through enabled users with current radio permissions. Do not emit per audio frame or partial transcript.
 4. Convert outbox `notification.delivery_requested` to `notifications.deliver` and `notification.subscription_revoked` to `notifications.revoke`; use the exported worker handlers. Commit visible domain state before external delivery.
+   Also run `NotificationService.reconcileRevocations(instanceId, limit = 10)` periodically outside the outbox transaction. Migration `052_notifications_revocation` preserves intent after a wake-up job exhausts retries or expires, backfills existing revocations, and recovers lost source-session revocation callbacks. Retries continue until the relay confirms revocation or the original grant expires.
 5. Connect identity session/user revocation to `revokeForUser`. A media client may refresh listening presence before its 45-second expiry; it must clear presence on exit.
 6. Register `NotificationsScreen` with the current `ClientSession`. Configure a relay once at the station; enrollment requests cannot supply an arbitrary relay URL.
 

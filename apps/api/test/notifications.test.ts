@@ -132,6 +132,52 @@ function context(withRelay = true) {
 }
 
 describe('durable station notifications', () => {
+  it('keeps remote revocation pending beyond three attempts and five minutes, then confirms after recovery', async () => {
+    const c = context();
+    const subscription = await c.service.subscribe(c.principal, {
+      deviceRef: c.inspection.installationId,
+      grantRef: c.inspection.grantId,
+    });
+    await c.service.unsubscribe(c.principal, subscription.id);
+    let attempts = 0;
+    c.relay.revoke = async () => {
+      attempts++;
+      throw new Error('Fixture relay outage');
+    };
+    for (let i = 0; i < 5; i++) {
+      await c.service.reconcileRevocations(c.instanceId);
+      c.advance(300001);
+    }
+    expect(attempts).toBe(5);
+    expect([...c.repository.revocations.values()][0]?.status).toBe('pending');
+    c.relay.revoke = async () => {
+      attempts++;
+    };
+    await c.service.reconcileRevocations(c.instanceId);
+    expect([...c.repository.revocations.values()][0]?.status).toBe('confirmed');
+    await c.service.reconcileRevocations(c.instanceId);
+    expect(attempts).toBe(6);
+  });
+  it('stops expired revocation intents and isolates other instance reconciliation', async () => {
+    const c = context();
+    c.inspection.expiresAt = new Date(
+      Date.parse(c.event().occurredAt) + 1000,
+    ).toISOString();
+    const subscription = await c.service.subscribe(c.principal, {
+      deviceRef: c.inspection.installationId,
+      grantRef: c.inspection.grantId,
+    });
+    await c.service.unsubscribe(c.principal, subscription.id);
+    let attempts = 0;
+    c.relay.revoke = async () => {
+      attempts++;
+    };
+    expect(await c.service.reconcileRevocations(crypto.randomUUID())).toBe(0);
+    c.advance(1001);
+    expect(await c.service.reconcileRevocations(c.instanceId)).toBe(0);
+    expect(attempts).toBe(0);
+    expect([...c.repository.revocations.values()][0]?.status).toBe('expired');
+  });
   it('admits foreground alerts without a relay while respecting current quiet hours, listening and expiry', async () => {
     const c = context(false);
     const record = await c.service.publishForUser(c.userId, c.event());

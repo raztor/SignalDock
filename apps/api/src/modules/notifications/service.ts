@@ -419,12 +419,48 @@ export class NotificationService {
           userId,
           subscription.id,
           new Date(this.now()).toISOString(),
+          sessionId,
         );
     }
   }
-  async revokeExternalGrant(grantId: string): Promise<void> {
-    z.uuid().parse(grantId);
-    if (this.relay?.revoke) await this.relay.revoke(grantId);
+  async revokeExternalGrant(
+    grantId: string,
+    instanceId: string,
+  ): Promise<void> {
+    await this.reconcileRevocations(instanceId, 1, z.uuid().parse(grantId));
+  }
+  /** Run periodically outside the outbox transaction; job expiry cannot erase these intents. */
+  async reconcileRevocations(
+    instanceId: string,
+    limit = 10,
+    grantRef?: string,
+  ): Promise<number> {
+    z.uuid().parse(instanceId);
+    z.number().int().min(1).max(100).parse(limit);
+    if (grantRef) z.uuid().parse(grantRef);
+    const intents = await this.repository.claimRevocations(
+      instanceId,
+      new Date(this.now()).toISOString(),
+      limit,
+      grantRef,
+    );
+    for (const intent of intents) {
+      let confirmed = false;
+      if (this.relay?.revoke) {
+        try {
+          await this.relay.revoke(intent.grantRef);
+          confirmed = true;
+        } catch {
+          /* Durable intent remains eligible after backoff, independent of queue max attempts. */
+        }
+      }
+      await this.repository.completeRevocation(
+        intent,
+        confirmed,
+        new Date(this.now()).toISOString(),
+      );
+    }
+    return intents.length;
   }
   async setPresence(
     principal: Principal,

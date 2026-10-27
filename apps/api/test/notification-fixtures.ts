@@ -8,6 +8,7 @@ import type {
   DeviceSubscription,
   NotificationRepository,
   StoredNotification,
+  RevocationIntent,
 } from '../src/modules/notifications/repository.js';
 import { defaultNotificationPreference } from '../src/modules/notifications/validation.js';
 
@@ -23,6 +24,13 @@ export class FixtureNotificationRepository implements NotificationRepository {
   readonly preference = new Map<string, NotificationPreference>();
   listening = false;
   originSessionActive = true;
+  readonly revocations = new Map<
+    string,
+    RevocationIntent & {
+      status: 'pending' | 'confirmed' | 'expired';
+      nextAttemptAt: string;
+    }
+  >();
   private key(instanceId: string, userId: string) {
     return `${instanceId}:${userId}`;
   }
@@ -177,18 +185,96 @@ export class FixtureNotificationRepository implements NotificationRepository {
         item.userId === value.userId &&
         item.deviceRef === value.deviceRef,
     );
-    if (index >= 0)
+    if (index >= 0) {
+      const prior = this.devices[index]!;
+      if (prior.grantRef !== value.grantRef) this.queueRevocation(prior);
       this.devices[index] = { ...value, id: this.devices[index]!.id };
-    else this.devices.push(structuredClone(value));
+    } else this.devices.push(structuredClone(value));
   }
   async isSubscriptionActive(_value: DeviceSubscription): Promise<boolean> {
     return this.originSessionActive;
   }
-  async revokeSubscription(i: string, u: string, id: string, time: string) {
+  async revokeSubscription(
+    i: string,
+    u: string,
+    id: string,
+    time: string,
+    expectedSessionId?: string,
+  ) {
     const item = this.devices.find(
       (item) => item.instanceId === i && item.userId === u && item.id === id,
     );
-    if (item) item.revokedAt = time;
+    if (item && (!expectedSessionId || item.sessionId === expectedSessionId)) {
+      item.revokedAt = time;
+      this.queueRevocation(item);
+    }
+  }
+  private queueRevocation(value: DeviceSubscription) {
+    const key = `${value.instanceId}:${value.grantRef}`;
+    if (!this.revocations.has(key))
+      this.revocations.set(key, {
+        instanceId: value.instanceId,
+        grantRef: value.grantRef,
+        expiresAt: value.expiresAt,
+        attempts: 0,
+        status: 'pending',
+        nextAttemptAt: '1970-01-01T00:00:00.000Z',
+      });
+  }
+  async claimRevocations(
+    instanceId: string,
+    time: string,
+    limit: number,
+    grantRef?: string,
+  ): Promise<RevocationIntent[]> {
+    const result: RevocationIntent[] = [];
+    if (!this.originSessionActive)
+      for (const device of this.devices)
+        if (device.instanceId === instanceId && !device.revokedAt) {
+          device.revokedAt = time;
+          this.queueRevocation(device);
+        }
+    for (const value of this.revocations.values()) {
+      if (value.instanceId !== instanceId || value.status !== 'pending')
+        continue;
+      if (value.expiresAt <= time) {
+        value.status = 'expired';
+        continue;
+      }
+      if (
+        value.nextAttemptAt > time ||
+        (grantRef && value.grantRef !== grantRef) ||
+        result.length >= limit
+      )
+        continue;
+      value.attempts++;
+      value.nextAttemptAt = new Date(Date.parse(time) + 60000).toISOString();
+      result.push(structuredClone(value));
+    }
+    return result;
+  }
+  async completeRevocation(
+    intent: RevocationIntent,
+    confirmed: boolean,
+    time: string,
+  ): Promise<void> {
+    const value = this.revocations.get(
+      `${intent.instanceId}:${intent.grantRef}`,
+    );
+    if (
+      !value ||
+      value.attempts !== intent.attempts ||
+      value.status !== 'pending'
+    )
+      return;
+    value.status = confirmed ? 'confirmed' : 'pending';
+    value.nextAttemptAt = new Date(
+      Math.min(
+        Date.parse(intent.expiresAt),
+        Date.parse(time) +
+          Math.min(3600000, 15000 * 2 ** Math.min(intent.attempts - 1, 8)),
+      ),
+    ).toISOString();
   }
   async prepareAttempt(_i: string, n: string, s: string, payload: RelaySend) {
     const old = this.attempts.find(

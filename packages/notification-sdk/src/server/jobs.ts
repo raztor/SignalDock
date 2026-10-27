@@ -3,7 +3,7 @@ import type { JobHandler } from '@signaldock/contracts';
 
 export interface NotificationDeliveryService {
   deliver(instanceId: string, notificationId: string): Promise<void>;
-  revokeExternalGrant(grantId: string): Promise<void>;
+  revokeExternalGrant(grantId: string, instanceId: string): Promise<void>;
 }
 export function notificationDeliveryHandler(
   service: NotificationDeliveryService,
@@ -24,7 +24,7 @@ export function notificationRevocationHandler(
   return async (job, signal) => {
     signal.throwIfAborted();
     const payload = z.strictObject({ grantId: z.uuid() }).parse(job.payload);
-    await service.revokeExternalGrant(payload.grantId);
+    await service.revokeExternalGrant(payload.grantId, job.instanceId);
     signal.throwIfAborted();
     return { revoked: true };
   };
