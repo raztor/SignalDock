@@ -23,6 +23,7 @@ jobs:
         options: --health-cmd "pg_isready -U signaldock -d signaldock" --health-interval 5s --health-timeout 5s --health-retries 10
     env:
       TEST_DATABASE_URL: postgresql://signaldock:ci-test-only@127.0.0.1:5432/signaldock
+      SIGNALDOCK_TEST_DATABASE_URL: postgresql://signaldock:ci-test-only@127.0.0.1:5432/signaldock
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: actions/setup-node@v7.1.0
