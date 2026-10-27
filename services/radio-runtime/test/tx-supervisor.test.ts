@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   TxSupervisor,
   type TxDriverPort,
@@ -10,7 +10,7 @@ import type {
   TxGrant,
 } from '@signaldock/contracts';
 
-function fixture() {
+function fixture(autoWatchdog = false) {
   let now = 1000000;
   const radioId = crypto.randomUUID();
   const ownerId = crypto.randomUUID();
@@ -62,7 +62,7 @@ function fixture() {
     runtime,
     driver: () => driver,
     now: () => now,
-    autoWatchdog: false,
+    autoWatchdog,
     operationTimeoutMs: 30,
   });
   const start = () =>
@@ -393,5 +393,106 @@ describe('local TX supervisor', () => {
     };
     expect(await f.supervisor.reconcile(f.state.radioId)).toBe(false);
     expect(f.releases).toEqual([false]);
+  });
+  it('automatically reconciles an uncertain stop without another API call or transmission', async () => {
+    vi.useFakeTimers();
+    const f = fixture(true);
+    try {
+      const tx = await f.start();
+      f.uncertainEnd();
+      await f.supervisor.stop(tx.grant.txGrantId);
+      f.driver.observeCurrent = async (context) => ({
+        ...context,
+        state: 'idle',
+        physicallyConfirmed: true,
+      });
+      await vi.advanceTimersByTimeAsync(100);
+      expect(f.supervisor.get(tx.grant.txGrantId).state).toBe('idle');
+      expect(f.releases).toEqual([false, true]);
+      expect(f.writes).toHaveLength(0);
+    } finally {
+      await f.supervisor.close();
+      vi.useRealTimers();
+    }
+  });
+  it('keeps automatic recovery blocked while an old write remains admitted', async () => {
+    const f = fixture();
+    const tx = await f.start();
+    let finish!: () => void;
+    let reads = 0;
+    f.driver.write = () =>
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+    const writing = f.supervisor.push(tx.grant.txGrantId, f.frame());
+    const rejected = expect(writing).rejects.toThrow();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await f.supervisor.stop(tx.grant.txGrantId);
+    await rejected;
+    f.driver.observeCurrent = async (context) => {
+      reads++;
+      return { ...context, state: 'idle', physicallyConfirmed: true };
+    };
+    await f.supervisor.sweep();
+    expect(reads).toBe(0);
+    expect(f.releases).toEqual([false]);
+    finish();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await f.supervisor.sweep();
+    expect(reads).toBe(1);
+    expect(f.releases).toEqual([false, true]);
+  });
+  it('backs off uncertain fresh reads and never automatically falls back to cached grant idle', async () => {
+    const f = fixture();
+    const tx = await f.start();
+    f.uncertainEnd();
+    await f.supervisor.stop(tx.grant.txGrantId);
+    await f.supervisor.sweep();
+    expect(f.releases).toEqual([false]);
+    let reads = 0;
+    f.driver.observeCurrent = async (context) => {
+      reads++;
+      return { ...context, state: 'unknown', physicallyConfirmed: false };
+    };
+    f.advance(500);
+    await f.supervisor.sweep();
+    expect(reads).toBe(1);
+    await f.supervisor.sweep();
+    expect(reads).toBe(1);
+    f.advance(999);
+    await f.supervisor.sweep();
+    expect(reads).toBe(1);
+    f.advance(1);
+    await f.supervisor.sweep();
+    expect(reads).toBe(2);
+    expect(f.releases).toEqual([false]);
+    await f.supervisor.close();
+  });
+  it('does not stack fresh reads when a timed-out underlying observation is still pending', async () => {
+    const f = fixture();
+    const tx = await f.start();
+    f.uncertainEnd();
+    await f.supervisor.stop(tx.grant.txGrantId);
+    let reads = 0;
+    let finish!: () => void;
+    f.driver.observeCurrent = async (context) => {
+      reads++;
+      if (reads === 1)
+        await new Promise<void>((resolve) => {
+          finish = resolve;
+        });
+      return { ...context, state: 'idle', physicallyConfirmed: true };
+    };
+    await f.supervisor.sweep();
+    expect(reads).toBe(1);
+    f.advance(5000);
+    await f.supervisor.sweep();
+    expect(reads).toBe(1);
+    expect(f.releases).toEqual([false]);
+    finish();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await f.supervisor.sweep();
+    expect(reads).toBe(2);
+    expect(f.releases).toEqual([false, true]);
   });
 });

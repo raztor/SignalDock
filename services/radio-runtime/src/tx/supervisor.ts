@@ -86,6 +86,10 @@ interface ActiveTx extends TxStatus {
   tuningKey: string;
   nextObservationAt: number;
   observing: boolean;
+  recovering: boolean;
+  recoveryAttempts: number;
+  nextRecoveryAt: number;
+  pendingObservation: Promise<TxObservation> | undefined;
   source: 'microphone' | 'tts';
   stopPromise?: Promise<TxStatus>;
 }
@@ -99,6 +103,8 @@ export class TxSupervisor {
   private readonly leaseMs: number;
   private readonly maxContinuousMs: number;
   private readonly timeoutMs: number;
+  private readonly recoveryRetryMs: number;
+  private readonly recoveryMaxRetryMs: number;
   private closed = false;
   constructor(
     private readonly options: {
@@ -108,6 +114,8 @@ export class TxSupervisor {
       leaseMs?: number;
       maxContinuousMs?: number;
       operationTimeoutMs?: number;
+      recoveryRetryMs?: number;
+      recoveryMaxRetryMs?: number;
       autoWatchdog?: boolean;
       onState?: (status: TxStatus) => void;
       onFrame?: (
@@ -122,6 +130,11 @@ export class TxSupervisor {
     this.leaseMs = options.leaseMs ?? 1500;
     this.maxContinuousMs = options.maxContinuousMs ?? 30000;
     this.timeoutMs = options.operationTimeoutMs ?? 2500;
+    this.recoveryRetryMs = options.recoveryRetryMs ?? 500;
+    this.recoveryMaxRetryMs = Math.max(
+      this.recoveryRetryMs,
+      options.recoveryMaxRetryMs ?? 5000,
+    );
     if (options.autoWatchdog !== false) {
       this.timer = setInterval(() => {
         void this.sweep();
@@ -206,6 +219,10 @@ export class TxSupervisor {
       tuningKey: JSON.stringify(snapshot.observedTuning),
       nextObservationAt: 0,
       observing: false,
+      recovering: false,
+      recoveryAttempts: 0,
+      nextRecoveryAt: 0,
+      pendingObservation: undefined,
       source: input.source ?? 'microphone',
     };
     this.options.runtime.reserveTransmission({
@@ -477,13 +494,20 @@ export class TxSupervisor {
     if (id) await this.stop(id, reason);
   }
   async reconcile(radioId: string): Promise<boolean> {
+    return this.reconcileStop(radioId, false);
+  }
+  private async reconcileStop(
+    radioId: string,
+    freshOnly: boolean,
+  ): Promise<boolean> {
     const id = this.byRadio.get(radioId);
     if (!id) return true;
     const tx = this.require(id);
     if (
       tx.state !== 'stop_unconfirmed' ||
       !tx.openingSettled ||
-      tx.pendingOperations !== 0
+      tx.pendingOperations !== 0 ||
+      tx.pendingObservation
     )
       return false;
     const before = this.options.runtime.snapshot(radioId);
@@ -493,10 +517,12 @@ export class TxSupervisor {
     const currentDriver = this.options.driver(radioId);
     if (currentDriver.observeCurrent) {
       const proof = await bounded(
-        currentDriver.observeCurrent({
-          radioId,
-          generation,
-        }),
+        this.observeRecovery(tx, () =>
+          currentDriver.observeCurrent!({
+            radioId,
+            generation,
+          }),
+        ),
         undefined,
         this.timeoutMs,
       );
@@ -506,9 +532,9 @@ export class TxSupervisor {
           'Current radio observation belongs to another context.',
         );
       observed = proof;
-    } else if (generation === tx.grant.generation) {
+    } else if (!freshOnly && generation === tx.grant.generation) {
       observed = await bounded(
-        tx.driver.observe({ ...tx.grant }),
+        this.observeRecovery(tx, () => tx.driver.observe({ ...tx.grant })),
         undefined,
         this.timeoutMs,
       );
@@ -537,6 +563,7 @@ export class TxSupervisor {
     );
   }
   async sweep(): Promise<void> {
+    if (this.closed) return;
     await Promise.all(
       [...this.active.values()]
         .filter(
@@ -547,6 +574,51 @@ export class TxSupervisor {
         )
         .map((tx) => this.stop(tx.grant.txGrantId, 'watchdog_expired')),
     );
+    await Promise.all(
+      [...this.active.values()]
+        .filter((tx) => tx.state === 'stop_unconfirmed')
+        .map((tx) => this.recoverStopped(tx)),
+    );
+  }
+  private async recoverStopped(tx: ActiveTx): Promise<void> {
+    if (
+      this.closed ||
+      tx.recovering ||
+      tx.pendingObservation ||
+      !tx.openingSettled ||
+      tx.pendingOperations !== 0 ||
+      this.now() < tx.nextRecoveryAt
+    )
+      return;
+    tx.recovering = true;
+    try {
+      await this.reconcileStop(tx.grant.radioId, true);
+    } catch {
+      /* A failed physical read retains the reservation. */
+    } finally {
+      if (tx.state === 'stop_unconfirmed') {
+        tx.recoveryAttempts++;
+        tx.nextRecoveryAt =
+          this.now() +
+          Math.min(
+            this.recoveryMaxRetryMs,
+            this.recoveryRetryMs * 2 ** Math.min(tx.recoveryAttempts - 1, 16),
+          );
+      }
+      tx.recovering = false;
+    }
+  }
+  private observeRecovery<T extends TxObservation>(
+    tx: ActiveTx,
+    read: () => Promise<T>,
+  ): Promise<T> {
+    const pending = Promise.resolve().then(read);
+    tx.pendingObservation = pending;
+    const settled = () => {
+      if (tx.pendingObservation === pending) tx.pendingObservation = undefined;
+    };
+    void pending.then(settled, settled);
+    return pending;
   }
   async close(): Promise<void> {
     this.closed = true;
