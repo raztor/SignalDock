@@ -10,6 +10,7 @@
   "include": [
     "packages/*/test/**/*.ts",
     "services/*/test/**/*.ts",
-    "apps/api/test/**/*.ts"
+    "apps/api/test/**/*.ts",
+    "apps/push-relay/test/**/*.ts"
   ]
 }

@@ -19,7 +19,7 @@
     "typecheck:tests": "tsc -p tsconfig.tests.json",
     "test": "npm run build && npm run test:unit",
     "test:unit": "vitest run",
-    "check": "npm run build && npm run typecheck:client && npm run typecheck:tests && npm run test:unit && npm run format:check && npm run check:generated",
+    "check": "npm run build && npm run typecheck:client && npm run typecheck:tests && npm run test:unit && npm run test:ops && npm run format:check && npm run check:generated",
     "format": "prettier --write \"{apps,packages,services,scripts,deploy,.github}/**/*.{ts,tsx,mjs,json,yml,yaml,md}\" \"*.{json,mjs}\"",
     "format:check": "prettier --check \"{apps,packages,services,scripts,deploy,.github}/**/*.{ts,tsx,mjs,json,yml,yaml,md}\" \"*.{json,mjs}\"",
     "generate:contracts": "npm run build && node scripts/codegen/generate-contracts.mjs",
@@ -29,7 +29,12 @@
     "dev:api": "npm run build && npm run dev --workspace=@signaldock/api",
     "dev:client": "npm run build && npm run dev --workspace=@signaldock/client",
     "export:web": "npm run build && npm run export:web --workspace=@signaldock/client",
-    "simulate": "npm run build && node services/radio-runtime/dist/simulation/demo.js"
+    "simulate": "npm run build && node services/radio-runtime/dist/simulation/demo.js",
+    "setup:deploy": "node scripts/ops/setup-deploy.mjs",
+    "start:worker": "node apps/api/dist/worker.js",
+    "check:backup": "npm run build && node scripts/checks/backup-restore.mjs",
+    "check:licenses": "node scripts/checks/license-inventory.mjs",
+    "test:ops": "node --test scripts/ops/*.test.mjs"
   },
   "devDependencies": {
     "@bufbuild/protoc-gen-es": "2.16.0",

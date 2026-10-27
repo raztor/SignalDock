@@ -32,7 +32,22 @@
       "path": "packages/history"
     },
     {
+      "path": "services/processing-connectors"
+    },
+    {
+      "path": "services/processing-tasks"
+    },
+    {
+      "path": "services/digital-decoders"
+    },
+    {
+      "path": "packages/notification-sdk"
+    },
+    {
       "path": "apps/api"
+    },
+    {
+      "path": "apps/push-relay"
     }
   ]
 }

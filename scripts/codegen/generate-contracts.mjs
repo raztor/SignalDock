@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { compile } from 'json-schema-to-typescript';
+import { implementedPaths } from './api-catalog.mjs';
 import {
   contractSchemas,
   toJsonSchema,
@@ -23,10 +24,11 @@ const openapi = {
     title: 'SignalDock API',
     version: '0.1.0',
     description:
-      'Implemented discovery endpoints only. Radio and processing schemas are provisional internal contracts.',
+      'SignalDock versioned application API. Shared models are generated from Zod; operation paths come from implemented registrations. Domain route validators remain authoritative for endpoint-specific envelopes.',
   },
   servers: [{ url: '.' }],
   paths: {
+    ...(await implementedPaths()),
     '/api/v1/server-info': {
       get: {
         operationId: 'getServerInfo',
@@ -42,7 +44,10 @@ const openapi = {
       },
     },
   },
-  components: { schemas },
+  components: {
+    securitySchemes: { bearerAuth: { type: 'http', scheme: 'bearer' } },
+    schemas,
+  },
 };
 const banner =
   '// Generated from contract schemas. Run npm run generate:contracts.\n';

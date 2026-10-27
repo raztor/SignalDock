@@ -39,7 +39,6 @@ export async function registerHistoryRoutes(
 ): Promise<void> {
   const { auth, history } = options;
   const radios = async (principal: Principal, permission: Permission) => {
-    if (principal.role === 'administrator') return undefined;
     const allowed: string[] = [];
     for (const grant of principal.radioPermissions) {
       try {

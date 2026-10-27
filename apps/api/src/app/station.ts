@@ -1,8 +1,10 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { SignalDockError, type RadioSnapshot } from '@signaldock/contracts';
 import {
   PostgresDatabase,
+  PostgresOutboxEvents,
   foundationMigrations,
   migrate,
 } from '@signaldock/database';
@@ -45,6 +47,12 @@ import type { InstanceIdentity } from '../modules/instance/identity-store.js';
 import { buildServer } from './create-server.js';
 import { loadStationSecrets } from './secrets.js';
 import { CoverageTracker, TuningHistory } from './radio-context.js';
+import { createExtensions } from './extensions.js';
+import { processingMigrations } from '../modules/processing/migrations.js';
+import { incidentMigrations } from '../modules/incidents/migrations.js';
+import { digitalMigrations } from '../modules/aprs/index.js';
+import { notificationMigrations } from '../modules/notifications/index.js';
+import { StationEvents } from './events.js';
 
 export interface StationOptions {
   identity: InstanceIdentity;
@@ -61,6 +69,9 @@ export interface StationOptions {
   driverCredentials?: ReadonlyMap<string, string>;
   startJobs?: boolean;
   queueSchema?: string;
+  relayUrl?: string;
+  startRadios?: boolean;
+  listenForEvents?: boolean;
 }
 
 /** One process owns the radio runtime. Restart never restores control or TX grants. */
@@ -77,6 +88,9 @@ export async function createStation(options: StationOptions) {
   let unsubscribe: (() => void) | undefined;
   let uninvalidate: (() => void) | undefined;
   let coverage: CoverageTracker | undefined;
+  let extensions: Awaited<ReturnType<typeof createExtensions>> | undefined;
+  let events: StationEvents | undefined;
+  let outboxEvents: PostgresOutboxEvents | undefined;
   const logFailure = (message: string, error: unknown) => {
     if (options.logger)
       console.error(
@@ -90,6 +104,10 @@ export async function createStation(options: StationOptions) {
       ...identityMigrations,
       ...radioMigrations,
       ...historyMigrations,
+      ...processingMigrations,
+      ...incidentMigrations,
+      ...digitalMigrations,
+      ...notificationMigrations,
     ]);
     const secrets = await loadStationSecrets(options.dataDirectory);
     const auth = new IdentityService({
@@ -98,6 +116,7 @@ export async function createStation(options: StationOptions) {
       passwords: createArgon2idHasher(),
       setupToken: secrets.setupToken,
       onAccessRevoked: async (event) => {
+        events?.revoke(event.sessionIds);
         if (
           event.reason === 'access_changed' ||
           event.reason === 'password_reset'
@@ -108,8 +127,38 @@ export async function createStation(options: StationOptions) {
         await Promise.all(
           event.sessionIds.map((sessionId) => media?.revokeSession(sessionId)),
         );
+        await extensions?.onAccessRevoked(event);
       },
     });
+    events = new StationEvents(auth, instanceId);
+    let streamGeneration = randomUUID();
+    let sequence = 0;
+    outboxEvents = new PostgresOutboxEvents({
+      connectionString: options.connectionString,
+      instanceId,
+      onError: (error) =>
+        logFailure('Station event transport unavailable', error),
+      onReconnect: () => {
+        streamGeneration = randomUUID();
+        sequence = 0;
+        events?.close();
+      },
+    });
+    if (options.listenForEvents !== false)
+      await outboxEvents.start((event) =>
+        events!.publish({
+          protocolVersion: 1,
+          eventId: event.id,
+          instanceId,
+          ...(event.radioId ? { radioId: event.radioId } : {}),
+          streamGeneration,
+          sequence: ++sequence,
+          occurredAt: event.occurredAt,
+          type: event.type,
+          payloadVersion: 1,
+          payload: event.payload,
+        }),
+      );
     const registry = createSimulatorRegistry();
     registry.register(
       'vgc-benlink',
@@ -130,6 +179,7 @@ export async function createStation(options: StationOptions) {
       database,
       auth,
       driverFactory: registry.create,
+      events,
     });
     const runtime = radios.runtime;
     const artifacts = new FileArtifactStorage(
@@ -137,6 +187,10 @@ export async function createStation(options: StationOptions) {
     );
     const history = new HistoryService(database, artifacts, {
       maxRecordingBytesPerRadio: 1024 ** 3,
+      onDeleteTranscripts: async (tx, source) =>
+        extensions?.onDeleteTranscripts(tx, source),
+      onDeleteSource: async (tx, source) =>
+        extensions?.onDeleteSource(tx, source),
     });
     recorder = new HistoryCaptureRecorder(history, {
       onError: (error) => logFailure('Recording capture failed', error),
@@ -250,10 +304,11 @@ export async function createStation(options: StationOptions) {
       });
     }
     // An interval left open by a crashed process is evidence of an unknown end, not continuous reception.
-    await database.query(
-      "UPDATE sd_coverage_intervals SET ended_at=started_at,reason='process_restart_end_unknown' WHERE instance_id=$1 AND ended_at IS NULL",
-      [instanceId],
-    );
+    if (options.startRadios !== false)
+      await database.query(
+        "UPDATE sd_coverage_intervals SET ended_at=started_at,reason='process_restart_end_unknown' WHERE instance_id=$1 AND ended_at IS NULL",
+        [instanceId],
+      );
     const observe = (snapshot: RadioSnapshot) => {
       snapshots.observe(snapshot);
       coverage?.observe(snapshot);
@@ -269,7 +324,7 @@ export async function createStation(options: StationOptions) {
           );
     };
     unsubscribe = runtime.subscribe(observe);
-    await radios.start();
+    if (options.startRadios !== false) await radios.start();
     for (const descriptor of runtime.list())
       observe(runtime.snapshot(descriptor.radioId));
     queue = new PostgresJobQueue(database, {
@@ -283,7 +338,25 @@ export async function createStation(options: StationOptions) {
       'history.maintenance',
       createHistoryMaintenanceHandler(history),
     );
-    if (options.startJobs !== false) await queue.start();
+    extensions = await createExtensions({
+      instanceId,
+      database,
+      auth,
+      history,
+      artifacts,
+      queue,
+      secrets,
+      dataDirectory: options.dataDirectory,
+      events,
+      publishOutboxEvent: (event, tx) => outboxEvents!.publish(event.id, tx),
+      ...(media ? { media } : {}),
+      ...(options.relayUrl ? { relayUrl: options.relayUrl } : {}),
+      onError: (error) => logFailure('Background workflow failed', error),
+    });
+    if (options.startJobs !== false) {
+      await queue.start();
+      extensions.start();
+    }
     const stationRadios = radios;
     const stationMedia = media;
     const server = await buildServer({
@@ -300,7 +373,7 @@ export async function createStation(options: StationOptions) {
         multiRadio: true,
         radioControl: true,
         liveAudio: Boolean(media),
-        pushRelay: 'unavailable',
+        pushRelay: options.relayUrl ? 'optional' : 'unavailable',
       },
       register: async (app, prefix) => {
         registerIdentityRoutes(app, {
@@ -318,6 +391,8 @@ export async function createStation(options: StationOptions) {
           async (scope) => registerHistoryRoutes(scope, { auth, history }),
           { prefix },
         );
+        await extensions!.register(app, prefix);
+        events!.register(app, prefix);
       },
     });
     const closeResources = async () => {
@@ -330,6 +405,8 @@ export async function createStation(options: StationOptions) {
         () => radios?.close(),
         () => capture.stop(),
         () => coverage?.close(),
+        () => extensions?.close(),
+        () => outboxEvents?.close(),
         () => queue?.stop(),
         () => (options.database ? undefined : database.close()),
       ]) {
@@ -345,6 +422,9 @@ export async function createStation(options: StationOptions) {
           'Station shutdown could not confirm every resource cleanup.',
         );
     };
+    server.addHook('preClose', async () => {
+      events?.close();
+    });
     server.addHook('onClose', closeResources);
     return {
       server,
@@ -357,8 +437,11 @@ export async function createStation(options: StationOptions) {
       database,
       queue,
       secrets,
+      extensions,
+      events,
     };
   } catch (error) {
+    events?.close();
     unsubscribe?.();
     uninvalidate?.();
     await media?.close().catch(() => undefined);
@@ -366,6 +449,8 @@ export async function createStation(options: StationOptions) {
     await radios?.close().catch(() => undefined);
     await recorder?.stop().catch(() => undefined);
     await coverage?.close().catch(() => undefined);
+    await extensions?.close().catch(() => undefined);
+    await outboxEvents?.close().catch(() => undefined);
     await queue?.stop().catch(() => undefined);
     if (!options.database) await database.close();
     throw error;

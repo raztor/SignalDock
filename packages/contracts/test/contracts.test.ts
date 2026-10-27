@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { readFile } from 'node:fs/promises';
 import {
   FrequencyHzSchema,
   RadioSnapshotEventSchema,
@@ -8,6 +9,26 @@ import { create, fromBinary, toBinary } from '@bufbuild/protobuf';
 import { AudioFrameSchema } from '@signaldock/radio-driver-sdk/wire';
 
 describe('shared contract boundaries', () => {
+  it('catalogs authenticated optional routes regardless of route filename', async () => {
+    const catalog = JSON.parse(
+      await readFile(
+        new URL('../generated/openapi.json', import.meta.url),
+        'utf8',
+      ),
+    );
+    for (const path of [
+      '/api/v1/notifications/{id}/foreground',
+      '/api/v1/incidents',
+      '/api/v1/processing/connections',
+    ]) {
+      expect(catalog.paths[path]).toBeDefined();
+      const operations = Object.values(catalog.paths[path]) as Array<{
+        security: unknown;
+      }>;
+      for (const operation of operations)
+        expect(operation.security).toEqual([{ bearerAuth: [] }]);
+    }
+  });
   it.each([-1, 0, 145.5, Number.MAX_SAFE_INTEGER + 1, Infinity])(
     'rejects invalid Hz %s',
     (value) => {

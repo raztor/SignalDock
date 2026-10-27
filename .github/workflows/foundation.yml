@@ -37,7 +37,9 @@ jobs:
       - run: npm ci
       - run: python -m venv .venv-codegen
       - run: .venv-codegen/bin/python -m pip install -r scripts/codegen/requirements.txt
-      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Install audio codecs
+        timeout-minutes: 5
+        run: sudo apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update && sudo apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y ffmpeg
       - run: python -m venv .venv && .venv/bin/python -m pip install services/drivers/vgc-benlink
       - run: PYTHONPATH=services/drivers/vgc-benlink/src:packages/radio-driver-sdk/generated/python .venv/bin/python -m unittest discover -s services/drivers/vgc-benlink/test -p 'test_*.py'
       - run: python -m compileall -q services/drivers/vgc-benlink/validation
@@ -48,13 +50,54 @@ jobs:
       - run: npm run check:driver
       - run: npm run simulate
       - run: npm run export:web
+      - run: npm run check:backup
+      - run: npm run check:licenses
+      - uses: actions/upload-artifact@v6.0.0
+        with:
+          name: dependency-license-inventory
+          path: .local/reports/dependency-licenses.json
+  arm64-media:
+    needs: verify
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: docker build --build-arg VCS_REF=${{ github.sha }} -f deploy/api.Dockerfile -t signaldock-api:arm64 .
+      - run: SIGNALDOCK_MEDIA_PROOF_IMAGE=signaldock-api:arm64 bash scripts/checks/livekit-roundtrip.sh
   container:
     needs: verify
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version-file: .nvmrc
+      - run: npm run setup:deploy
+      - run: docker compose --env-file deploy/.env -f deploy/compose.yaml config --quiet
       - run: docker build --build-arg VCS_REF=${{ github.sha }} -f deploy/api.Dockerfile -t signaldock-api:test .
-      - run: docker run -d --name signaldock-api-test --read-only --cap-drop=ALL --security-opt=no-new-privileges -p 127.0.0.1:3000:3000 signaldock-api:test
-      - run: curl --silent --show-error --retry 10 --retry-all-errors --retry-delay 1 --max-time 5 --fail http://127.0.0.1:3000/api/v1/health
+      - run: node scripts/checks/compose-station.mjs
+      - run: docker build --build-arg WEB_BASE_PATH=/station -f deploy/web.Dockerfile -t signaldock-web:test .
+      - run: |
+          docker run -d --name signaldock-web-test --read-only --cap-drop=ALL --security-opt=no-new-privileges \
+            --tmpfs /tmp:rw,noexec,nosuid,size=32m --tmpfs /etc/nginx/conf.d:rw,noexec,nosuid,size=1m,uid=101,gid=101,mode=0755 \
+            -p 127.0.0.1:8080:8080 signaldock-web:test
+          curl --silent --show-error --retry 10 --retry-all-errors --retry-delay 1 --max-time 5 --fail http://127.0.0.1:8080/station/ > /tmp/signaldock-web-index.html
+          node --input-type=module <<'JS'
+          import assert from 'node:assert/strict';
+          import {readFile} from 'node:fs/promises';
+          const html=await readFile('/tmp/signaldock-web-index.html','utf8');
+          const asset=html.match(/src="([^"]+\.js)"/)[1];
+          assert(asset.startsWith('/station/'));
+          const response=await fetch('http://127.0.0.1:8080'+asset);
+          assert(response.ok && /javascript/.test(response.headers.get('content-type')));
+          console.log('Prefixed web application and JavaScript assets passed.');
+          JS
       - if: always()
-        run: docker logs signaldock-api-test && docker rm -f signaldock-api-test
+        run: |
+          for name in signaldock-web-test; do
+            docker logs "$name" || true
+            docker rm -f "$name" || true
+          done

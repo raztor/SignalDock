@@ -1,0 +1,21 @@
+{
+  "name": "@signaldock/notification-sdk",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./server": {
+      "types": "./dist/server/index.d.ts",
+      "default": "./dist/server/index.js"
+    }
+  },
+  "dependencies": {
+    "@signaldock/contracts": "*",
+    "zod": "4.6.7"
+  }
+}

@@ -1,7 +1,7 @@
 # Processing orchestration
 
-Planned: connector connections/profiles, task dispatch, job status, budgets, and credential references.
+Implemented: authenticated connection/profile configuration, encrypted provider credentials, verified subscription import/revocation, explicit jobs/cancellation, private speech previews, optional shared-media TTS transmission and default-off automatic RX consent.
 
-Consume the processing SDK and installed connector/task definitions. Vendor SDK imports stay inside their connector.
+`registerProcessingRoutes(app,{prefix,auth,processing,transmitPreparedSpeech?})` composes the module. Register `processingMigrations` once through the shared migration registry. Runtime factories and history/identity/queue integration callbacks are documented in the [implementation guide](../../../../../docs/implementation/processing.md). No provider credentials are required for core operation.
 
 Specification: [17-processing-connectors.md](../../../../../docs/specifications/17-processing-connectors.md).

@@ -15,6 +15,12 @@ import {
   builtinProcessingTasks,
   type ProcessingTaskDefinition,
 } from './tasks.js';
+import type { ProcessingExecutionContext } from './execution.js';
+export type {
+  ProcessingExecutionContext,
+  ProcessingArtifact,
+  ProviderAuthentication,
+} from './execution.js';
 export {
   builtinProcessingTasks,
   type ProcessingTaskDefinition,
@@ -22,11 +28,15 @@ export {
 
 export interface ProcessingConnector {
   describe(): ConnectorManifest;
+  executionScope?(
+    context: ProcessingExecutionContext | undefined,
+  ): 'local' | 'cloud';
   execute(
     request: ProcessingRequest,
     connection: ProcessingConnection,
     profile: ProcessingProfile,
     signal: AbortSignal,
+    context?: ProcessingExecutionContext,
   ): Promise<ProcessingResult>;
 }
 
@@ -57,12 +67,27 @@ export class ProcessingRegistry {
       );
     this.connectors.set(manifest.connectorId, connector);
   }
+  manifests(): ConnectorManifest[] {
+    return [...this.connectors.values()].map((connector) =>
+      ConnectorManifestSchema.parse(connector.describe()),
+    );
+  }
+  taskDefinitions(): ReadonlyArray<
+    Pick<ProcessingTaskDefinition, 'taskId' | 'version' | 'capability'>
+  > {
+    return [...this.tasks.values()].map(({ taskId, version, capability }) => ({
+      taskId,
+      version,
+      capability,
+    }));
+  }
   async execute(
     input: ProcessingRequest,
     connectionInput: ProcessingConnection,
     profileInput: ProcessingProfile,
     actor: { instanceId: string; userId?: string },
     signal: AbortSignal,
+    context?: ProcessingExecutionContext,
   ): Promise<ProcessingResult> {
     signal.throwIfAborted();
     const request = ProcessingRequestSchema.parse(input);
@@ -100,7 +125,11 @@ export class ProcessingRegistry {
         'PROVIDER_UNAVAILABLE',
         'The connector is not installed.',
       );
-    if (connector.describe().execution === 'cloud' && !profile.allowCloud)
+    if (
+      (connector.executionScope?.(context) ??
+        connector.describe().execution) === 'cloud' &&
+      !profile.allowCloud
+    )
       throw new SignalDockError(
         'FORBIDDEN',
         'This profile does not allow cloud processing.',
@@ -112,6 +141,22 @@ export class ProcessingRegistry {
         'The task version is not installed.',
       );
     task.validateInput(request);
+    if (context && !context.capabilities.includes(task.capability))
+      throw new SignalDockError(
+        'CAPABILITY_UNSUPPORTED',
+        'The configured connection does not support this capability.',
+      );
+    if (
+      context?.authentication.kind === 'oauth' &&
+      (connection.owner.kind !== 'user' ||
+        context.authentication.userId !== connection.owner.userId ||
+        context.authentication.userId !== actor.userId)
+    ) {
+      throw new SignalDockError(
+        'FORBIDDEN',
+        'Subscription usage is restricted to its linked account owner.',
+      );
+    }
     const capability = task.capability;
     if (
       profile.capability !== capability ||
@@ -131,7 +176,23 @@ export class ProcessingRegistry {
     const combined = AbortSignal.any([signal, timeout]);
     const result = ProcessingResultSchema.parse(
       await withCancellation(
-        connector.execute(request, connection, profile, combined),
+        connector.execute(
+          request,
+          connection,
+          profile,
+          combined,
+          context && {
+            ...context,
+            ...(task.describePrompt && task.normalizeOutput
+              ? {
+                  task: {
+                    ...task.describePrompt(request),
+                    normalizeOutput: task.normalizeOutput,
+                  },
+                }
+              : {}),
+          },
+        ),
         combined,
       ),
     );

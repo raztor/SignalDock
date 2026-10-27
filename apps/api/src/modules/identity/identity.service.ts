@@ -45,6 +45,7 @@ export interface IdentityServiceOptions {
   repository: IdentityRepository;
   passwords: PasswordHasher;
   setupToken?: string;
+  passwordHashWarmup?: boolean;
   now?: () => number;
   accessLifetimeMs?: number;
   refreshLifetimeMs?: number;
@@ -111,7 +112,7 @@ export class IdentityService
   private readonly now: () => number;
   private readonly accessLifetime: number;
   private readonly refreshLifetime: number;
-  private readonly dummyHash: Promise<string>;
+  private dummyHash: Promise<string> | undefined;
   constructor(private readonly options: IdentityServiceOptions) {
     this.instanceId = IdSchema.parse(options.instanceId);
     this.repository = options.repository;
@@ -125,7 +126,10 @@ export class IdentityService
     this.accessLifetime = options.accessLifetimeMs ?? 15 * 60 * 1000;
     this.refreshLifetime =
       options.refreshLifetimeMs ?? 30 * 24 * 60 * 60 * 1000;
-    this.dummyHash = this.passwords.hash(randomBytes(32).toString('base64url'));
+    if (options.passwordHashWarmup !== false)
+      this.dummyHash = this.passwords.hash(
+        randomBytes(32).toString('base64url'),
+      );
   }
   async resolveUser(userId: string): Promise<NotificationAudience | null> {
     if (!IdSchema.safeParse(userId).success) return null;
@@ -189,7 +193,10 @@ export class IdentityService
       this.username(input.username),
     );
     const valid = await this.passwords.verify(
-      user?.passwordHash ?? (await this.dummyHash),
+      user?.passwordHash ??
+        (await (this.dummyHash ??= this.passwords.hash(
+          randomBytes(32).toString('base64url'),
+        ))),
       input.password,
     );
     if (!valid || !user?.enabled) throw unauthorized();
