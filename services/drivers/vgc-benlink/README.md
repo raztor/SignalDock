@@ -25,6 +25,8 @@ vgc-benlink/
 
 The service implements the [Radio Driver SDK](../../../packages/radio-driver-sdk/README.md). Bluetooth identifiers, device quirks, codec handling, and Mac/Linux transport choices stay inside this module. Product clients and backend domain modules use generic radio contracts. See the [implementation and acceptance guide](../../../docs/implementation/vgc.md) for installation, service configuration, safety behavior, recovery, and remaining gates.
 
+The [2026-10-26 browser acceptance report](../../../docs/implementation/vgc-acceptance.md) records clear RX, working AirPods microphone TX after an initially choppy start, observed PTT release, the test ceiling and verified full restoration. It keeps remaining platform/failure gates explicit.
+
 ## Validation commands
 
 Run from the repository root:

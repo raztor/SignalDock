@@ -89,7 +89,7 @@ On 2026-10-26, a read-only physical availability probe using the new `BenlinkCon
 
 The same day, after the expected Mac Bluetooth permission was approved, the corrected native transport opened its private IPC and explicit RFCOMM channel in approximately 3.4 seconds, then closed cleanly. No TX grant was armed and no audio was sent. This establishes RX transport opening only; received voice, browser playback and transmitted microphone audio still require their separate acceptance tests.
 
-Subsequent integrated browser RX voice was confirmed clear at 147.5400 MHz with DCS 023. The first microphone/PTT test produced observed transmission and eventual idle, but clear transmitted voice was not accepted; a quieter test with the receiving radio separated from the microphone remains required. Offline, encoding the previously successful two-tone PCM through the production codec produced byte-identical SBC: 32 kHz mono, 16 blocks, eight subbands, bitpool 16, 40 bytes per 128-sample frame, grouped into 20 ms packets.
+Subsequent integrated browser RX voice was confirmed clear at 147.5400 MHz with DCS 023. A quieter AirPods microphone/PTT retest, with the receiving radio separated from the microphone, was confirmed to work well after a briefly choppy start. Normal stop and the test ceiling were observed, and the complete original radio configuration was restored and independently verified after the test. See the [sanitized acceptance report](vgc-acceptance.md) for evidence and remaining gates. Offline, encoding the previously successful two-tone PCM through the production codec produced byte-identical SBC: 32 kHz mono, 16 blocks, eight subbands, bitpool 16, 40 bytes per 128-sample frame, grouped into 20 ms packets.
 
 ## Attribution and license
 
