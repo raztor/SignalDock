@@ -26,6 +26,6 @@ export function notificationRevocationHandler(
     const payload = z.strictObject({ grantId: z.uuid() }).parse(job.payload);
     await service.revokeExternalGrant(payload.grantId, job.instanceId);
     signal.throwIfAborted();
-    return { revoked: true };
+    return { reconciliationRequested: true };
   };
 }
