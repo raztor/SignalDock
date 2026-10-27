@@ -1,15 +1,9 @@
-# API backend
+# Backend API
 
-TypeScript/Fastify backend. Implemented endpoints currently provide instance discovery and health only; local authentication and operational radio routes remain planned.
+The Fastify application composes persistent station identity, one-time administrator bootstrap, local sessions, radio-scoped authorization, supervised radio runtimes, optional LiveKit media admission, private recording capture and frequency history.
 
-```text
-src/main.ts                    Process bootstrap and shutdown
-src/app/                       Server composition and base-path configuration
-src/modules/<domain>/          Domain routes, services, and storage boundaries
-src/shared/http/               Common errors and HTTP response policy
-test/                          API integration and identity tests
-```
+Set `DATABASE_URL` and a protected `SIGNALDOCK_DATA_DIR`, build, then start `npm run dev:api` from the repository root. Without a database URL, discovery and health remain available. Read the private setup token locally; no default user or radio is created.
 
-`app/create-server.ts` explicitly registers implemented modules. A folder's presence never enables an endpoint. The [module map](src/modules/README.md) marks current and planned areas. Keep vendor protocols in drivers, provider protocols behind the processing SDK, and shared DTOs in `@signaldock/contracts`.
+Application composition is in `src/app`; domain implementations and validators are in `src/modules`. Public routes are versioned under `/api/v1` and respect a configured instance prefix. Vendor control stays behind private driver RPC. Core operation needs no processing provider account.
 
-From the repository root: `npm run dev:api`, `npm run check`, and `npm run build`. Configuration and identity storage are described in [development setup](../../docs/development.md).
+See [development](../../docs/development.md), [core acceptance](../../docs/implementation/core-acceptance.md) and [the VGC module](../../services/drivers/vgc-benlink/README.md). Optional domains and standalone background-worker composition arrive in subsequent stack layers.

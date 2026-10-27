@@ -1,80 +1,40 @@
-# Development foundation
+# Development
 
-The repository contains a working foundation for W0 plus the discovery portion of W1. It is not yet an operational radio application. The full scope remains in the [implementation plan](specifications/15-implementation-acceptance.md).
-
-The [repository layout](architecture/repository-layout.md) describes frontend/backend feature modules, shared packages, integrations, and script categories. Frontend composition lives in `apps/client/src/app`; backend composition in `apps/api/src/app`. Module indexes mark implemented and planned areas explicitly.
+The operational core includes database-backed login and administration, radio-scoped permissions, a multi-radio dashboard, VGC frequency/memory control, browser RX/TX/PTT, private recordings and frequency history. See [core acceptance](implementation/core-acceptance.md) and [physical browser acceptance](implementation/vgc-acceptance.md). Optional processing, incidents, decoding/APRS and push are separate extension layers.
 
 ## Run locally
 
-Use Node 24 (`.nvmrc`) and npm 11. No radio, cloud account, database, or Python environment is needed for the TypeScript simulation and discovery UI.
+Use Node 24 (`.nvmrc`), npm 11 and PostgreSQL 18. Simulation requires no physical radio or cloud credential:
 
 ```sh
 nvm use
 npm ci
-npm run check
+npm run build
 npm run simulate
-npm run dev:api
 ```
 
-In another terminal:
+Set `DATABASE_URL` to a disposable development database and `SIGNALDOCK_DATA_DIR` to a private persistent directory. Start `npm run dev:api` and `npm run dev:client` in separate terminals. Without a database, the API serves discovery and health only. Select the backend's complete URL, read the one-time setup token from the private station-secrets file, and create the administrator. Radios and radio grants require explicit configuration; there are no default credentials or automatically enabled transmitters.
+
+The data directory contains persistent station identity, protected keys and recordings. Never commit it or copy its identity to create another independent station. Remembered server URLs reject unexpected identity changes. Client sessions are isolated by server identity and user. HTTPS is required outside loopback development; a phone's localhost is not the development Mac.
+
+## Media and drivers
+
+Configure `LIVEKIT_URL`, optional `LIVEKIT_INTERNAL_URL`, `LIVEKIT_API_KEY` and `LIVEKIT_API_SECRET` for live browser media. Configure private gRPC endpoints and opaque credential references through the radio module. `SIGNALDOCK_DRIVER_CREDENTIALS_FILE` maps references to private absolute token files. Simulator RX/TX audio is intentionally unavailable.
+
+The Mac Bluetooth helper runs natively outside Docker. Browser RX and AirPods microphone TX passed physical acceptance; startup choppiness remains an improvement item. Native device builds, physical Linux/Raspberry Pi and abrupt RF process-failure tests remain open rollout gates. Transmission never resumes automatically.
+
+## Checks and generation
 
 ```sh
-npm run dev:client
-```
-
-Open the web client from the Expo terminal. Check `http://localhost:3000` to discover the local API and remember it. The screen displays the server identity and current availability; there is no working sign-in or radio dashboard yet. Expo web export is available with `npm run export:web`. Native build/device acceptance, live media, and background behavior remain G1 work.
-
-The client requires HTTPS outside loopback development. A phone needs a reachable HTTPS backend; `localhost` on the phone is not the Mac. Only non-secret recent-server metadata is persisted. No password, bearer token, or refresh token is implemented or saved in this slice.
-
-## Workspace boundaries
-
-| Location | Implemented responsibility |
-|---|---|
-| `packages/contracts` | Runtime schemas, inferred TS models, version/error conventions, generated JSON Schema/OpenAPI/TS declarations |
-| `packages/client-sdk` | Prefix-aware discovery, protocol/identity validation, serialized recent-server storage |
-| `packages/radio-driver-sdk` | Control abstraction, two simulator capability sets, private protobuf contract and generated TS/Python bindings |
-| `services/radio-runtime` | In-memory registry, per-radio control leases, resource-group exclusion, tuning revisions/deadlines and bounded idempotency records |
-| `packages/processing-sdk` | Connector registry, connection/profile/owner boundaries, local-only policy, cancellation and deterministic text/STT fixtures |
-| `apps/api` | `src/app` composition, implemented instance/health modules, shared HTTP policy, and reserved domain modules |
-| `apps/client` | `src/app` composition, implemented servers feature, shared configuration, and reserved frontend features |
-| `services/drivers/vgc-benlink` | Existing hardware validation and native Mac transport, plus the planned production adapter boundary |
-| `services/processing-connectors` | Documented provider module boundaries; no live provider implementation yet |
-| `scripts/codegen`, `scripts/checks` | Shared generation tooling and offline interoperability verification |
-| `deploy` | Discovery API container and Compose definition; no hardware access requested |
-
-The runtime and fixture connectors are exercised by tests and the simulation command; they are not exposed through unauthenticated API routes. Simulator audio/PTT capabilities are disabled. Fixture transcripts are known text selected by artifact ID, not speech recognition. No external processing is called.
-
-Processing task definitions are registered separately from connectors. Each task/version declares its capability and validates input/output, including its extension payload schema. A custom task can use the versioned extension result envelope without changing registry dispatch or the radio/history domains. Unknown task versions fail before dispatch; all evidence references remain tied to the request's communications.
-
-The private driver protobuf describes future media/TX RPCs but no gRPC listener, TX supervisor, media engine, or VGC production adapter has been implemented. Generated interfaces are not evidence of an operational transport. The public OpenAPI document lists only implemented discovery and health routes. Other component schemas are provisional foundations, not public mutation endpoints.
-
-## Configuration and identity
-
-The API reads environment variables from its process. To load a file explicitly, use Node's `--env-file` option; copying an environment file alone does not load it.
-
-| Variable | Default | Purpose |
-|---|---|---|
-| `HOST` | `127.0.0.1` | Listen address; container uses `0.0.0.0` |
-| `PORT` | `3000` | HTTP port |
-| `SIGNALDOCK_DATA_DIR` | repository `.local/instance` | Persistent identity directory; container uses `/data` |
-| `SIGNALDOCK_DISPLAY_NAME` | `SignalDock station` | Public station name |
-| `SIGNALDOCK_BASE_PATH` | empty | Direct deployment prefix such as `/station/north` |
-| `SIGNALDOCK_ALLOWED_ORIGINS` | `http://localhost:8081` | Comma-separated allowed browser origins |
-
-Identity is atomically created with a protected private key and reused on restart. Invalid or mismatched keys stop startup rather than silently replacing the station. Discovery returns only the public identity. Preserve the identity directory in backups; do not copy it to create a second independent station. Changed identities at remembered URLs are rejected until the saved entry is explicitly removed and the replacement is verified.
-
-When the API itself handles a prefix, preserve that prefix at the reverse proxy. A proxy that strips its prefix may leave `SIGNALDOCK_BASE_PATH` empty; clients still use the public prefixed base URL. Generated OpenAPI paths are relative to the instance base. Production HTTPS termination remains an operator setup step.
-
-## Contracts and generation
-
-Public/domain schemas in `packages/contracts/src` are the authority for JSON contracts. `z.infer` supplies implementation types. Generate interchange schemas, OpenAPI, and TS declaration artifacts with:
-
-```sh
+npm run check
+npm run export:web
 npm run generate:contracts
 npm run check:generated
 ```
 
-The independent private wire authority is `packages/radio-driver-sdk/proto/signaldock/driver/v1/driver.proto`. Do not hand-edit generated bindings. To regenerate:
+Database acceptance requires both `TEST_DATABASE_URL` and `SIGNALDOCK_TEST_DATABASE_URL`. Python interoperability requires `SIGNALDOCK_VGC_PYTHON`. Use disposable test databases. Tests use synthetic adapters and do not open Bluetooth. FFmpeg is required for codec tests.
+
+Public runtime schemas live in `packages/contracts/src`. The private wire authority is `packages/radio-driver-sdk/proto/signaldock/driver/v1/driver.proto`; do not edit generated bindings manually:
 
 ```sh
 python3.13 -m venv .venv-codegen
@@ -84,26 +44,4 @@ npm run build
 npm run check:driver
 ```
 
-The final command sends binary frames from TypeScript to Python and back, checking audio bytes and 64-bit media clocks. A future driver transport must validate and map wire values into normalized schemas before applying operations. In particular, protobuf integer widths do not bypass JS safe-integer checks for domain revisions/frequencies.
-
-## Verification
-
-`npm run check` builds the Node packages, type-checks client and tests, runs the contract/runtime/SDK/API suites, checks formatting, and detects stale generated JSON artifacts. CI additionally regenerates both driver bindings, checks cross-language interoperability, exports the web app, and builds/smoke-tests the API container. Native mobile and physical-radio tests are separate gates.
-
-Docker is not installed on the development Mac. The container definition is verified through the Linux CI job before claiming container acceptance. It installs only API/contracts production dependencies in the runtime image, excludes Expo CLI tooling, preserves the project license, runs as a non-root user, and stores instance identity in a volume.
-
-```sh
-docker compose -f deploy/compose.yaml up --build
-```
-
-This starts discovery only. Database, authentication, recording, media, providers, relay, and Linux Bluetooth integration are later packages.
-
-## Dependency findings
-
-The initial October 26, 2026 audit reports five high-severity findings in the Expo CLI dependency chain, including `node-forge` and the CLI's Zod 3 dependency. The registry currently offers no compatible patched `node-forge` release; the CLI still requests Zod 3. Do not force a cross-major replacement or downgrade the entire Expo SDK merely to suppress the report. Track upstream fixes before mobile publication. The core contracts use patched Zod 4.6.7; the backend runtime dependency installation excludes Expo, its CLI, and `node-forge`.
-
-Sources: [node-forge advisory](https://github.com/advisories/GHSA-86w9-cpqp-85rv), [Zod advisory](https://github.com/advisories/GHSA-mrhx-c7xc-m3w5). This is an observed dependency finding, not a completed production security review.
-
-## Next implementation stages
-
-Finish G0 with transport adapters, fuller capability/conformance coverage, and contract review. Continue W1 session context isolation and W2 local authentication/admin before exposing radios. Then connect the W3 runtime to authenticated routes and implement W4's VGC adapter. W5/G1 validates real microphone/RX/PTT and native interruption behavior. No simulator test replaces the physical release and Linux production gates.
+CI runs database, Python/TypeScript interoperability, web export and API-container checks. Fixture results do not replace physical or native-device acceptance. Full Compose services, backup restoration and ARM64 production-image media checks are supplied by the deployment layer.

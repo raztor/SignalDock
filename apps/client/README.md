@@ -1,14 +1,9 @@
-# Client frontend
+# Web and mobile client
 
-Expo frontend for web, iOS, and Android. Current functionality is server discovery and recent-server management; native-device acceptance and live media remain separate gates.
+The Expo client provides configurable server selection, isolated sign-in sessions, administration, a multi-radio dashboard, control/memory selection, browser listening and microphone PTT, and private frequency history with playback.
 
-```text
-index.ts                       Expo registration
-src/app/                       Application composition
-src/features/<domain>/         Domain screens, data adapters, and state
-src/shared/                    Cross-feature configuration and utilities
-```
+Run `npm run dev:client` from the repository root after building the shared packages. The client stores recent server metadata separately from authenticated session state. Use the complete backend URL, including any deployment prefix. HTTPS is required outside loopback development.
 
-`src/features/servers` owns the implemented server selector. Feature folders documented as planned expose no placeholder routes or controls. Keep screens inside their feature and compose navigation/providers in `src/app`. Shared transport and DTOs come from `@signaldock/client-sdk` and `@signaldock/contracts`; vendor drivers are not frontend dependencies.
+Browser media requires a capable radio, explicit permissions, a live control lease for TX, and configured backend media. Simulator audio is unavailable. Context changes cancel pending media and stop active transmission. Native media remains gated on development-build/device acceptance.
 
-From the repository root: `npm run dev:client`, `npm run typecheck:client`, and `npm run export:web`. See [development setup](../../docs/development.md) and the [feature map](src/features/README.md).
+Application registration and navigation are in `src/app`; independently owned features are in `src/features`. See [development](../../docs/development.md) and [physical browser acceptance](../../docs/implementation/vgc-acceptance.md). Optional analysis, processing, APRS and notification screens arrive in subsequent layers.

@@ -4,19 +4,19 @@ An open-source, self-hosted platform for operating multiple radios from configur
 
 Repository: [raztor/SignalDock](https://github.com/raztor/SignalDock). The project uses the existing [GNU Affero General Public License v3](LICENSE).
 
-The project has a TypeScript/Expo foundation: shared contracts, radio/provider simulators, persistent server identity, discovery API, and a server selector with recent connections. Operational radio control, sign-in, live media, mobile releases, and the push relay remain planned work. See [development setup and current limitations](docs/development.md).
+SignalDock includes a TypeScript/Fastify backend and Expo client with instance login, administration, radio-scoped permissions, independent radio control, browser RX/TX/PTT, private recordings and frequency history. Core operation requires no cloud-processing credentials. See [development setup](docs/development.md), [core acceptance](docs/implementation/core-acceptance.md), and [physical browser evidence](docs/implementation/vgc-acceptance.md). Optional processing, incidents, decoding/APRS, and notifications follow in separate extension layers.
 
 ## Repository structure
 
-| Area | Location |
-|---|---|
-| Web/mobile frontend | [apps/client](apps/client/README.md) |
-| Backend API and domain modules | [apps/api](apps/api/README.md) |
-| Background worker and optional push relay | [apps](apps/README.md) |
-| Shared contracts, SDKs, and presentation | [packages](packages/README.md) |
-| Radio runtime and hardware/provider integrations | [services](services/README.md) |
-| Generation, checks, development, and maintenance | [scripts](scripts/README.md) |
-| Docker and deployment | [deploy](deploy/README.md) |
+| Area                                             | Location                             |
+| ------------------------------------------------ | ------------------------------------ |
+| Web/mobile frontend                              | [apps/client](apps/client/README.md) |
+| Backend API and domain modules                   | [apps/api](apps/api/README.md)       |
+| Background worker and optional push relay        | [apps](apps/README.md)               |
+| Shared contracts, SDKs, and presentation         | [packages](packages/README.md)       |
+| Radio runtime and hardware/provider integrations | [services](services/README.md)       |
+| Generation, checks, development, and maintenance | [scripts](scripts/README.md)         |
+| Docker and deployment                            | [deploy](deploy/README.md)           |
 
 The [full folder/module map](docs/architecture/repository-layout.md) distinguishes implemented foundations from reserved modules.
 
@@ -27,10 +27,9 @@ nvm use
 npm ci
 npm run check
 npm run simulate
-npm run dev:api
 ```
 
-Run `npm run dev:client` in another terminal and open Expo's web client. Check `http://localhost:3000` to discover the local backend. Native device/media validation and production radio operation have separate acceptance gates. The [discovery container](deploy/compose.yaml) is the first Docker slice.
+Start PostgreSQL 18 and set `DATABASE_URL`, then run `npm run dev:api`. Run `npm run dev:client` in another terminal. Select the complete backend URL and use the private setup token in `.local/instance/station-secrets.json` for one-time administrator bootstrap. Explicitly configure radios and grant permissions. Without a database the API exposes discovery only. See the [API image guide](deploy/README.md) for container setup; full Compose packaging is a later deployment layer.
 
 ## Product specification
 
@@ -52,7 +51,7 @@ Current proofs use a VR-N7500, Python 3.13/benlink, and a minimal macOS `IOBluet
 
 The tools now live in the [VGC module](services/drivers/vgc-benlink/README.md), whose README credits [khusmann/benlink](https://github.com/khusmann/benlink) and links its upstream license.
 
-Confirmed: device/configuration reads, temporary RX-frequency write and full restoration, clear received voice playback on Mac, two-tone transmission, observed PTT activation/release, and receiver-side confirmation. This does not establish live network microphone operation or production Linux compatibility.
+Confirmed: configuration reads and frequency control, clear browser RX, browser AirPods microphone TX, observed carrier termination, private recording playback, and independently verified restoration of the original radio settings. TX startup was briefly choppy before stabilizing. Native mobile and physical Linux/Raspberry Pi acceptance remain separate gates.
 
 Create the validated Mac environment:
 
@@ -74,6 +73,6 @@ Read-only discovery and probe:
 
 ## Development and production
 
-Develop and perform current tests on macOS. Production will target Linux mini PCs/Raspberry Pi. Product frontend/backend are planned in TypeScript; hardware drivers and processing tools may use specialized runtimes behind versioned contracts.
+Develop and perform current tests on macOS. Production will target Linux mini PCs/Raspberry Pi. Frontend/backend use TypeScript; hardware drivers and processing tools may use specialized runtimes behind versioned contracts.
 
 There is no requirement for a central account or cloud processing key to operate a self-hosted core. Public app signing, optional relay credentials, and third-party provider credentials are deployment concerns and will not be committed to this repository.
