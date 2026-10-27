@@ -159,6 +159,7 @@ export class RelayService {
         );
       await tx.saveInstallation({
         installationId: pending.installationId,
+        registrationId: randomUUID(),
         publicKey: pending.publicKey,
         projectId: pending.projectId,
         tokenCiphertext: pending.tokenCiphertext,
@@ -333,6 +334,7 @@ export class RelayService {
         requestId: request.requestId,
         grantId: grant.grantId,
         installationId: grant.installationId,
+        registrationId: installation!.registrationId,
         fingerprint,
         createdAt: this.iso(),
         expiresAt: request.expiresAt,
@@ -370,7 +372,10 @@ export class RelayService {
       if (ticket.id) delivery.ticketId = ticket.id;
       if (ticket.error) delivery.errorCode = ticket.error;
       if (ticket.error === 'DeviceNotRegistered')
-        await this.disableInstallation(delivery.installationId);
+        await this.disableInstallation(
+          delivery.installationId,
+          delivery.registrationId,
+        );
     } catch {
       delivery.state = 'failed';
       delivery.errorCode = 'ProviderUnavailable';
@@ -487,15 +492,23 @@ export class RelayService {
       }
       await this.store.transaction((tx) => tx.saveDelivery(delivery));
       if (receipt.error === 'DeviceNotRegistered')
-        await this.disableInstallation(delivery.installationId);
+        await this.disableInstallation(
+          delivery.installationId,
+          delivery.registrationId,
+        );
       count++;
     }
     return count;
   }
-  private async disableInstallation(id: string): Promise<void> {
+  private async disableInstallation(
+    id: string,
+    registrationId: string | null,
+  ): Promise<void> {
+    // Legacy receipts have no provable registration binding and may never clear a current token.
+    if (!registrationId) return;
     await this.store.transaction(async (tx) => {
       const installation = await tx.getInstallation(id);
-      if (installation) {
+      if (installation && installation.registrationId === registrationId) {
         await tx.saveInstallation({
           ...installation,
           tokenCiphertext: '',

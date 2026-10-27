@@ -3,7 +3,7 @@ import { hashSecret, TokenVault } from '@signaldock/notification-sdk/server';
 import { ExpoPushTransport } from './expo.js';
 import { RelayService } from './service.js';
 import { buildRelayServer } from './server.js';
-import { PostgresRelayStore, relaySchemaSql } from './store.js';
+import { PostgresRelayStore, relayMigrations } from './store.js';
 
 function required(name: string): string {
   const value = process.env[name];
@@ -38,7 +38,7 @@ try {
       enrollmentSecretHash: hashSecret(required('RELAY_ENROLLMENT_SECRET')),
     },
   );
-  await migrate(database, [{ id: '001_private_relay', sql: relaySchemaSql }]);
+  await migrate(database, relayMigrations);
   const port = Number(process.env['PORT'] ?? 3001);
   if (!Number.isInteger(port) || port < 1 || port > 65535)
     throw new Error('PORT must be an integer from 1 to 65535.');

@@ -1,9 +1,10 @@
+import { RelayError } from '@signaldock/notification-sdk';
 import type {
   RelayChallenge,
   RelayGrant,
   RelayInstallation,
 } from '@signaldock/notification-sdk';
-import type { PushMessage, PushTransport } from '../src/expo.js';
+import type { PushMessage, PushTransport, PushTicket } from '../src/expo.js';
 import type {
   RelayStore,
   RelayTransaction,
@@ -56,6 +57,12 @@ export class FixtureRelayStore implements RelayStore {
         },
         getDelivery: async (id) => clone(state.deliveries.get(id) ?? null),
         saveDelivery: async (record) => {
+          const previous = state.deliveries.get(record.requestId);
+          if (previous && previous.registrationId !== record.registrationId)
+            throw new RelayError(
+              'REPLAY',
+              'A reserved delivery cannot change its registration.',
+            );
           state.deliveries.set(record.requestId, clone(record));
         },
         countDeliveries: async (installationId, grantId, since) => {
@@ -92,7 +99,7 @@ export class FixtureRelayStore implements RelayStore {
 export class FixturePushTransport implements PushTransport {
   readonly messages: PushMessage[] = [];
   invalidDevice = false;
-  async send(message: PushMessage) {
+  async send(message: PushMessage): Promise<PushTicket> {
     this.messages.push(structuredClone(message));
     return { id: `ticket-${this.messages.length}`, status: 'ok' as const };
   }

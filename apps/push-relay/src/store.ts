@@ -1,4 +1,4 @@
-import type { DatabasePort } from '@signaldock/contracts';
+import type { DatabasePort, MigrationDefinition } from '@signaldock/contracts';
 import type {
   DeliveryResult,
   RelayChallenge,
@@ -10,6 +10,8 @@ import { RelayError } from '@signaldock/notification-sdk';
 export interface StoredDelivery extends DeliveryResult {
   grantId: string;
   installationId: string;
+  /** Null means a pre-generation delivery whose receiving registration is unknown. */
+  registrationId: string | null;
   fingerprint: string;
   createdAt: string;
   expiresAt: string;
@@ -70,6 +72,22 @@ CREATE TABLE IF NOT EXISTS sd_relay.deliveries (
 CREATE INDEX IF NOT EXISTS relay_delivery_quota ON sd_relay.deliveries(installation_id,created_at);
 `;
 
+/** Keep 001 unchanged: previously accepted receipts cannot safely be attributed to today's token. */
+export const relayMigrations: readonly MigrationDefinition[] = [
+  { id: '001_private_relay', sql: relaySchemaSql },
+  {
+    id: '002_registration_generation',
+    sql: `
+UPDATE sd_relay.installations
+SET document=jsonb_set(document,'{registrationId}',to_jsonb(gen_random_uuid()::text))
+WHERE NOT (document ? 'registrationId');
+UPDATE sd_relay.deliveries
+SET document=jsonb_set(document,'{registrationId}','null'::jsonb)
+WHERE NOT (document ? 'registrationId');
+`,
+  },
+];
+
 export class PostgresRelayStore implements RelayStore {
   private readonly database: DatabasePort;
   constructor(database: DatabasePort, schema = 'sd_relay') {
@@ -105,7 +123,9 @@ export class PostgresRelayStore implements RelayStore {
 export function relaySchemaFor(schema: string): string {
   if (!/^sd_relay(?:_[a-z0-9_]+)?$/.test(schema))
     throw new Error('The relay schema name is invalid.');
-  return relaySchemaSql.replaceAll('sd_relay', schema);
+  return relayMigrations
+    .map((migration) => migration.sql.replaceAll('sd_relay', schema))
+    .join('\n');
 }
 function withRelaySchema(database: DatabasePort, schema: string): DatabasePort {
   relaySchemaFor(schema);
@@ -212,7 +232,7 @@ class PostgresRelayTransaction implements RelayTransaction {
   }
   async saveDelivery(record: StoredDelivery): Promise<void> {
     const result = await this.db.query(
-      "INSERT INTO sd_relay.deliveries(id,installation_id,grant_id,created_at,document) VALUES($1,$2,$3,$4,$5) ON CONFLICT(id) DO UPDATE SET document=$5 WHERE deliveries.installation_id=$2 AND deliveries.grant_id=$3 AND deliveries.document->>'fingerprint'=$6",
+      "INSERT INTO sd_relay.deliveries(id,installation_id,grant_id,created_at,document) VALUES($1,$2,$3,$4,$5) ON CONFLICT(id) DO UPDATE SET document=$5 WHERE deliveries.installation_id=$2 AND deliveries.grant_id=$3 AND deliveries.document->>'fingerprint'=$6 AND deliveries.document->'registrationId' IS NOT DISTINCT FROM $7::jsonb",
       [
         record.requestId,
         record.installationId,
@@ -220,6 +240,7 @@ class PostgresRelayTransaction implements RelayTransaction {
         record.createdAt,
         record,
         record.fingerprint,
+        JSON.stringify(record.registrationId),
       ],
     );
     if (result.rowCount !== 1)

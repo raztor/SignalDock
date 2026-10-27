@@ -1,6 +1,6 @@
 import { generateKeyPairSync, randomBytes, randomUUID } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { PostgresDatabase } from '@signaldock/database';
+import { PostgresDatabase, migrate } from '@signaldock/database';
 import type { DatabasePort } from '@signaldock/contracts';
 import {
   TokenVault,
@@ -8,7 +8,12 @@ import {
   signRelayPayload,
 } from '@signaldock/notification-sdk/server';
 import type { GrantRequest, RelaySend } from '@signaldock/notification-sdk';
-import { PostgresRelayStore, relaySchemaFor } from '../src/store.js';
+import {
+  PostgresRelayStore,
+  relaySchemaFor,
+  relayMigrations,
+  type StoredDelivery,
+} from '../src/store.js';
 import { RelayService } from '../src/service.js';
 import { FixturePushTransport } from './fixtures.js';
 
@@ -144,6 +149,7 @@ describe.skipIf(!url)('persistent private relay', () => {
       await store.transaction(async (tx) => {
         await tx.saveInstallation({
           installationId,
+          registrationId: randomUUID(),
           publicKey: device.publicKey,
           projectId: randomUUID(),
           tokenCiphertext: vault.encrypt(
@@ -240,6 +246,198 @@ describe.skipIf(!url)('persistent private relay', () => {
       await revocation;
       await rejected;
       expect(push.messages).toHaveLength(0);
+    },
+  );
+  it('upgrades legacy metadata without rewriting migration 001 or binding unknown receipts to a current token', async () => {
+    const isolated = new PostgresDatabase({
+      connectionString: url!,
+      options: `-c search_path=${schema},public`,
+    });
+    const definitions = relayMigrations.map((migration) => ({
+      ...migration,
+      sql: migration.sql.replaceAll('sd_relay', schema),
+    }));
+    try {
+      await migrate(isolated, definitions.slice(0, 1));
+      const installationId = randomUUID(),
+        requestId = randomUUID();
+      await isolated.query(
+        `INSERT INTO ${schema}.installations(id,document) VALUES($1,$2)`,
+        [
+          installationId,
+          { installationId, tokenCiphertext: 'legacy-encrypted-token' },
+        ],
+      );
+      await isolated.query(
+        `INSERT INTO ${schema}.deliveries(id,installation_id,grant_id,created_at,document) VALUES($1,$2,$3,now(),$4)`,
+        [
+          requestId,
+          installationId,
+          randomUUID(),
+          { requestId, state: 'provider_accepted' },
+        ],
+      );
+      const first = (
+        await isolated.query<{ checksum: string }>(
+          'SELECT checksum FROM sd_schema_migrations WHERE id=$1',
+          ['001_private_relay'],
+        )
+      ).rows[0]!.checksum;
+      await migrate(isolated, definitions);
+      await migrate(isolated, definitions);
+      expect(
+        (
+          await isolated.query<{ checksum: string }>(
+            'SELECT checksum FROM sd_schema_migrations WHERE id=$1',
+            ['001_private_relay'],
+          )
+        ).rows[0]!.checksum,
+      ).toBe(first);
+      expect(
+        (
+          await isolated.query<{ document: { registrationId: string } }>(
+            `SELECT document FROM ${schema}.installations WHERE id=$1`,
+            [installationId],
+          )
+        ).rows[0]!.document.registrationId,
+      ).toMatch(/^[a-f0-9-]{36}$/);
+      expect(
+        (
+          await isolated.query<{ document: { registrationId: null } }>(
+            `SELECT document FROM ${schema}.deliveries WHERE id=$1`,
+            [requestId],
+          )
+        ).rows[0]!.document.registrationId,
+      ).toBeNull();
+    } finally {
+      await isolated.close();
+    }
+  });
+  it.each(['rotation', 'revocation'] as const)(
+    'does not let a stale receipt alter a concurrent %s of a newer registration',
+    async (mode) => {
+      const store = new PostgresRelayStore(database, schema),
+        push = new FixturePushTransport(),
+        vault = new TokenVault(randomBytes(32)),
+        device = keys(),
+        instance = keys();
+      const installationId = randomUUID(),
+        instanceId = randomUUID(),
+        oldRegistration = randomUUID(),
+        newRegistration = randomUUID(),
+        grantId = randomUUID(),
+        createdAt = new Date().toISOString(),
+        expiresAt = new Date(Date.now() + 3600000).toISOString();
+      const old = {
+        installationId,
+        registrationId: oldRegistration,
+        publicKey: device.publicKey,
+        projectId: randomUUID(),
+        tokenCiphertext: vault.encrypt(installationId, 'ExpoPushToken[old]'),
+        verifiedAt: createdAt,
+        revokedAt: null,
+      };
+      const newer = {
+        ...old,
+        registrationId: newRegistration,
+        tokenCiphertext: vault.encrypt(installationId, 'ExpoPushToken[new]'),
+      };
+      const delivery: StoredDelivery = {
+        requestId: randomUUID(),
+        installationId,
+        registrationId: oldRegistration,
+        grantId,
+        fingerprint: 'immutable-fixture',
+        createdAt,
+        expiresAt,
+        state: 'provider_accepted',
+        receiptChecked: false,
+        ticketId: 'old-ticket',
+      };
+      await store.transaction(async (tx) => {
+        await tx.saveInstallation(mode === 'rotation' ? old : newer);
+        await tx.saveGrant({
+          grantId,
+          installationId,
+          instanceId,
+          instancePublicKey: instance.publicKey,
+          subscriptionRef: randomUUID(),
+          categories: ['communication'],
+          radioIds: [],
+          expiresAt,
+          revokedAt: null,
+        });
+        await tx.saveDelivery(delivery);
+      });
+      await expect(
+        store.transaction((tx) =>
+          tx.saveDelivery({ ...delivery, registrationId: newRegistration }),
+        ),
+      ).rejects.toMatchObject({ code: 'REPLAY' });
+      let locked!: () => void;
+      const changed = new Promise<void>((resolve) => {
+        locked = resolve;
+      });
+      let commit!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        commit = resolve;
+      });
+      const revokedAt = '2026-10-26T00:00:00.000Z';
+      const current =
+        mode === 'rotation'
+          ? newer
+          : { ...newer, tokenCiphertext: '', revokedAt };
+      const update = store.transaction(async (tx) => {
+        await tx.getInstallation(installationId);
+        await tx.saveInstallation(current);
+        if (mode === 'revocation')
+          await tx.revokeGrants(installationId, revokedAt);
+        locked();
+        await gate;
+      });
+      await changed;
+      let waiting!: () => void;
+      const cleanupWaiting = new Promise<void>((resolve) => {
+        waiting = resolve;
+      });
+      const watch = (db: DatabasePort): DatabasePort => ({
+        query: (text, values) => {
+          if (
+            text.includes(`${schema}.installations`) &&
+            text.includes('FOR UPDATE')
+          )
+            waiting();
+          return db.query(text, values);
+        },
+        transaction: (action) => db.transaction((tx) => action(watch(tx))),
+      });
+      push.invalidDevice = true;
+      const service = new RelayService(
+        new PostgresRelayStore(watch(database), schema),
+        vault,
+        push,
+        {
+          mode: 'private-test',
+          projectId: old.projectId,
+          enrollmentSecretHash: hashSecret('fixture'),
+        },
+      );
+      const poll = service.pollReceipts();
+      await cleanupWaiting;
+      commit();
+      await update;
+      expect(await poll).toBe(1);
+      const observed = await store.transaction((tx) =>
+        tx.getInstallation(installationId),
+      );
+      expect(observed).toEqual(current);
+      const grant = await store.transaction((tx) => tx.getGrant(grantId));
+      expect(grant?.revokedAt).toBe(mode === 'rotation' ? null : revokedAt);
+      const failed = await store.transaction((tx) =>
+        tx.getDelivery(delivery.requestId),
+      );
+      expect(failed?.state).toBe('failed');
+      expect(failed?.registrationId).toBe(oldRegistration);
     },
   );
 });

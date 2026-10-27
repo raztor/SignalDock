@@ -10,6 +10,10 @@ Enrollment requires a private invitation and a fixed Expo project ID. The instal
 
 Requests use domain-separated Ed25519 signatures, timestamp windows, persistent nonces, bounded TTLs, stable idempotency IDs, and serialized installation/grant quotas. Device owners can revoke a grant or all grants directly with their installation key, even if their backend is hostile. Backend-originated revocation can affect only its own grant. Tokens use AES-256-GCM with installation-bound authenticated data and are never logged. Invalid-device receipts clear tokens and revoke grants.
 
+Each verified enrollment creates a new opaque registration generation. A delivery reservation stores that generation immutably; immediate failures and delayed invalid-device receipts disable a token only if the installation still has the same generation under its row lock. A failed old-token receipt remains failed without clearing or revoking a newly verified registration. Explicit owner revocation remains authoritative during concurrent receipt cleanup.
+
+Startup registers `relayMigrations`, preserving `001_private_relay` and applying the additive `002_registration_generation` migration. Existing installations receive a generation; legacy deliveries keep an unknown (`null`) generation because their original receiving token cannot be inferred safely. Legacy errors remain recorded but cannot revoke today's installation. Independent relay deployments using the exported service must apply the complete relay migration list before admitting requests.
+
 After building dependencies, run `npm start --workspace=@signaldock/push-relay`. Required environment:
 
 | Variable                  | Meaning                                                         |

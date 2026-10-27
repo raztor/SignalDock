@@ -65,7 +65,10 @@ function context() {
     },
   };
 }
-async function enrollment(c: ReturnType<typeof context>) {
+async function enrollment(
+  c: ReturnType<typeof context>,
+  pushToken = 'ExpoPushToken[fixture-device]',
+) {
   const nonce = randomBytes(24).toString('hex');
   const request = await c.service.requestChallenge(
     {
@@ -73,7 +76,7 @@ async function enrollment(c: ReturnType<typeof context>) {
       projectId: c.projectId,
       publicKey: c.device.publicKey,
       clientNonce: nonce,
-      pushToken: 'ExpoPushToken[fixture-device]',
+      pushToken,
     },
     'private-invitation',
   );
@@ -90,8 +93,11 @@ async function enrollment(c: ReturnType<typeof context>) {
   });
   return { request, payload };
 }
-async function grant(c: ReturnType<typeof context>) {
-  await enrollment(c);
+async function grant(
+  c: ReturnType<typeof context>,
+  pushToken = 'ExpoPushToken[fixture-device]',
+) {
+  await enrollment(c, pushToken);
   const payload: GrantRequest = {
     installationId: c.installationId,
     requestId: randomUUID(),
@@ -395,6 +401,84 @@ describe('private relay security and delivery', () => {
     expect(c.store.state.deliveries.get(payload.requestId)?.state).toBe(
       'failed',
     );
+  });
+  it('does not revoke a newly verified registration when an old token receipt arrives late', async () => {
+    const c = context(),
+      old = await grant(c);
+    const payload = event(c, old.grantId);
+    await c.service.send({
+      payload,
+      signature: signRelayPayload('send', payload, c.instance.privateKey),
+    });
+    const reserved = c.store.state.deliveries.get(
+      payload.requestId,
+    )!.registrationId;
+    c.advance(1);
+    const fresh = await grant(c, 'ExpoPushToken[rotated-device]');
+    const current = structuredClone(
+      c.store.state.installations.get(c.installationId)!,
+    );
+    expect(current.registrationId).not.toBe(reserved);
+    c.push.invalidDevice = true;
+    await c.service.pollReceipts();
+    expect(c.store.state.installations.get(c.installationId)).toEqual(current);
+    expect(c.store.state.grants.get(fresh.grantId)?.revokedAt).toBeNull();
+    expect(c.store.state.deliveries.get(payload.requestId)?.state).toBe(
+      'failed',
+    );
+  });
+  it('ignores an immediate invalid-token response from a send overtaken by reenrollment', async () => {
+    const c = context(),
+      old = await grant(c);
+    const payload = event(c, old.grantId);
+    let sending!: () => void;
+    const sendStarted = new Promise<void>((resolve) => {
+      sending = resolve;
+    });
+    let release!: () => void;
+    const providerGate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const original = c.push.send.bind(c.push);
+    c.push.send = async (message) => {
+      if (message.title === 'SignalDock') {
+        sending();
+        await providerGate;
+        return { status: 'error' as const, error: 'DeviceNotRegistered' };
+      }
+      return original(message);
+    };
+    const pending = c.service.send({
+      payload,
+      signature: signRelayPayload('send', payload, c.instance.privateKey),
+    });
+    await sendStarted;
+    c.advance(1);
+    const fresh = await grant(c, 'ExpoPushToken[replacement-device]');
+    const current = structuredClone(
+      c.store.state.installations.get(c.installationId)!,
+    );
+    release();
+    await pending;
+    expect(c.store.state.installations.get(c.installationId)).toEqual(current);
+    expect(c.store.state.grants.get(fresh.grantId)?.revokedAt).toBeNull();
+  });
+  it('never disables a registration from a legacy receipt with unknown token generation', async () => {
+    const c = context(),
+      g = await grant(c);
+    const payload = event(c, g.grantId);
+    await c.service.send({
+      payload,
+      signature: signRelayPayload('send', payload, c.instance.privateKey),
+    });
+    c.store.state.deliveries.get(payload.requestId)!.registrationId = null;
+    const current = structuredClone(
+      c.store.state.installations.get(c.installationId)!,
+    );
+    c.push.invalidDevice = true;
+    await c.service.pollReceipts();
+    expect(c.store.state.installations.get(c.installationId)).toEqual(current);
+    expect(c.store.state.grants.get(g.grantId)?.revokedAt).toBeNull();
   });
   it('refuses public activation and invalid HTTP payloads', async () => {
     const c = context();

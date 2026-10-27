@@ -3,6 +3,7 @@ export { buildRelayServer } from './server.js';
 export {
   PostgresRelayStore,
   relaySchemaSql,
+  relayMigrations,
   relaySchemaFor,
   type RelayStore,
   type RelayTransaction,

@@ -100,6 +100,7 @@ export const RelayGrantSchema = z.strictObject({
 export type RelayGrant = z.infer<typeof RelayGrantSchema>;
 export interface RelayInstallation {
   installationId: string;
+  registrationId: string;
   publicKey: string;
   tokenCiphertext: string;
   projectId: string;
