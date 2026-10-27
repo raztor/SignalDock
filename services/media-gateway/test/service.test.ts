@@ -4,7 +4,7 @@ import type {
   Principal,
   RadioSnapshot,
 } from '@signaldock/contracts';
-import { TxSupervisor } from '../../radio-runtime/src/tx/supervisor.js';
+import { TxSupervisor } from '@signaldock/radio-runtime/tx';
 import { MediaService } from '../src/service.js';
 import { LiveKitCredentials } from '../src/livekit.js';
 
