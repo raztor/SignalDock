@@ -76,8 +76,12 @@ class BenlinkControl:
         memory_id = settings.channel_a if single else None
         if single:
             channel = await self.connection.get_channel(memory_id)
-            tuning = Tuning(hz(channel.rx_freq), hz(channel.tx_freq), channel.rx_mod)
-        return ControlObservation(tuning, status.is_in_tx, "confirmed" if single else "unknown", memory_id, status.curr_region)
+            try:
+                tuning = self._memory(channel).tuning
+            except DriverError as error:
+                if error.code not in {"NOT_FOUND", "CAPABILITY_UNSUPPORTED"}:
+                    raise
+        return ControlObservation(tuning, status.is_in_tx, "confirmed" if tuning is not None else "unknown", memory_id, status.curr_region)
 
     async def tx_ready(self) -> None:
         if self.journal is not None:
@@ -154,10 +158,24 @@ class BenlinkControl:
 
     @staticmethod
     def _memory(channel) -> Memory:
-        return Memory(str(channel.channel_id), channel.name, Tuning(hz(channel.rx_freq), hz(channel.tx_freq), channel.rx_mod))
+        if channel.rx_freq == 0:
+            raise DriverError("NOT_FOUND", "The memory slot is unprogrammed.")
+        tuning = Tuning(hz(channel.rx_freq), hz(channel.tx_freq) if channel.tx_freq else None, channel.rx_mod)
+        try:
+            tuning.validate()
+        except DriverError:
+            raise DriverError("CAPABILITY_UNSUPPORTED", "This memory uses a frequency or mode outside the driver's declared capabilities.") from None
+        return Memory(str(channel.channel_id), channel.name, tuning)
 
     async def list_memories(self) -> list[Memory]:
-        return [await self.read_memory(str(index)) for index in range(self.memory_count)]
+        memories = []
+        for index in range(self.memory_count):
+            try:
+                memories.append(await self.read_memory(str(index)))
+            except DriverError as error:
+                if error.code not in {"NOT_FOUND", "CAPABILITY_UNSUPPORTED"}:
+                    raise
+        return memories
 
     async def read_memory(self, memory_id: str) -> Memory:
         return self._memory(await self.connection.get_channel(self._memory_index(memory_id)))
@@ -201,6 +219,7 @@ class BenlinkControl:
 
     async def select_memory(self, memory_id: str) -> ControlObservation:
         index = self._memory_index(memory_id)
+        await self.read_memory(memory_id)
         status = await self.connection.get_status()
         if status.is_in_tx or status.curr_region != self._original_region:
             raise DriverError("RADIO_STATE_UNCERTAIN", "Memory selection is not valid in the current TX/region state.")

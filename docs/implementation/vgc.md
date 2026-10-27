@@ -44,6 +44,8 @@ A restarted backend establishes its driver session with `Disconnect → Connect 
 
 Tuning and memory selection return their verified radio result before asynchronously reopening RX, keeping native compilation/transport latency outside the command response. Reopening is fenced by generation/revision; another tuning operation or disconnect cancels it, and a late opening cannot attach to a new context. A receive reopening failure emits a discontinuity/end marker, reports a subscriber error and publishes degraded state while preserving the successfully applied tuning.
 
+Memory lists include programmed slots within the declared frequency/mode capabilities. Zero-RX placeholders are omitted; directly reading or selecting an unprogrammed slot returns `NOT_FOUND` before any selection write. Unsupported programmed slots return `CAPABILITY_UNSUPPORTED` on direct reads, and transport/read failures still fail the list rather than masquerading as an empty result. A receive-only memory's zero TX frequency is omitted from generic tuning. An externally selected empty/unsupported slot is reported with unknown tuning and cannot admit TX.
+
 Before mutation, the driver saves original settings/memory in a private, fsynced journal next to its socket. A failed or interrupted write attempts full readback-verified restoration. An unresolved journal blocks subsequent writes and TX. With the service stopped, `--recover --config ... --socket ...` explicitly restores and verifies that snapshot. Archive/inspect stale sockets before recovery. Successful intentional user changes persist; disconnect does not revert them. Include the journal directory in private backups.
 
 ## Audio and PTT

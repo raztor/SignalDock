@@ -94,5 +94,56 @@ class ControlTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(DriverError):
                 await control.tx_ready()
 
+    async def test_empty_memories_are_filtered_and_cannot_be_selected(self):
+        connection = Connection()
+        control = BenlinkControl(DriverConfig(RADIO, "ble", "classic"), connection)
+        await control.connect()
+        programmed = connection.channel
+        empty = programmed.model_copy(update={"channel_id": 0, "rx_freq": 0, "tx_freq": 0, "name": ""})
+        async def get_channel(index):
+            return programmed if index == 9 else empty.model_copy(update={"channel_id": index})
+        connection.get_channel = get_channel
+        self.assertEqual([memory.memory_id for memory in await control.list_memories()], ["9"])
+        before = connection.settings.model_dump()
+        with self.assertRaises(DriverError) as read:
+            await control.read_memory("0")
+        self.assertEqual(read.exception.code, "NOT_FOUND")
+        with self.assertRaises(DriverError) as selection:
+            await control.select_memory("0")
+        self.assertEqual(selection.exception.code, "NOT_FOUND")
+        self.assertEqual(connection.settings.model_dump(), before)
+        self.assertEqual(connection.write_calls, 0)
+
+    async def test_receive_only_memory_omits_zero_transmit_frequency(self):
+        connection = Connection()
+        control = BenlinkControl(DriverConfig(RADIO, "ble", "classic"), connection)
+        await control.connect()
+        connection.channel = connection.channel.model_copy(update={"tx_freq": 0, "tx_disable": True})
+        memory = await control.read_memory("9")
+        self.assertEqual(memory.tuning.rx_hz, 147540000)
+        self.assertIsNone(memory.tuning.tx_hz)
+
+    async def test_memory_read_failure_does_not_look_like_an_empty_list(self):
+        connection = Connection()
+        control = BenlinkControl(DriverConfig(RADIO, "ble", "classic"), connection)
+        await control.connect()
+        async def fail_read(index):
+            raise ConnectionError("Fixture memory read failed.")
+        connection.get_channel = fail_read
+        with self.assertRaises(ConnectionError):
+            await control.list_memories()
+
+    async def test_selected_unprogrammed_memory_has_unknown_tuning_and_blocks_tx(self):
+        connection = Connection()
+        connection.settings = connection.settings.model_copy(update={"channel_a": 9, "channel_b": 9})
+        connection.channel = connection.channel.model_copy(update={"rx_freq": 0, "tx_freq": 0})
+        control = BenlinkControl(DriverConfig(RADIO, "ble", "classic"), connection)
+        observed = await control.connect()
+        self.assertIsNone(observed.tuning)
+        self.assertEqual(observed.confidence, "unknown")
+        with self.assertRaises(DriverError) as unsafe:
+            await control.tx_ready()
+        self.assertEqual(unsafe.exception.code, "RADIO_STATE_UNCERTAIN")
+
 
 if __name__ == "__main__": unittest.main()
