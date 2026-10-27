@@ -234,14 +234,19 @@ export class HistoryService {
             ],
           );
         }
+        const created = (await this.get(input.instanceId, input.id, tx))!;
         await appendOutbox(tx, {
           instanceId: input.instanceId,
           id: randomUUID(),
           radioId: input.radioId,
           type: 'communication.created',
-          payload: { communicationId: input.id, conversationId: conversation },
+          payload: {
+            communicationId: created.id,
+            conversationId: created.conversationId,
+            communicationRevision: created.revision,
+          },
         });
-        return (await this.get(input.instanceId, input.id, tx))!;
+        return created;
       });
     } catch (error) {
       if (writtenArtifact)

@@ -66,6 +66,47 @@ describe.skipIf(!url)('PostgreSQL 18 communication lifecycle', () => {
     bytes: new Uint8Array([82, 73, 70, 70, 1, 2, 3, 4]),
     contentType: 'audio/wav',
   };
+  it('freezes the creation event source revision before later transcript updates', async () => {
+    const created = await history.ingest(capture(), audio);
+    const loadCreated = async () =>
+      (
+        await db.query<{
+          payload: {
+            communicationId: string;
+            conversationId: string;
+            communicationRevision: number;
+          };
+        }>(
+          "SELECT payload FROM sd_event_outbox WHERE instance_id=$1 AND type='communication.created' AND payload->>'communicationId'=$2",
+          [instanceId, created.id],
+        )
+      ).rows;
+    expect(await loadCreated()).toEqual([
+      {
+        payload: {
+          communicationId: created.id,
+          conversationId: created.conversationId,
+          communicationRevision: 1,
+        },
+      },
+    ]);
+    await history.appendTranscript(instanceId, created.id, {
+      text: 'Completed transcription fixture.',
+      source: 'provider',
+      provenance: { fixture: true },
+      expectedRevision: created.revision,
+    });
+    expect((await history.get(instanceId, created.id))?.revision).toBe(2);
+    expect(await loadCreated()).toEqual([
+      {
+        payload: {
+          communicationId: created.id,
+          conversationId: created.conversationId,
+          communicationRevision: 1,
+        },
+      },
+    ]);
+  });
   it('groups only same radio/frequency and preserves uncertain source attribution', async () => {
     const a = await history.ingest(capture(), audio),
       b = await history.ingest(capture(), audio);
