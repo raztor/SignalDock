@@ -68,7 +68,9 @@ export function mediaAccess(input: {
               : txState !== 'idle' &&
                   !(
                     input.activeTx &&
-                    ['preparing', 'transmitting'].includes(txState ?? '')
+                    ['preparing', 'tx_unconfirmed', 'transmitting'].includes(
+                      txState ?? '',
+                    )
                   )
                 ? 'The radio is transmitting or its carrier state is uncertain.'
                 : '');

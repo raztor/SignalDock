@@ -123,6 +123,9 @@ describe('media feature availability', () => {
     f.radio.snapshot!.txState = 'transmitting';
     expect(mediaAccess(f).canTransmit).toBe(false);
     expect(mediaAccess({ ...f, activeTx: true }).canTransmit).toBe(true);
+    f.radio.snapshot!.txState = 'tx_unconfirmed';
+    expect(mediaAccess({ ...f, activeTx: true }).canTransmit).toBe(true);
+    expect(mediaAccess(f).canTransmit).toBe(false);
     f.radio.snapshot!.txState = 'stop_unconfirmed';
     expect(mediaAccess({ ...f, activeTx: true }).canTransmit).toBe(false);
   });
