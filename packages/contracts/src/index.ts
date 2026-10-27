@@ -159,6 +159,7 @@ export const RadioSnapshotSchema = z.strictObject({
   txState: z.enum([
     'idle',
     'preparing',
+    'tx_unconfirmed',
     'transmitting',
     'stopping',
     'stop_unconfirmed',
