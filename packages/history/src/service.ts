@@ -75,6 +75,11 @@ export interface RecordingContext {
 }
 export interface HistoryOptions {
   maxRecordingBytesPerRadio?: number;
+  /** Purge copied text/results while retaining the source audio and its digital derivatives. */
+  onDeleteTranscripts?: (
+    tx: DatabasePort,
+    source: { instanceId: string; communicationId: string },
+  ) => Promise<void>;
   onDeleteSource?: (
     tx: DatabasePort,
     source: {
@@ -629,6 +634,10 @@ export class HistoryService {
             counts.audio += recordings.rows.length;
           }
           if (older(policy.transcriptsBefore)) {
+            await this.options.onDeleteTranscripts?.(tx, {
+              instanceId,
+              communicationId: row.id,
+            });
             await this.removeDerived(tx, instanceId, row.id);
             const deleted = await tx.query(
               'DELETE FROM sd_transcript_revisions WHERE instance_id=$1 AND communication_id=$2',
