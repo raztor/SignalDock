@@ -316,7 +316,10 @@ export async function createExtensions(options: ExtensionOptions) {
             );
             if (!source || source.deletedAt) return;
             frequencyHz = source.frequencyHz;
-            if (event.type === 'communication.created')
+            if (
+              event.type === 'communication.created' &&
+              source.revision === payload['communicationRevision']
+            )
               await processing.enqueueFinalizedCommunication(source);
           }
           if (event.type === 'transcript.created') {

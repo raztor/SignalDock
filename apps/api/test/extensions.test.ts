@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Client } from 'pg';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -309,4 +309,75 @@ describe.skipIf(!url)('composed local processing, outbox and retention', () => {
       ).rows[0]?.result,
     ).toBeNull();
   }, 20000);
+  it('does not re-upload an RX source advanced by completion before outbox acknowledgement', async () => {
+    const replay = await createStation({
+      identity: await loadInstanceIdentity(join(directory, 'replay')),
+      dataDirectory: join(directory, 'replay'),
+      connectionString: (() => {
+        const url = new URL(process.env['TEST_DATABASE_URL']!);
+        url.searchParams.set('options', `-c search_path=${schema}`);
+        return url.href;
+      })(),
+      startJobs: false,
+      startRadios: false,
+    });
+    try {
+      await replay.auth.bootstrap({
+        setupToken: replay.secrets.setupToken,
+        username: 'replay-admin',
+        password: crypto.randomUUID() + crypto.randomUUID(),
+      });
+      const source = await replay.history.ingest({
+        id: crypto.randomUUID(),
+        instanceId: replay.auth.instanceId,
+        radioId: crypto.randomUUID(),
+        kind: 'received_voice',
+        direction: 'rx',
+        startedAt: new Date().toISOString(),
+        endedAt: new Date().toISOString(),
+        context: {},
+      });
+      const auto = vi
+        .spyOn(replay.extensions.processing, 'enqueueFinalizedCommunication')
+        .mockImplementation(async (communication) => {
+          await replay.history.appendTranscript(
+            replay.auth.instanceId,
+            communication.id,
+            {
+              text: 'Fixture completed speech',
+              source: 'provider',
+              provenance: { fixture: true },
+              expectedRevision: communication.revision,
+            },
+          );
+          return { status: 'queued', jobId: crypto.randomUUID() };
+        });
+      vi.spyOn(
+        replay.extensions.notifications,
+        'publishForUser',
+      ).mockRejectedValueOnce(
+        new Error('Simulated failure before outbox acknowledgement'),
+      );
+      await expect(replay.extensions.drain()).rejects.toThrow(
+        'before outbox acknowledgement',
+      );
+      expect(
+        (await replay.history.get(replay.auth.instanceId, source.id))?.revision,
+      ).toBe(2);
+      await replay.extensions.drain();
+      expect(auto).toHaveBeenCalledOnce();
+      expect(
+        Number(
+          (
+            await replay.database.query<{ count: string }>(
+              "SELECT count(*) FROM sd_event_outbox WHERE instance_id=$1 AND type='communication.created' AND delivered_at IS NULL",
+              [replay.auth.instanceId],
+            )
+          ).rows[0]!.count,
+        ),
+      ).toBe(0);
+    } finally {
+      await replay.server.close();
+    }
+  });
 });
