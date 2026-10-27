@@ -442,15 +442,7 @@ export class ProcessingRuntime {
         'Processing requires one versioned communication source and its matching recording.',
       );
     await this.options.validateInputs(actor, request, source);
-    const fingerprint = createHash('sha256')
-      .update(
-        JSON.stringify({
-          request: { ...request, jobId: undefined },
-          radioId,
-          source,
-        }),
-      )
-      .digest('hex');
+    const fingerprint = semanticFingerprint(request, radioId, source);
     return this.options.db.transaction(async (tx) => {
       const inserted = await tx.query(
         'INSERT INTO sd_processing_jobs(instance_id,id,owner_user_id,radio_id,profile_id,request,actor,source,state,fingerprint,idempotency_key) VALUES($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8::jsonb,$9,$10,$11) ON CONFLICT(instance_id,owner_user_id,idempotency_key) DO NOTHING',
@@ -475,7 +467,14 @@ export class ProcessingRuntime {
             [actor.instanceId, actor.userId, idempotencyKey],
           )
         ).rows[0]!;
-        if (duplicate.fingerprint !== fingerprint)
+        // Compare persisted semantics too: older fingerprints included delivery deadlines.
+        if (
+          semanticFingerprint(
+            duplicate.request,
+            duplicate.radio_id ?? undefined,
+            duplicate.source ?? undefined,
+          ) !== fingerprint
+        )
           throw new SignalDockError(
             'OPERATION_CONFLICT',
             'The idempotency key belongs to a different request.',
@@ -875,6 +874,8 @@ export class ProcessingRuntime {
       );
       const profile = await this.profile(actor, row.request.profileId);
       const connection = await this.connection(actor, profile.connectionId);
+      const profileSnapshot = canonicalJson(profile);
+      const connectionSnapshot = connectionFingerprint(connection);
       if (connection.status === 'revoked')
         throw new SignalDockError(
           'FORBIDDEN',
@@ -894,18 +895,49 @@ export class ProcessingRuntime {
         actor,
         signal,
       );
+      // Credential locks and refresh can outlast a source, permission or configuration change.
+      signal.throwIfAborted();
+      await this.manage(actor);
+      if (row.radio_id)
+        await this.authorize(actor, 'history.read', row.radio_id);
+      await this.options.validateInputs(
+        actor,
+        row.request,
+        row.source ?? undefined,
+      );
+      const activeProfile = await this.profile(actor, row.request.profileId);
+      const activeConnection = await this.connection(
+        actor,
+        activeProfile.connectionId,
+      );
+      if (activeConnection.status === 'revoked')
+        throw new SignalDockError(
+          'FORBIDDEN',
+          'The processing connection was revoked while credentials resolved.',
+        );
+      if (
+        activeProfile.revision !== row.request.profileRevision ||
+        canonicalJson(activeProfile) !== profileSnapshot ||
+        activeProfile.connectionId !== profile.connectionId ||
+        connectionFingerprint(activeConnection) !== connectionSnapshot
+      )
+        throw new SignalDockError(
+          'STALE_REVISION',
+          'The processing profile or connection changed while credentials resolved.',
+        );
+      signal.throwIfAborted();
       const result = await this.options.registry.execute(
         row.request,
-        toConnection(connection),
-        profile,
+        toConnection(activeConnection),
+        activeProfile,
         actor,
         signal,
         {
           authentication,
-          endpoint: connection.endpoint,
-          capabilities: connection.capabilities,
-          configuration: connection.configuration,
-          settings: profile.settings ?? {},
+          endpoint: activeConnection.endpoint,
+          capabilities: activeConnection.capabilities,
+          configuration: activeConnection.configuration,
+          settings: activeProfile.settings ?? {},
           readArtifact: async (artifactId, cancellation) => {
             cancellation.throwIfAborted();
             await this.options.validateInputs(
@@ -1193,6 +1225,33 @@ export class ProcessingRuntime {
       );
     return consent;
   }
+}
+function canonicalJson(value: unknown): string {
+  return JSON.stringify(value, (_key, child: unknown) => {
+    if (child && typeof child === 'object' && !Array.isArray(child))
+      return Object.fromEntries(
+        Object.entries(child).sort(([left], [right]) =>
+          left.localeCompare(right),
+        ),
+      );
+    return child;
+  });
+}
+function semanticFingerprint(
+  request: ProcessingRequest,
+  radioId: string | undefined,
+  source: JobInput['source'] | undefined,
+) {
+  // Delivery IDs/deadlines change on replay; the first accepted job keeps its original deadline.
+  return createHash('sha256')
+    .update(
+      canonicalJson({
+        request: { ...request, jobId: undefined, deadline: undefined },
+        radioId,
+        source,
+      }),
+    )
+    .digest('hex');
 }
 function connectionFingerprint(connection: ConnectionRow) {
   return createHash('sha256')

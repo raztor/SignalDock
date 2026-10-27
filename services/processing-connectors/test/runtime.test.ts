@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import {
   SignalDockError,
@@ -7,6 +7,7 @@ import {
   type Communication,
   type DatabasePort,
   type JobQueuePort,
+  type JobInput,
   type JobExecutionContext,
   type Principal,
   type ProcessingProfile,
@@ -188,6 +189,7 @@ function fixture(overrides: Partial<ProcessingRuntimeOptions> = {}) {
     auth,
     artifacts,
     queue,
+    registry,
     connector,
     profile,
     request,
@@ -373,7 +375,7 @@ describe('processing job authorization and terminal commit', () => {
     await f.runtime.execute(f.job, new AbortController().signal, { commit });
     expect(committed).toHaveBeenCalledOnce();
     expect(f.onCompleted).toHaveBeenCalledOnce();
-    expect(f.auth.authorize).toHaveBeenCalledTimes(3);
+    expect(f.auth.authorize).toHaveBeenCalledTimes(4);
     expect(f.artifacts.delete).not.toHaveBeenCalled();
     expect(
       f.calls.some((call) => call.text.includes("state='completed'")),
@@ -410,6 +412,7 @@ describe('processing job authorization and terminal commit', () => {
   it('checks revocation again before publishing a completed result', async () => {
     const f = fixture();
     vi.mocked(f.auth.authorize)
+      .mockResolvedValueOnce(undefined)
       .mockResolvedValueOnce(undefined)
       .mockRejectedValue(
         new SignalDockError('UNAUTHORIZED', 'Revoked during inference.'),
@@ -453,5 +456,407 @@ describe('processing job authorization and terminal commit', () => {
       f.runtime.prepareTransmission(actor, f.request.jobId, randomUUID()),
     ).rejects.toMatchObject({ code: 'FORBIDDEN' });
     expect(f.artifacts.read).not.toHaveBeenCalled();
+  });
+});
+
+function delayedTextCredentials(
+  overrides: Partial<ProcessingRuntimeOptions> = {},
+) {
+  const vault = new CredentialVault(
+    'fixture-key',
+    new Map([['fixture-key', randomBytes(32)]]),
+  );
+  const f = fixture({ ...overrides, vault });
+  const credentialId = randomUUID();
+  const communicationId = randomUUID();
+  f.connection.credential_id = credentialId as never;
+  f.connection.capabilities = ['text.structured'];
+  f.profile.capability = 'text.structured';
+  f.profile.task = 'conversation.summarize';
+  f.profile.allowCloud = true;
+  f.request.task = 'conversation.summarize';
+  f.request.input = {
+    kind: 'text',
+    text: 'Frozen synthetic radio transcript',
+    communicationIds: [communicationId],
+  };
+  f.row.source = { communicationId, communicationRevision: 1 } as never;
+  f.connector.describe = () => ({
+    connectorId: 'fixture.speech',
+    version: '1',
+    sdkVersion: 1,
+    capabilities: ['text.structured'],
+    simulated: true,
+    execution: 'cloud',
+  });
+  vi.mocked(f.connector.execute).mockImplementation(async (request) => ({
+    jobId: request.jobId,
+    connectorId: 'fixture.speech',
+    profileRevision: 1,
+    simulated: true,
+    output: {
+      kind: 'summary',
+      text: 'Synthetic fixture summary',
+      evidenceIds: request.input.communicationIds,
+    },
+  }));
+  let entered!: () => void;
+  let release!: () => void;
+  const waiting = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  const barrier = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const envelope = vault.seal(
+    { instanceId, credentialId, ownerUserId: null },
+    { kind: 'api-key', secret: 'synthetic-test-key' },
+  );
+  const original = f.query.getMockImplementation()!;
+  f.query.mockImplementation(async (text, values = []) => {
+    if (
+      text.includes(
+        'SELECT envelope,owner_user_id FROM sd_provider_credentials',
+      )
+    ) {
+      entered();
+      await barrier;
+      return {
+        rows: [{ owner_user_id: null, envelope }],
+        rowCount: 1,
+      } as never;
+    }
+    return original(text, values);
+  });
+  return {
+    ...f,
+    waiting,
+    release,
+    registryExecute: vi.spyOn(f.registry, 'execute'),
+  };
+}
+
+describe('post-credential processing admission', () => {
+  const changes: Array<{
+    name: string;
+    code: string;
+    change: (f: ReturnType<typeof delayedTextCredentials>) => void;
+  }> = [
+    {
+      name: 'revoked session',
+      code: 'UNAUTHORIZED',
+      change: (f) => {
+        vi.mocked(f.auth.authorize).mockRejectedValue(
+          new SignalDockError('UNAUTHORIZED', 'Session revoked while waiting.'),
+        );
+      },
+    },
+    {
+      name: 'revoked source read grant',
+      code: 'FORBIDDEN',
+      change: (f) => {
+        f.validateInputs.mockRejectedValue(
+          new SignalDockError(
+            'FORBIDDEN',
+            'Source grant revoked while waiting.',
+          ),
+        );
+      },
+    },
+    {
+      name: 'deleted or revised source',
+      code: 'STALE_REVISION',
+      change: (f) => {
+        f.validateInputs.mockRejectedValue(
+          new SignalDockError(
+            'STALE_REVISION',
+            'Source changed while waiting.',
+          ),
+        );
+      },
+    },
+    {
+      name: 'new profile revision',
+      code: 'STALE_REVISION',
+      change: (f) => {
+        f.profile.revision = 2;
+      },
+    },
+    {
+      name: 'disabled cloud policy without a revision update',
+      code: 'STALE_REVISION',
+      change: (f) => {
+        f.profile.allowCloud = false;
+      },
+    },
+    {
+      name: 'changed provider endpoint',
+      code: 'STALE_REVISION',
+      change: (f) => {
+        f.connection.endpoint = 'https://changed.example.invalid/v1';
+      },
+    },
+    {
+      name: 'revoked connection',
+      code: 'FORBIDDEN',
+      change: (f) => {
+        f.connection.status = 'revoked';
+      },
+    },
+  ];
+  it.each(changes)(
+    'rejects $name before dispatching frozen text',
+    async ({ change, code }) => {
+      const f = delayedTextCredentials();
+      const pending = f.runtime.execute(f.job, new AbortController().signal, {
+        commit: async (write) => write(f.db),
+      });
+      const rejected = expect(pending).rejects.toMatchObject({ code });
+      await f.waiting;
+      change(f);
+      f.release();
+      await rejected;
+      expect(f.registryExecute).not.toHaveBeenCalled();
+      expect(f.connector.execute).not.toHaveBeenCalled();
+      expect(f.onCompleted).not.toHaveBeenCalled();
+    },
+  );
+  it('allows unchanged configuration after a credential wait', async () => {
+    const f = delayedTextCredentials();
+    const pending = f.runtime.execute(f.job, new AbortController().signal, {
+      commit: async (write) => write(f.db),
+    });
+    await f.waiting;
+    f.release();
+    expect((await pending).output.kind).toBe('summary');
+    expect(f.connector.execute).toHaveBeenCalledOnce();
+  });
+  it('rejects service consent disabled during credential resolution before provider dispatch', async () => {
+    const currentUser = {
+      instanceId,
+      userId,
+      username: actor.username,
+      role: actor.role,
+      radioPermissions: [],
+    };
+    const f = delayedTextCredentials({
+      authorizeBackgroundUser: async () => currentUser,
+    });
+    const consentId = randomUUID();
+    const artifactId = randomUUID();
+    const communicationId = randomUUID();
+    f.row.actor = { kind: 'service', instanceId, userId, consentId } as never;
+    f.profile.capability = 'stt.batch';
+    f.profile.task = 'speech.transcribe';
+    f.request.task = 'speech.transcribe';
+    f.request.input = {
+      kind: 'audio',
+      artifactId,
+      communicationIds: [communicationId],
+    };
+    f.row.source = {
+      communicationId,
+      communicationRevision: 1,
+      artifactId,
+    } as never;
+    f.connection.capabilities = ['stt.batch'];
+    f.connector.describe = () => ({
+      connectorId: 'fixture.speech',
+      version: '1',
+      sdkVersion: 1,
+      capabilities: ['stt.batch'],
+      simulated: true,
+      execution: 'cloud',
+    });
+    vi.mocked(f.connector.execute).mockImplementation(async (request) => ({
+      jobId: request.jobId,
+      connectorId: 'fixture.speech',
+      profileRevision: 1,
+      simulated: true,
+      output: {
+        kind: 'transcript',
+        artifactId,
+        text: 'Synthetic transcription',
+      },
+    }));
+    let enabled = true;
+    const consent = {
+      id: consentId,
+      radio_id: randomUUID(),
+      profile_id: f.profile.profileId,
+      profile_revision: 1,
+      connection_id: f.profile.connectionId,
+      service_owner_user_id: userId,
+      endpoint: f.connection.endpoint,
+      connection_fingerprint: createHash('sha256')
+        .update(
+          JSON.stringify([
+            f.connection.connector_id,
+            f.connection.endpoint,
+            f.connection.configuration,
+            f.connection.capabilities,
+            f.connection.owner_user_id,
+            f.connection.credential_id,
+          ]),
+        )
+        .digest('hex'),
+      enabled: true,
+    };
+    const original = f.query.getMockImplementation()!;
+    f.query.mockImplementation(async (text, values = []) =>
+      text.includes('SELECT * FROM sd_processing_background_consents')
+        ? ({
+            rows: enabled ? [consent] : [],
+            rowCount: enabled ? 1 : 0,
+          } as never)
+        : original(text, values),
+    );
+    const pending = f.runtime.execute(f.job, new AbortController().signal, {
+      commit: async (write) => write(f.db),
+    });
+    const rejected = expect(pending).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    });
+    await f.waiting;
+    enabled = false;
+    f.release();
+    await rejected;
+    expect(f.registryExecute).not.toHaveBeenCalled();
+    expect(f.connector.execute).not.toHaveBeenCalled();
+  });
+});
+
+describe('committed automatic RX replay', () => {
+  it('reuses the first job despite new delivery IDs/deadlines and persisted JSON key ordering', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(new Date('2026-10-26T23:00:00.000Z'));
+      const serviceOwner = {
+        instanceId,
+        userId,
+        username: actor.username,
+        role: actor.role,
+        radioPermissions: [],
+      };
+      const f = fixture({ authorizeBackgroundUser: async () => serviceOwner });
+      f.profile.capability = 'stt.batch';
+      f.profile.task = 'speech.transcribe';
+      f.connection.capabilities = ['stt.batch'];
+      f.connection.connector_id = 'openai-compatible';
+      let consent: Record<string, unknown> | undefined;
+      let persisted:
+        | {
+            id: string;
+            instance_id: string;
+            owner_user_id: string;
+            radio_id: string | null;
+            request: ProcessingRequest;
+            actor: unknown;
+            source: JobInput['source'];
+            state: string;
+            result: null;
+            error: null;
+            fingerprint: string;
+            created_at: Date;
+          }
+        | undefined;
+      const original = f.query.getMockImplementation()!;
+      f.query.mockImplementation(async (text, values = []) => {
+        if (text.includes('SELECT * FROM sd_processing_background_consents'))
+          return {
+            rows: consent ? [consent] : [],
+            rowCount: consent ? 1 : 0,
+          } as never;
+        if (text.includes('INSERT INTO sd_processing_background_consents'))
+          consent = {
+            id: values[1],
+            radio_id: values[2],
+            profile_id: values[3],
+            profile_revision: values[4],
+            connection_id: values[5],
+            service_owner_user_id: values[6],
+            endpoint: values[7],
+            connection_fingerprint: values[8],
+            enabled: true,
+          };
+        if (text.includes('INSERT INTO sd_processing_jobs')) {
+          if (persisted) return { rows: [], rowCount: 0 };
+          const source = JSON.parse(values[7] as string) as NonNullable<
+            JobInput['source']
+          >;
+          persisted = {
+            id: values[1] as string,
+            instance_id: instanceId,
+            owner_user_id: userId,
+            radio_id: values[3] as string,
+            request: JSON.parse(values[5] as string) as ProcessingRequest,
+            actor: JSON.parse(values[6] as string),
+            source: {
+              artifactId: source.artifactId!,
+              communicationRevision: source.communicationRevision,
+              communicationId: source.communicationId,
+            },
+            state: 'queued',
+            result: null,
+            error: null,
+            fingerprint: 'legacy-fingerprint-containing-delivery-deadline',
+            created_at: new Date(),
+          };
+          return { rows: [], rowCount: 1 };
+        }
+        if (text.includes('SELECT * FROM sd_processing_jobs') && persisted)
+          return { rows: [persisted], rowCount: 1 } as never;
+        return original(text, values);
+      });
+      const radioId = randomUUID();
+      const communication = {
+        id: randomUUID(),
+        instanceId,
+        radioId,
+        revision: 1,
+        direction: 'rx',
+        kind: 'received_voice',
+        recording: { artifactId: randomUUID(), state: 'available' },
+      } as Communication;
+      await f.runtime.consentToAutomaticRx(actor, {
+        radioId,
+        profileId: f.profile.profileId,
+        profileRevision: 1,
+        endpoint: f.connection.endpoint,
+        serviceOwnerUserId: userId,
+        allowAutomaticUpload: true,
+      });
+      const first =
+        await f.runtime.enqueueFinalizedCommunication(communication);
+      const originalDeadline = persisted!.request.deadline;
+      vi.setSystemTime(new Date('2026-10-26T23:00:03.000Z'));
+      expect(
+        await f.runtime.enqueueFinalizedCommunication(communication),
+      ).toEqual(first);
+      expect(f.queue.enqueue).toHaveBeenCalledOnce();
+      expect(persisted!.request.deadline).toBe(originalDeadline);
+      const changedArtifact = randomUUID();
+      await expect(
+        f.runtime.enqueue(
+          actor,
+          {
+            ...persisted!.request,
+            jobId: randomUUID(),
+            deadline: new Date(Date.now() + 300_000).toISOString(),
+            input: {
+              kind: 'audio',
+              artifactId: changedArtifact,
+              communicationIds: [communication.id],
+            },
+          },
+          `rx-stt:${communication.id}:${communication.revision}:${consent!['id']}`,
+          radioId,
+          { ...persisted!.source!, artifactId: changedArtifact },
+        ),
+      ).rejects.toMatchObject({ code: 'OPERATION_CONFLICT' });
+      expect(f.queue.enqueue).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
