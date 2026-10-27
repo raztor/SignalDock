@@ -72,6 +72,12 @@ export interface NotificationRepository {
     since: string,
     excludingId: string,
   ): Promise<number>;
+  admit(
+    notification: StoredNotification,
+    channel: 'foreground' | 'relay',
+    time: string,
+    cooldownSeconds: number,
+  ): Promise<boolean>;
   subscriptions(
     instanceId: string,
     userId: string,
@@ -277,10 +283,60 @@ export class PostgresNotificationRepository implements NotificationRepository {
     excludingId: string,
   ): Promise<number> {
     const rows = await this.database.query<{ count: string }>(
-      "SELECT count(*)::text AS count FROM sd_notifications WHERE instance_id=$1 AND user_id=$2 AND category=$3 AND radio_id IS NOT DISTINCT FROM $4 AND created_at>=$5 AND id<>$6 AND delivery_state IN('relay_accepted','provider_accepted','application_opened')",
+      'SELECT count(*)::text AS count FROM sd_notifications WHERE instance_id=$1 AND user_id=$2 AND category=$3 AND radio_id IS NOT DISTINCT FROM $4 AND alert_admitted_at>$5 AND id<>$6',
       [instanceId, userId, category, radioId ?? null, since, excludingId],
     );
     return Number(rows.rows[0]?.count ?? 0);
+  }
+  async admit(
+    stored: StoredNotification,
+    channel: 'foreground' | 'relay',
+    time: string,
+    cooldownSeconds: number,
+  ): Promise<boolean> {
+    const n = stored.record;
+    return this.database.transaction(async (tx) => {
+      await tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [
+        `notification-admission:${n.instanceId}:${n.userId}:${n.category}:${n.radioId ?? 'instance'}`,
+      ]);
+      const row = (
+        await tx.query<{
+          alert_admitted_at: Date | null;
+          foreground_admitted_at: Date | null;
+          read_at: Date | null;
+          expires_at: Date;
+          delivery_state: string;
+        }>(
+          'SELECT alert_admitted_at,foreground_admitted_at,read_at,expires_at,delivery_state FROM sd_notifications WHERE instance_id=$1 AND user_id=$2 AND id=$3 FOR UPDATE',
+          [n.instanceId, n.userId, n.id],
+        )
+      ).rows[0];
+      if (
+        !row ||
+        row.read_at ||
+        row.delivery_state === 'expired' ||
+        new Date(row.expires_at).getTime() <= Date.parse(time)
+      )
+        return false;
+      if (channel === 'foreground' && row.foreground_admitted_at) return false;
+      if (
+        !row.alert_admitted_at &&
+        (await new PostgresNotificationRepository(tx).recentCount(
+          n.instanceId,
+          n.userId,
+          n.category,
+          n.radioId,
+          new Date(Date.parse(time) - cooldownSeconds * 1000).toISOString(),
+          n.id,
+        )) > 0
+      )
+        return false;
+      await tx.query(
+        `UPDATE sd_notifications SET alert_admitted_at=COALESCE(alert_admitted_at,$4)${channel === 'foreground' ? ',foreground_admitted_at=$4' : ''} WHERE instance_id=$1 AND user_id=$2 AND id=$3`,
+        [n.instanceId, n.userId, n.id, time],
+      );
+      return true;
+    });
   }
   async subscriptions(
     instanceId: string,

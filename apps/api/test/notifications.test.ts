@@ -132,6 +132,79 @@ function context(withRelay = true) {
 }
 
 describe('durable station notifications', () => {
+  it('admits foreground alerts without a relay while respecting current quiet hours, listening and expiry', async () => {
+    const c = context(false);
+    const record = await c.service.publishForUser(c.userId, c.event());
+    await c.service.updatePreferences(c.principal, {
+      ...defaultNotificationPreference(),
+      quietHours: { start: '11:00', end: '13:00', timeZone: 'UTC' },
+    });
+    expect(await c.service.foreground(c.principal, record!.id)).toBeNull();
+    await c.service.updatePreferences(
+      c.principal,
+      defaultNotificationPreference(),
+    );
+    c.repository.listening = true;
+    expect(await c.service.foreground(c.principal, record!.id)).toBeNull();
+    c.repository.listening = false;
+    expect(
+      await c.service.foreground(
+        { ...c.principal, userId: crypto.randomUUID() },
+        record!.id,
+      ),
+    ).toBeNull();
+    expect(await c.service.foreground(c.principal, record!.id)).toMatchObject({
+      id: record!.id,
+    });
+    expect(await c.service.foreground(c.principal, record!.id)).toBeNull();
+    const expired = await c.service.publishForUser(c.userId, {
+      ...c.event(),
+      category: 'incident',
+    });
+    c.advance(300001);
+    expect(await c.service.foreground(c.principal, expired!.id)).toBeNull();
+    expect((await c.service.list(c.principal)).items).toHaveLength(2);
+  });
+  it('never turns policy-expired history into a foreground alert', async () => {
+    const c = context();
+    const record = await c.service.publishForUser(c.userId, c.event());
+    await c.service.updatePreferences(c.principal, {
+      ...defaultNotificationPreference(),
+      quietHours: { start: '11:00', end: '13:00', timeZone: 'UTC' },
+    });
+    await c.service.deliver(c.instanceId, record!.id);
+    await c.service.updatePreferences(
+      c.principal,
+      defaultNotificationPreference(),
+    );
+    expect(await c.service.foreground(c.principal, record!.id)).toBeNull();
+    expect((await c.service.list(c.principal)).items[0]?.deliveryState).toBe(
+      'expired',
+    );
+  });
+  it('serializes cooldown for simultaneous rows while allowing the same event on foreground and relay channels', async () => {
+    const c = context();
+    await c.service.subscribe(c.principal, {
+      deviceRef: c.inspection.installationId,
+      grantRef: c.inspection.grantId,
+    });
+    const first = await c.service.publishForUser(c.userId, c.event()),
+      second = await c.service.publishForUser(c.userId, c.event());
+    const admitted = await Promise.all([
+      c.service.foreground(c.principal, first!.id),
+      c.service.foreground(c.principal, second!.id),
+    ]);
+    expect(admitted.filter(Boolean)).toHaveLength(1);
+    await c.service.deliver(c.instanceId, admitted.find(Boolean)!.id);
+    expect(c.sent).toHaveLength(1);
+    c.advance(31000);
+    const third = await c.service.publishForUser(c.userId, c.event());
+    await c.service.deliver(c.instanceId, third!.id);
+    expect(await c.service.foreground(c.principal, third!.id)).toMatchObject({
+      id: third!.id,
+    });
+    expect((await c.service.list(c.principal)).items).toHaveLength(3);
+  });
   it.each(['listener', 'operator'] as const)(
     'allows %s users to manage only their own notification preferences and subscriptions',
     async (role) => {
@@ -322,6 +395,14 @@ describe('durable station notifications', () => {
         (await app.inject('/station/api/v1/notifications')).statusCode,
       ).toBe(401);
       const headers = { authorization: 'Bearer valid' };
+      const notice = await c.service.publishForUser(c.userId, c.event());
+      const foreground = await app.inject({
+        method: 'POST',
+        url: `/station/api/v1/notifications/${notice!.id}/foreground`,
+        headers,
+      });
+      expect(foreground.statusCode).toBe(200);
+      expect(foreground.json().id).toBe(notice!.id);
       const updated = await app.inject({
         method: 'PUT',
         url: '/station/api/v1/notification-preferences',
@@ -350,7 +431,7 @@ describe('durable station notifications', () => {
         headers,
       });
       expect(list.statusCode).toBe(200);
-      expect(list.json()).toEqual({ items: [], nextCursor: null });
+      expect(list.json()).toEqual({ items: [notice], nextCursor: null });
       const invalid = await app.inject({
         method: 'PUT',
         url: '/station/api/v1/notification-preferences',

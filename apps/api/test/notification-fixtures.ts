@@ -16,6 +16,10 @@ export class FixtureNotificationRepository implements NotificationRepository {
   readonly outbox: string[] = [];
   readonly devices: DeviceSubscription[] = [];
   readonly attempts: DeliveryAttempt[] = [];
+  readonly admissions = new Map<
+    string,
+    { alert: string; foreground?: string }
+  >();
   readonly preference = new Map<string, NotificationPreference>();
   listening = false;
   originSessionActive = true;
@@ -111,12 +115,55 @@ export class FixtureNotificationRepository implements NotificationRepository {
         item.record.userId === u &&
         item.record.category === c &&
         item.record.radioId === r &&
-        item.record.createdAt >= since &&
+        (this.admissions.get(item.record.id)?.alert ?? '') > since &&
         item.record.id !== excludingId &&
-        ['relay_accepted', 'provider_accepted', 'application_opened'].includes(
-          item.record.deliveryState,
-        ),
+        this.admissions.has(item.record.id),
     ).length;
+  }
+  async admit(
+    stored: StoredNotification,
+    channel: 'foreground' | 'relay',
+    time: string,
+    cooldownSeconds: number,
+  ): Promise<boolean> {
+    const n = this.notifications.find(
+      (item) =>
+        item.record.instanceId === stored.record.instanceId &&
+        item.record.userId === stored.record.userId &&
+        item.record.id === stored.record.id,
+    );
+    if (
+      !n ||
+      n.record.readAt ||
+      n.record.deliveryState === 'expired' ||
+      Date.parse(n.expiresAt) <= Date.parse(time)
+    )
+      return false;
+    const prior = this.admissions.get(n.record.id);
+    if (channel === 'foreground' && prior?.foreground) return false;
+    if (!prior) {
+      const since = new Date(
+        Date.parse(time) - cooldownSeconds * 1000,
+      ).toISOString();
+      if (
+        this.notifications.some(
+          (item) =>
+            item.record.instanceId === n.record.instanceId &&
+            item.record.userId === n.record.userId &&
+            item.record.category === n.record.category &&
+            item.record.radioId === n.record.radioId &&
+            item.record.id !== n.record.id &&
+            (this.admissions.get(item.record.id)?.alert ?? '') > since,
+        )
+      )
+        return false;
+    }
+    this.admissions.set(n.record.id, {
+      alert: prior?.alert ?? time,
+      ...(prior?.foreground ? { foreground: prior.foreground } : {}),
+      ...(channel === 'foreground' ? { foreground: time } : {}),
+    });
+    return true;
   }
   async subscriptions(i: string, u: string) {
     return structuredClone(

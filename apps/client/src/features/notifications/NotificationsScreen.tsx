@@ -100,10 +100,27 @@ export function NotificationsScreen({
         );
         if (current !== generation.current) return;
         for (const item of page.items) {
-          if (!initial && browserEnabled && !seen.current.has(item.id))
-            browser.current.show(item, () => {
-              if (current === generation.current) void open(item);
-            });
+          if (!initial && browserEnabled && !seen.current.has(item.id)) {
+            try {
+              const admitted = await apiRequest<NotificationRecord | null>(
+                session,
+                `notifications/${encodeURIComponent(item.id)}/foreground`,
+                { method: 'POST', signal: controller.signal },
+              );
+              if (current !== generation.current) return;
+              if (admitted)
+                browser.current.show(admitted, () => {
+                  if (current === generation.current) void open(admitted);
+                });
+            } catch (failure) {
+              if (controller.signal.aborted) return;
+              setError(
+                failure instanceof Error
+                  ? failure.message
+                  : 'Browser alert admission is unavailable.',
+              );
+            }
+          }
           seen.current.add(item.id);
         }
         while (seen.current.size > 512) {

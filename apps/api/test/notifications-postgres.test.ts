@@ -159,6 +159,39 @@ describe.skipIf(!url)('notification PostgreSQL integrity', () => {
     expect(result.record.id).toBe(input.record.id);
     expect(result.frequencyHz).toBe(145500000);
   });
+  it('admits exactly one simultaneous notification per cooldown and permits its other channel', async () => {
+    const repository = new PostgresNotificationRepository(database),
+      base = record();
+    const rows = await Promise.all(
+      Array.from({ length: 6 }, () =>
+        repository.create({
+          ...base,
+          record: { ...base.record, id: randomUUID(), eventId: randomUUID() },
+        }),
+      ),
+    );
+    const admissions = await Promise.all(
+      rows.map((row) =>
+        repository.admit(
+          row.notification,
+          'foreground',
+          base.record.createdAt,
+          30,
+        ),
+      ),
+    );
+    expect(admissions.filter(Boolean)).toHaveLength(1);
+    const winner = rows[admissions.indexOf(true)]!.notification;
+    expect(
+      await repository.admit(winner, 'relay', base.record.createdAt, 30),
+    ).toBe(true);
+    expect(
+      await repository.admit(winner, 'foreground', base.record.createdAt, 30),
+    ).toBe(false);
+    expect(
+      await repository.list(base.record.instanceId, base.record.userId, 10),
+    ).toHaveLength(6);
+  });
   it('rolls back visible notification state if the transactional outbox append fails', async () => {
     const failing: DatabasePort = {
       query: (text, values) => database.query(text, values),

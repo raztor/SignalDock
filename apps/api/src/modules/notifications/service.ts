@@ -200,32 +200,7 @@ export class NotificationService {
     const preference = parseNotificationPreference(
       await this.repository.preferences(instanceId, n.userId),
     );
-    const suppressed =
-      !preference.enabled ||
-      !preference.categories.includes(n.category) ||
-      (preference.radioIds.length > 0 &&
-        (!n.radioId || !preference.radioIds.includes(n.radioId))) ||
-      (preference.frequencyHz !== undefined &&
-        preference.frequencyHz !== stored.frequencyHz) ||
-      Date.parse(stored.expiresAt) <= this.now() ||
-      withinQuietHours(preference, new Date(this.now())) ||
-      (preference.suppressWhileListening &&
-        n.category !== 'incident' &&
-        !!n.radioId &&
-        (await this.repository.isListening(
-          instanceId,
-          n.userId,
-          n.radioId,
-          new Date(this.now()).toISOString(),
-        ))) ||
-      (await this.repository.recentCount(
-        instanceId,
-        n.userId,
-        n.category,
-        n.radioId,
-        new Date(this.now() - preference.cooldownSeconds * 1000).toISOString(),
-        n.id,
-      )) > 0;
+    const suppressed = await this.suppressed(stored, preference);
     if (suppressed) {
       await this.repository.updateState(instanceId, n.id, 'expired');
       return;
@@ -272,12 +247,20 @@ export class NotificationService {
         continue;
       }
       try {
-        if (!(await this.repository.isSubscriptionActive(subscription))) {
+        if (
+          !(await this.repository.isSubscriptionActive(subscription)) ||
+          !(await this.repository.admit(
+            stored,
+            'relay',
+            new Date(this.now()).toISOString(),
+            preference.cooldownSeconds,
+          ))
+        ) {
           await this.repository.completeAttempt(
             instanceId,
             attempt,
             'expired',
-            'SessionInactive',
+            'AdmissionDenied',
           );
           continue;
         }
@@ -302,6 +285,61 @@ export class NotificationService {
         );
       }
     }
+  }
+  async foreground(
+    principal: Principal,
+    id: string,
+  ): Promise<NotificationRecord | null> {
+    z.uuid().parse(id);
+    await this.auth.authorize(principal, 'notifications.read');
+    const stored = await this.repository.find(
+      principal.instanceId,
+      principal.userId,
+      id,
+    );
+    if (!stored || !(await this.canRead(principal, stored.record.radioId)))
+      return null;
+    const preference = parseNotificationPreference(
+      await this.repository.preferences(principal.instanceId, principal.userId),
+    );
+    if (await this.suppressed(stored, preference)) return null;
+    if (
+      !(await this.repository.admit(
+        stored,
+        'foreground',
+        new Date(this.now()).toISOString(),
+        preference.cooldownSeconds,
+      ))
+    )
+      return null;
+    return stored.record;
+  }
+  private async suppressed(
+    stored: StoredNotification,
+    preference: NotificationPreference,
+  ): Promise<boolean> {
+    const n = stored.record;
+    return !!(
+      !preference.enabled ||
+      n.readAt ||
+      n.deliveryState === 'expired' ||
+      !preference.categories.includes(n.category) ||
+      (preference.radioIds.length > 0 &&
+        (!n.radioId || !preference.radioIds.includes(n.radioId))) ||
+      (preference.frequencyHz !== undefined &&
+        preference.frequencyHz !== stored.frequencyHz) ||
+      Date.parse(stored.expiresAt) <= this.now() ||
+      withinQuietHours(preference, new Date(this.now())) ||
+      (preference.suppressWhileListening &&
+        n.category !== 'incident' &&
+        !!n.radioId &&
+        (await this.repository.isListening(
+          n.instanceId,
+          n.userId,
+          n.radioId,
+          new Date(this.now()).toISOString(),
+        )))
+    );
   }
   async subscriptions(principal: Principal): Promise<DeviceSubscription[]> {
     await this.auth.authorize(principal, 'notifications.read');

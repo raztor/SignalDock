@@ -48,6 +48,13 @@ export function registerNotificationRoutes(
       id,
     );
   });
+  app.post(`${prefix}/notifications/:id/foreground`, async (request) => {
+    const { id } = z.object({ id: z.uuid() }).parse(request.params);
+    return service.foreground(
+      await requirePrincipal(request, auth, 'notifications.read'),
+      id,
+    );
+  });
   app.get(`${prefix}/push/configuration`, async (request) => {
     await requirePrincipal(request, auth, 'notifications.read');
     return service.configuration();

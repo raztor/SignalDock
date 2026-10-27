@@ -36,4 +36,13 @@ CREATE TABLE sd_notification_presence (
 );
 `,
   },
+  {
+    id: '051_notifications_foreground',
+    sql: `
+ALTER TABLE sd_notifications ADD COLUMN alert_admitted_at timestamptz;
+ALTER TABLE sd_notifications ADD COLUMN foreground_admitted_at timestamptz;
+UPDATE sd_notifications SET alert_admitted_at=created_at WHERE delivery_state IN('relay_accepted','provider_accepted');
+CREATE INDEX sd_notifications_alert_cooldown ON sd_notifications(instance_id,user_id,category,radio_id,alert_admitted_at) WHERE alert_admitted_at IS NOT NULL;
+`,
+  },
 ];
