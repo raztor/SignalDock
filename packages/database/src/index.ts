@@ -10,6 +10,16 @@ import {
   type DatabasePort,
   type MigrationDefinition,
 } from '@signaldock/contracts';
+import {
+  outboxEvent,
+  type OutboxEvent,
+  type OutboxEventRow,
+} from './outbox-event.js';
+export type { OutboxEvent } from './outbox-event.js';
+export {
+  PostgresOutboxEvents,
+  type PostgresOutboxEventsOptions,
+} from './outbox-events.js';
 export type { MigrationDefinition } from '@signaldock/contracts';
 
 class TransactionDatabase implements DatabasePort {
@@ -198,13 +208,7 @@ export async function appendOutbox(
 /** Handler must be idempotent: a crash after delivery can cause an event to repeat. */
 export async function dispatchOutbox(
   database: DatabasePort,
-  deliver: (event: {
-    instanceId: string;
-    id: string;
-    type: string;
-    radioId?: string;
-    payload: unknown;
-  }) => Promise<void>,
+  deliver: (event: OutboxEvent, transaction: DatabasePort) => Promise<void>,
   limit = 50,
   instanceId?: string,
 ): Promise<number> {
@@ -212,24 +216,12 @@ export async function dispatchOutbox(
     throw new Error('Invalid outbox batch limit.');
   if (instanceId !== undefined) IdSchema.parse(instanceId);
   return database.transaction(async (tx) => {
-    const batch = await tx.query<{
-      instance_id: string;
-      id: string;
-      type: string;
-      radio_id: string | null;
-      payload: unknown;
-    }>(
-      `SELECT instance_id,id,type,radio_id,payload FROM sd_event_outbox WHERE delivered_at IS NULL AND type <> 'job.enqueue'${instanceId === undefined ? '' : ' AND instance_id=$2::uuid'} ORDER BY occurred_at,id FOR UPDATE SKIP LOCKED LIMIT $1`,
+    const batch = await tx.query<OutboxEventRow>(
+      `SELECT instance_id,id,type,radio_id,payload,occurred_at FROM sd_event_outbox WHERE delivered_at IS NULL AND type <> 'job.enqueue'${instanceId === undefined ? '' : ' AND instance_id=$2::uuid'} ORDER BY occurred_at,id FOR UPDATE SKIP LOCKED LIMIT $1`,
       instanceId === undefined ? [limit] : [limit, instanceId],
     );
     for (const row of batch.rows) {
-      await deliver({
-        instanceId: row.instance_id,
-        id: row.id,
-        type: row.type,
-        ...(row.radio_id ? { radioId: row.radio_id } : {}),
-        payload: row.payload,
-      });
+      await deliver(outboxEvent(row), tx);
       await tx.query(
         'UPDATE sd_event_outbox SET delivered_at=now(),attempts=attempts+1 WHERE instance_id=$1 AND id=$2',
         [row.instance_id, row.id],
