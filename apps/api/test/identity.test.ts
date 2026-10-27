@@ -1,5 +1,13 @@
 import { randomUUID, createHash } from 'node:crypto';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from 'vitest';
 import Fastify from 'fastify';
 import { PostgresDatabase, migrate } from '@signaldock/database';
 import { SignalDockError } from '@signaldock/contracts';
@@ -7,7 +15,10 @@ import {
   IdentityService,
   type AccessRevocation,
 } from '../src/modules/identity/identity.service.js';
-import { SqlIdentityRepository } from '../src/modules/identity/identity.repository.js';
+import {
+  type IdentityRepository,
+  SqlIdentityRepository,
+} from '../src/modules/identity/identity.repository.js';
 import { identityMigrations } from '../src/modules/identity/identity.migrations.js';
 import {
   createArgon2idHasher,
@@ -79,6 +90,44 @@ async function admin(assignRadio = false) {
     principal: await service.authenticate(tokens.accessToken),
   };
 }
+
+describe('authorization-only identity services', () => {
+  it('avoids password hashing on authorization reads and initializes login protection on demand', async () => {
+    const passwords = {
+      hash: vi.fn(async () => 'fixture-dummy-hash'),
+      verify: vi.fn(async () => false),
+    };
+    const repository = {
+      findUser: async () => null,
+      findUserByName: async () => null,
+    } as unknown as IdentityRepository;
+    const facades = Array.from(
+      { length: 100 },
+      () =>
+        new IdentityService({
+          instanceId,
+          repository,
+          passwords,
+          passwordHashWarmup: false,
+        }),
+    );
+    await Promise.all(
+      facades.map((facade) => facade.resolveUser(randomUUID())),
+    );
+    expect(passwords.hash).not.toHaveBeenCalled();
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await expect(
+        facades[0]!.login({
+          username: 'missing',
+          password,
+          sessionMode: 'token',
+        }),
+      ).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+    }
+    expect(passwords.hash).toHaveBeenCalledOnce();
+    expect(passwords.verify).toHaveBeenCalledTimes(2);
+  });
+});
 
 describe('Argon2id password adapter', () => {
   it('uses Argon2id and rejects the wrong password', async () => {
