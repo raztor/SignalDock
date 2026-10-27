@@ -163,6 +163,7 @@ describe.skipIf(!databaseUrl)('API and standalone-worker event fanout', () => {
       radioId: hiddenRadio,
       kind: 'note',
       direction: 'internal',
+      frequencyAttribution: 'unknown',
       startedAt: new Date().toISOString(),
       endedAt: new Date().toISOString(),
       context: {},

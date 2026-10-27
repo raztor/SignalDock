@@ -7,6 +7,23 @@ import { createStation } from '../src/app/station.js';
 import { PostgresDigitalRepository } from '../src/modules/aprs/repository.js';
 import { loadInstanceIdentity } from '../src/modules/instance/identity-store.js';
 
+function recordingFixture() {
+  const bytes = Buffer.alloc(48);
+  bytes.write('RIFF', 0);
+  bytes.writeUInt32LE(40, 4);
+  bytes.write('WAVEfmt ', 8);
+  bytes.writeUInt32LE(16, 16);
+  bytes.writeUInt16LE(1, 20);
+  bytes.writeUInt16LE(1, 22);
+  bytes.writeUInt32LE(8000, 24);
+  bytes.writeUInt32LE(16000, 28);
+  bytes.writeUInt16LE(2, 32);
+  bytes.writeUInt16LE(16, 34);
+  bytes.write('data', 36);
+  bytes.writeUInt32LE(4, 40);
+  return bytes;
+}
+
 const url = process.env['TEST_DATABASE_URL'];
 describe.skipIf(!url)('composed local processing, outbox and retention', () => {
   const schema = `sd_extensions_${crypto.randomUUID().replaceAll('-', '')}`;
@@ -84,19 +101,7 @@ describe.skipIf(!url)('composed local processing, outbox and retention', () => {
         })
       ).accessToken,
     );
-    const bytes = Buffer.alloc(48);
-    bytes.write('RIFF', 0);
-    bytes.writeUInt32LE(40, 4);
-    bytes.write('WAVEfmt ', 8);
-    bytes.writeUInt32LE(16, 16);
-    bytes.writeUInt16LE(1, 20);
-    bytes.writeUInt16LE(1, 22);
-    bytes.writeUInt32LE(8000, 24);
-    bytes.writeUInt32LE(16000, 28);
-    bytes.writeUInt16LE(2, 32);
-    bytes.writeUInt16LE(16, 34);
-    bytes.write('data', 36);
-    bytes.writeUInt32LE(4, 40);
+    const bytes = recordingFixture();
     const communication = await station.history.ingest(
       {
         id: crypto.randomUUID(),
@@ -327,16 +332,20 @@ describe.skipIf(!url)('composed local processing, outbox and retention', () => {
         username: 'replay-admin',
         password: crypto.randomUUID() + crypto.randomUUID(),
       });
-      const source = await replay.history.ingest({
-        id: crypto.randomUUID(),
-        instanceId: replay.auth.instanceId,
-        radioId: crypto.randomUUID(),
-        kind: 'received_voice',
-        direction: 'rx',
-        startedAt: new Date().toISOString(),
-        endedAt: new Date().toISOString(),
-        context: {},
-      });
+      const source = await replay.history.ingest(
+        {
+          id: crypto.randomUUID(),
+          instanceId: replay.auth.instanceId,
+          radioId: crypto.randomUUID(),
+          kind: 'received_voice',
+          direction: 'rx',
+          frequencyAttribution: 'unknown',
+          startedAt: new Date().toISOString(),
+          endedAt: new Date().toISOString(),
+          context: {},
+        },
+        { bytes: recordingFixture(), contentType: 'audio/wav' },
+      );
       const auto = vi
         .spyOn(replay.extensions.processing, 'enqueueFinalizedCommunication')
         .mockImplementation(async (communication) => {
