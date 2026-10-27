@@ -24,6 +24,7 @@ jobs:
     env:
       TEST_DATABASE_URL: postgresql://signaldock:ci-test-only@127.0.0.1:5432/signaldock
       SIGNALDOCK_TEST_DATABASE_URL: postgresql://signaldock:ci-test-only@127.0.0.1:5432/signaldock
+      SIGNALDOCK_VGC_PYTHON: ${{ github.workspace }}/.venv/bin/python
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: actions/setup-node@v7.1.0
@@ -36,6 +37,9 @@ jobs:
       - run: npm ci
       - run: python -m venv .venv-codegen
       - run: .venv-codegen/bin/python -m pip install -r scripts/codegen/requirements.txt
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - run: python -m venv .venv && .venv/bin/python -m pip install services/drivers/vgc-benlink
+      - run: PYTHONPATH=services/drivers/vgc-benlink/src:packages/radio-driver-sdk/generated/python .venv/bin/python -m unittest discover -s services/drivers/vgc-benlink/test -p 'test_*.py'
       - run: python -m compileall -q services/drivers/vgc-benlink/validation
       - run: bash -n services/drivers/vgc-benlink/transports/macos/run_mac_bluetooth_probe.sh
       - run: npm run generate:driver
