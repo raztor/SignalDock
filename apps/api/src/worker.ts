@@ -14,6 +14,7 @@ const station = await createStation({
   dataDirectory,
   connectionString,
   startRadios: false,
+  listenForEvents: false,
   startJobs: true,
   logger: true,
   ...(process.env['SIGNALDOCK_RELAY_URL']

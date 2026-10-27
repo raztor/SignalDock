@@ -1,8 +1,10 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { SignalDockError, type RadioSnapshot } from '@signaldock/contracts';
 import {
   PostgresDatabase,
+  PostgresOutboxEvents,
   foundationMigrations,
   migrate,
 } from '@signaldock/database';
@@ -69,6 +71,7 @@ export interface StationOptions {
   queueSchema?: string;
   relayUrl?: string;
   startRadios?: boolean;
+  listenForEvents?: boolean;
 }
 
 /** One process owns the radio runtime. Restart never restores control or TX grants. */
@@ -87,6 +90,7 @@ export async function createStation(options: StationOptions) {
   let coverage: CoverageTracker | undefined;
   let extensions: Awaited<ReturnType<typeof createExtensions>> | undefined;
   let events: StationEvents | undefined;
+  let outboxEvents: PostgresOutboxEvents | undefined;
   const logFailure = (message: string, error: unknown) => {
     if (options.logger)
       console.error(
@@ -127,6 +131,34 @@ export async function createStation(options: StationOptions) {
       },
     });
     events = new StationEvents(auth, instanceId);
+    let streamGeneration = randomUUID();
+    let sequence = 0;
+    outboxEvents = new PostgresOutboxEvents({
+      connectionString: options.connectionString,
+      instanceId,
+      onError: (error) =>
+        logFailure('Station event transport unavailable', error),
+      onReconnect: () => {
+        streamGeneration = randomUUID();
+        sequence = 0;
+        events?.close();
+      },
+    });
+    if (options.listenForEvents !== false)
+      await outboxEvents.start((event) =>
+        events!.publish({
+          protocolVersion: 1,
+          eventId: event.id,
+          instanceId,
+          ...(event.radioId ? { radioId: event.radioId } : {}),
+          streamGeneration,
+          sequence: ++sequence,
+          occurredAt: event.occurredAt,
+          type: event.type,
+          payloadVersion: 1,
+          payload: event.payload,
+        }),
+      );
     const registry = createSimulatorRegistry();
     registry.register(
       'vgc-benlink',
@@ -155,6 +187,8 @@ export async function createStation(options: StationOptions) {
     );
     const history = new HistoryService(database, artifacts, {
       maxRecordingBytesPerRadio: 1024 ** 3,
+      onDeleteTranscripts: async (tx, source) =>
+        extensions?.onDeleteTranscripts(tx, source),
       onDeleteSource: async (tx, source) =>
         extensions?.onDeleteSource(tx, source),
     });
@@ -314,6 +348,7 @@ export async function createStation(options: StationOptions) {
       secrets,
       dataDirectory: options.dataDirectory,
       events,
+      publishOutboxEvent: (event, tx) => outboxEvents!.publish(event.id, tx),
       ...(media ? { media } : {}),
       ...(options.relayUrl ? { relayUrl: options.relayUrl } : {}),
       onError: (error) => logFailure('Background workflow failed', error),
@@ -371,6 +406,7 @@ export async function createStation(options: StationOptions) {
         () => capture.stop(),
         () => coverage?.close(),
         () => extensions?.close(),
+        () => outboxEvents?.close(),
         () => queue?.stop(),
         () => (options.database ? undefined : database.close()),
       ]) {
@@ -414,6 +450,7 @@ export async function createStation(options: StationOptions) {
     await recorder?.stop().catch(() => undefined);
     await coverage?.close().catch(() => undefined);
     await extensions?.close().catch(() => undefined);
+    await outboxEvents?.close().catch(() => undefined);
     await queue?.stop().catch(() => undefined);
     if (!options.database) await database.close();
     throw error;

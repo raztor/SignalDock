@@ -10,7 +10,11 @@ import {
   type Permission,
   type EventPublisherPort,
 } from '@signaldock/contracts';
-import { appendOutbox, dispatchOutbox } from '@signaldock/database';
+import {
+  appendOutbox,
+  dispatchOutbox,
+  type OutboxEvent,
+} from '@signaldock/database';
 import type { HistoryService } from '@signaldock/history';
 import type { MediaService } from '@signaldock/media-gateway';
 import {
@@ -71,6 +75,10 @@ export interface ExtensionOptions {
   relayUrl?: string;
   onError?: (error: unknown) => void;
   events?: EventPublisherPort;
+  publishOutboxEvent?: (
+    event: OutboxEvent,
+    transaction: DatabasePort,
+  ) => Promise<void>;
 }
 
 export function authorizeStoredActor(
@@ -94,6 +102,7 @@ export function authorizeStoredActor(
       instanceId,
       repository: new SqlIdentityRepository(tx, instanceId),
       passwords: createArgon2idHasher(),
+      passwordHashWarmup: false,
     });
     await identity.authorizeUser(userId, permission, radioId);
     const audience = await identity.resolveUser(userId);
@@ -156,6 +165,7 @@ export async function createExtensions(options: ExtensionOptions) {
         instanceId,
         repository: new SqlIdentityRepository(locked, instanceId),
         passwords: createArgon2idHasher(),
+        passwordHashWarmup: false,
       });
       await identity.authorize(actor, permission, radioId);
     });
@@ -253,13 +263,25 @@ export async function createExtensions(options: ExtensionOptions) {
   let sequence = 0;
   const streamGeneration = randomUUID();
   let timer: ReturnType<typeof setInterval> | undefined;
+  let reconciliationTimer: ReturnType<typeof setInterval> | undefined;
+  let revoking: Promise<unknown> | undefined;
+  const reconcileRevocations = () => {
+    if (!revoking)
+      revoking = notifications
+        .reconcileRevocations(instanceId, 2)
+        .catch(options.onError ?? (() => undefined))
+        .finally(() => {
+          revoking = undefined;
+        });
+    return revoking;
+  };
   const drain = async () => {
     if (draining) return;
     draining = true;
     try {
       await dispatchOutbox(
         database,
-        async (event) => {
+        async (event, eventTransaction) => {
           if (event.instanceId !== instanceId)
             throw new Error('An outbox worker cannot consume another station.');
           const payload = event.payload as Record<string, unknown>;
@@ -284,14 +306,18 @@ export async function createExtensions(options: ExtensionOptions) {
             return;
           }
           let frequencyHz: number | undefined;
-          if (event.type === 'communication.created') {
+          if (
+            event.type === 'communication.created' ||
+            event.type === 'incident.created'
+          ) {
             const source = await history.get(
               instanceId,
               String(payload['communicationId']),
             );
             if (!source || source.deletedAt) return;
             frequencyHz = source.frequencyHz;
-            await processing.enqueueFinalizedCommunication(source);
+            if (event.type === 'communication.created')
+              await processing.enqueueFinalizedCommunication(source);
           }
           if (event.type === 'transcript.created') {
             const source = await history.get(
@@ -343,24 +369,27 @@ export async function createExtensions(options: ExtensionOptions) {
                   instanceId,
                   eventId: event.id,
                   category,
-                  occurredAt: new Date().toISOString(),
+                  occurredAt: event.occurredAt,
                   ...(event.radioId ? { radioId: event.radioId } : {}),
                 },
                 frequencyHz === undefined ? {} : { frequencyHz },
               );
           }
-          await options.events?.publish({
-            protocolVersion: 1,
-            eventId: event.id,
-            instanceId,
-            ...(event.radioId ? { radioId: event.radioId } : {}),
-            streamGeneration,
-            sequence: ++sequence,
-            occurredAt: new Date().toISOString(),
-            type: event.type,
-            payloadVersion: 1,
-            payload: event.payload,
-          });
+          if (options.publishOutboxEvent) {
+            await options.publishOutboxEvent(event, eventTransaction);
+          } else
+            await options.events?.publish({
+              protocolVersion: 1,
+              eventId: event.id,
+              instanceId,
+              ...(event.radioId ? { radioId: event.radioId } : {}),
+              streamGeneration,
+              sequence: ++sequence,
+              occurredAt: event.occurredAt,
+              type: event.type,
+              payloadVersion: 1,
+              payload: event.payload,
+            });
         },
         50,
         instanceId,
@@ -380,10 +409,17 @@ export async function createExtensions(options: ExtensionOptions) {
         void drain().catch(options.onError ?? (() => undefined));
       }, 500);
       timer.unref();
+      reconciliationTimer = setInterval(() => {
+        void reconcileRevocations();
+      }, 5000);
+      reconciliationTimer.unref();
+      void reconcileRevocations();
     },
     drain,
     async close() {
       if (timer) clearInterval(timer);
+      if (reconciliationTimer) clearInterval(reconciliationTimer);
+      await revoking;
       while (draining) await new Promise((resolve) => setTimeout(resolve, 10));
     },
     async onAccessRevoked(event: AccessRevocation) {
@@ -399,6 +435,16 @@ export async function createExtensions(options: ExtensionOptions) {
             event.userId,
             sessionId,
           );
+    },
+    async onDeleteTranscripts(
+      tx: DatabasePort,
+      source: { instanceId: string; communicationId: string },
+    ) {
+      await removeProcessingSourceDerivatives(
+        tx,
+        source.instanceId,
+        source.communicationId,
+      );
     },
     async onDeleteSource(
       tx: DatabasePort,

@@ -4,6 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createStation } from '../src/app/station.js';
+import { PostgresDigitalRepository } from '../src/modules/aprs/repository.js';
 import { loadInstanceIdentity } from '../src/modules/instance/identity-store.js';
 
 const url = process.env['TEST_DATABASE_URL'];
@@ -83,18 +84,34 @@ describe.skipIf(!url)('composed local processing, outbox and retention', () => {
         })
       ).accessToken,
     );
-    const communication = await station.history.ingest({
-      id: crypto.randomUUID(),
-      instanceId,
-      radioId,
-      kind: 'note',
-      direction: 'internal',
-      startedAt: new Date().toISOString(),
-      endedAt: new Date().toISOString(),
-      frequencyHz: 147540000,
-      frequencyAttribution: 'confirmed',
-      context: {},
-    });
+    const bytes = Buffer.alloc(48);
+    bytes.write('RIFF', 0);
+    bytes.writeUInt32LE(40, 4);
+    bytes.write('WAVEfmt ', 8);
+    bytes.writeUInt32LE(16, 16);
+    bytes.writeUInt16LE(1, 20);
+    bytes.writeUInt16LE(1, 22);
+    bytes.writeUInt32LE(8000, 24);
+    bytes.writeUInt32LE(16000, 28);
+    bytes.writeUInt16LE(2, 32);
+    bytes.writeUInt16LE(16, 34);
+    bytes.write('data', 36);
+    bytes.writeUInt32LE(4, 40);
+    const communication = await station.history.ingest(
+      {
+        id: crypto.randomUUID(),
+        instanceId,
+        radioId,
+        kind: 'received_voice',
+        direction: 'rx',
+        startedAt: new Date().toISOString(),
+        endedAt: new Date().toISOString(),
+        frequencyHz: 147540000,
+        frequencyAttribution: 'confirmed',
+        context: {},
+      },
+      { bytes, contentType: 'audio/wav' },
+    );
     const text = 'Test station N0CALL reports a clear local connection.';
     const transcript = await station.history.appendTranscript(
       instanceId,
@@ -181,7 +198,99 @@ describe.skipIf(!url)('composed local processing, outbox and retention', () => {
     expect(
       notifications.items.some((record) => record.category === 'communication'),
     ).toBe(true);
+    await station.extensions.notifications.updatePreferences(actor, {
+      ...(await station.extensions.notifications.preferences(actor)),
+      categories: ['incident'],
+      frequencyHz: 147540000,
+      cooldownSeconds: 0,
+    });
+    await station.extensions.incidents.saveRule(actor, {
+      id: crypto.randomUUID(),
+      name: 'Emergency fixture',
+      enabled: true,
+      phrases: ['MAYDAY'],
+      priority: 'critical',
+      radioIds: [radioId],
+    });
+    const emergency = await station.history.ingest({
+      id: crypto.randomUUID(),
+      instanceId,
+      radioId,
+      kind: 'note',
+      direction: 'internal',
+      frequencyHz: 147540000,
+      frequencyAttribution: 'confirmed',
+      context: {},
+      startedAt: new Date().toISOString(),
+      endedAt: new Date().toISOString(),
+    });
+    await station.history.appendTranscript(instanceId, emergency.id, {
+      text: 'MAYDAY from N0CALL',
+      source: 'human',
+      provenance: { fixture: true },
+      expectedRevision: emergency.revision,
+    });
+    await until(async () =>
+      (await station.extensions.notifications.list(actor)).items.some(
+        (record) =>
+          record.category === 'incident' && record.radioId === radioId,
+      ),
+    );
+    const digital = new PostgresDigitalRepository(station.database);
+    const packetId = crypto.randomUUID();
+    const receivedAt = new Date().toISOString();
+    await digital.ingest(
+      {
+        instanceId,
+        radioId,
+        packetId,
+        receivedAt,
+        source: 'recording',
+        attribution: 'confirmed',
+        parserVersion: 'fixture-v1',
+        path: [],
+        kind: 'position',
+        callsign: 'N0CALL',
+        parsed: {
+          recording: { artifactId: communication.recording!.artifactId },
+        },
+        position: {
+          positionId: crypto.randomUUID(),
+          packetId,
+          instanceId,
+          radioId,
+          receivedAt,
+          source: 'recording',
+          callsign: 'N0CALL',
+          lat: 0,
+          lon: 0,
+        },
+      },
+      'retention-fixture',
+    );
+    await station.history.applyRetention(instanceId, {
+      transcriptsBefore: new Date(Date.now() + 1000).toISOString(),
+    });
+    expect(
+      (await station.history.get(instanceId, communication.id))?.transcripts,
+    ).toEqual([]);
+    expect(
+      (
+        await station.history.readRecording(
+          instanceId,
+          communication.recording!.id,
+        )
+      ).bytes,
+    ).toEqual(bytes);
+    expect(await digital.packet(instanceId, packetId)).not.toBeNull();
+    expect(
+      (
+        await digital.positions({ instanceId, radioIds: [radioId], limit: 10 })
+      ).some((position) => position.packetId === packetId),
+    ).toBe(true);
+    expect(await station.extensions.processing.jobs(actor)).toEqual([]);
     await station.history.delete(instanceId, communication.id, actor.userId);
+    expect(await digital.packet(instanceId, packetId)).toBeNull();
     expect(await station.extensions.processing.jobs(actor)).toEqual([]);
     expect(
       (
