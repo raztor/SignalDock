@@ -1,3 +1,4 @@
+import { disposeMediaRuntime } from '@signaldock/media-gateway';
 import { fileURLToPath } from 'node:url';
 import { loadInstanceIdentity } from './modules/instance/identity-store.js';
 import { buildServer } from './app/create-server.js';
@@ -40,6 +41,9 @@ const station = connectionString
         ? {
             livekit: {
               serverUrl: mediaUrl,
+              ...(process.env['LIVEKIT_INTERNAL_URL']
+                ? { internalServerUrl: process.env['LIVEKIT_INTERNAL_URL'] }
+                : {}),
               apiKey: process.env['LIVEKIT_API_KEY'] ?? '',
               apiSecret: process.env['LIVEKIT_API_SECRET'] ?? '',
             },
@@ -50,9 +54,12 @@ const station = connectionString
 const server = station?.server ?? (await buildServer(common));
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.once(signal, () => {
-    void server.close().catch(() => {
-      process.exitCode = 1;
-    });
+    void server
+      .close()
+      .finally(() => disposeMediaRuntime())
+      .catch(() => {
+        process.exitCode = 1;
+      });
   });
 }
 await server.listen({ port, host: process.env['HOST'] ?? '127.0.0.1' });

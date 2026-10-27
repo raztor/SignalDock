@@ -2091,6 +2091,7 @@
         "enum": [
           "idle",
           "preparing",
+          "tx_unconfirmed",
           "transmitting",
           "stopping",
           "stop_unconfirmed",
@@ -2559,6 +2560,7 @@
                 "enum": [
                   "idle",
                   "preparing",
+                  "tx_unconfirmed",
                   "transmitting",
                   "stopping",
                   "stop_unconfirmed",
@@ -2952,6 +2954,7 @@
             "enum": [
               "idle",
               "preparing",
+              "tx_unconfirmed",
               "transmitting",
               "stopping",
               "stop_unconfirmed",

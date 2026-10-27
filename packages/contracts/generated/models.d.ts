@@ -524,7 +524,7 @@ export interface RadioSnapshot {
     mode: "FM" | "AM" | "USB" | "LSB" | "CW" | "DIGITAL";
   };
   tuningConfidence: "confirmed" | "inferred" | "unknown";
-  txState: "idle" | "preparing" | "transmitting" | "stopping" | "stop_unconfirmed" | "unknown";
+  txState: "idle" | "preparing" | "tx_unconfirmed" | "transmitting" | "stopping" | "stop_unconfirmed" | "unknown";
 }
 
 export interface RadioDescriptor {
@@ -899,7 +899,7 @@ export interface RadioView {
       mode: "FM" | "AM" | "USB" | "LSB" | "CW" | "DIGITAL";
     };
     tuningConfidence: "confirmed" | "inferred" | "unknown";
-    txState: "idle" | "preparing" | "transmitting" | "stopping" | "stop_unconfirmed" | "unknown";
+    txState: "idle" | "preparing" | "tx_unconfirmed" | "transmitting" | "stopping" | "stop_unconfirmed" | "unknown";
   } | null;
   control: {
     grantId: string;
@@ -982,7 +982,7 @@ export interface RadioSnapshotEvent {
       mode: "FM" | "AM" | "USB" | "LSB" | "CW" | "DIGITAL";
     };
     tuningConfidence: "confirmed" | "inferred" | "unknown";
-    txState: "idle" | "preparing" | "transmitting" | "stopping" | "stop_unconfirmed" | "unknown";
+    txState: "idle" | "preparing" | "tx_unconfirmed" | "transmitting" | "stopping" | "stop_unconfirmed" | "unknown";
   };
 }
 

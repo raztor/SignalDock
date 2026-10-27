@@ -72,6 +72,7 @@ export default function App() {
     <Workspace
       key={key}
       session={auth.session}
+      mediaAvailable={auth.server?.info.features.liveAudio ?? false}
       displayName={auth.server?.info.displayName ?? 'Station'}
       onServers={back}
       onSignOut={() => {
@@ -85,11 +86,13 @@ type Section = 'Radios' | 'History' | 'Sessions' | 'Administration';
 function Workspace({
   session,
   displayName,
+  mediaAvailable,
   onServers,
   onSignOut,
 }: {
   session: ClientSession;
   displayName: string;
+  mediaAvailable: boolean;
   onServers: () => void;
   onSignOut: () => void;
 }) {
@@ -177,7 +180,7 @@ function Workspace({
                   : { maxHeight: 330 }),
               }}
             >
-              <MediaScreen {...props} />
+              <MediaScreen {...props} mediaAvailable={mediaAvailable} />
             </ScrollView>
           </View>
         )}

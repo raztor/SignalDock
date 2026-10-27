@@ -162,6 +162,25 @@ export async function createStation(options: StationOptions) {
     if (options.livekit) {
       supervisor = new TxSupervisor({
         runtime,
+        onState: (status) => {
+          if (status.state === 'idle' || status.state === 'stop_unconfirmed')
+            return;
+          const state =
+            status.state === 'transmitting' ||
+            status.state === 'stopping' ||
+            status.state === 'tx_unconfirmed'
+              ? status.state
+              : 'preparing';
+          try {
+            runtime.setTransmissionState(
+              status.grant.radioId,
+              status.grant.txGrantId,
+              state,
+            );
+          } catch (error) {
+            logFailure('Transmission state changed during supervision', error);
+          }
+        },
         driver: (radioId) => {
           const driver = audioDriver(radioId);
           let cached = txDrivers.get(radioId);
@@ -254,6 +273,7 @@ export async function createStation(options: StationOptions) {
     for (const descriptor of runtime.list())
       observe(runtime.snapshot(descriptor.radioId));
     queue = new PostgresJobQueue(database, {
+      instanceId,
       connectionString: options.connectionString,
       ...(options.queueSchema ? { schema: options.queueSchema } : {}),
       validateSource: history.validateJobSource.bind(history),
@@ -303,13 +323,27 @@ export async function createStation(options: StationOptions) {
     const closeResources = async () => {
       unsubscribe?.();
       uninvalidate?.();
-      await media?.close();
-      await supervisor?.close();
-      await radios?.close();
-      await capture.stop();
-      await coverage?.close();
-      await queue?.stop();
-      if (!options.database) await database.close();
+      const failures: unknown[] = [];
+      for (const stop of [
+        () => media?.close(),
+        () => supervisor?.close(),
+        () => radios?.close(),
+        () => capture.stop(),
+        () => coverage?.close(),
+        () => queue?.stop(),
+        () => (options.database ? undefined : database.close()),
+      ]) {
+        try {
+          await stop();
+        } catch (error) {
+          failures.push(error);
+        }
+      }
+      if (failures.length)
+        throw new AggregateError(
+          failures,
+          'Station shutdown could not confirm every resource cleanup.',
+        );
     };
     server.addHook('onClose', closeResources);
     return {
