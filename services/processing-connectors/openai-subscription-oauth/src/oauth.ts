@@ -177,13 +177,18 @@ export class OpenAISubscriptionOAuth {
         'UNAUTHORIZED',
         'Subscription identity validation failed.',
       );
-    return this.registration(tokens, {
-      clientId,
-      hostId: this.hostId,
-      issuer,
-      subject: claims.sub,
-      ...(typeof claims.email === 'string' ? { email: claims.email } : {}),
-    });
+    return this.registration(
+      tokens,
+      {
+        clientId,
+        hostId: this.hostId,
+        issuer,
+        subject: claims.sub,
+        ...(typeof claims.email === 'string' ? { email: claims.email } : {}),
+      },
+      signal,
+      true,
+    );
   }
   async refresh(
     saved: SubscriptionRegistration,
@@ -210,7 +215,7 @@ export class OpenAISubscriptionOAuth {
           'A refreshed token changed the linked identity.',
         );
     }
-    return this.registration(tokens, { ...saved, hostId: this.hostId });
+    return this.registration(tokens, { ...saved, hostId: this.hostId }, signal);
   }
   async importRegistration(
     input: SubscriptionRegistration,
@@ -231,21 +236,46 @@ export class OpenAISubscriptionOAuth {
       );
     }
     const claims = await this.verify(input.idToken, input.clientId, signal);
-    if (claims.sub !== input.subject || input.expiresAt <= this.now())
+    if (!claims.sub || claims.sub !== input.subject)
       throw new SignalDockError(
         'UNAUTHORIZED',
-        'The transferred credentials are expired or belong to another identity.',
+        'The transferred identity does not match its signed identity token.',
       );
+    const access = await this.verifyAccess(
+      input.accessToken,
+      input.clientId,
+      claims.sub,
+      signal,
+    );
     if (
-      !input.scopes.includes('chatgpt.tokens.use.direct') ||
-      !input.scopes.includes('resource.invoke')
+      !sameScopes(input.scopes, access.scopes) ||
+      !Number.isFinite(input.expiresAt) ||
+      input.expiresAt <= this.now() ||
+      input.expiresAt > access.expiresAt
     )
       throw new SignalDockError(
-        'FORBIDDEN',
-        'The transferred registration has no inference grant.',
+        'UNAUTHORIZED',
+        'The transferred scopes or expiry do not match the signed access grant.',
       );
-    return { ...input, hostId: this.hostId, scopes: [...input.scopes] };
+    // A retained ID token does not prove ownership of the separate refresh token.
+    // Rotate it at its fixed issuer and bind the resulting signed access grant again.
+    return this.refresh(
+      {
+        issuer,
+        subject: claims.sub,
+        clientId: input.clientId,
+        hostId: this.hostId,
+        accessToken: input.accessToken,
+        refreshToken: input.refreshToken,
+        idToken: input.idToken,
+        scopes: access.scopes,
+        expiresAt: access.expiresAt,
+        ...(typeof claims.email === 'string' ? { email: claims.email } : {}),
+      },
+      signal,
+    );
   }
+
   async revoke(
     saved: SubscriptionRegistration,
     signal: AbortSignal,
@@ -279,27 +309,98 @@ export class OpenAISubscriptionOAuth {
   ): Promise<JWTPayload> {
     if (this.options.verifyToken)
       return this.options.verifyToken(token, clientId, signal);
+    return this.verifyJwt(
+      token,
+      clientId,
+      ['iss', 'aud', 'exp', 'sub'],
+      signal,
+    );
+  }
+  private async verifyJwt(
+    token: string,
+    audience: string,
+    requiredClaims: string[],
+    signal: AbortSignal,
+  ): Promise<JWTPayload> {
     const configuration = await this.discovery(signal);
     const jwks = createRemoteJWKSet(
       safeAuthUrl(stringValue(configuration['jwks_uri'], 'JWKS endpoint')),
       {
-        [customFetch]: (input, init) =>
-          this.fetcher(input, {
-            ...init,
-            redirect: 'error',
-            credentials: 'omit',
-            signal,
-          }),
+        [customFetch]: async (input, init) => {
+          try {
+            const response = await this.fetcher(input, {
+              ...init,
+              redirect: 'error',
+              credentials: 'omit',
+              signal,
+            });
+            if (!response.ok) {
+              await response.body?.cancel();
+              throw new SignalDockError(
+                'PROVIDER_UNAVAILABLE',
+                'Subscription signing keys are temporarily unavailable.',
+              );
+            }
+            return response;
+          } catch (error) {
+            signal.throwIfAborted();
+            if (error instanceof SignalDockError) throw error;
+            throw new SignalDockError(
+              'PROVIDER_UNAVAILABLE',
+              'Subscription signing keys are temporarily unavailable.',
+            );
+          }
+        },
       },
     );
-    const verified = await jwtVerify(token, jwks, {
-      issuer,
-      audience: clientId,
-      algorithms: ['RS256', 'ES256'],
-      clockTolerance: 5,
-    });
-    signal.throwIfAborted();
-    return verified.payload;
+    try {
+      const verified = await jwtVerify(token, jwks, {
+        issuer,
+        audience,
+        algorithms: ['RS256', 'ES256'],
+        requiredClaims,
+        currentDate: new Date(this.now()),
+        clockTolerance: 5,
+      });
+      signal.throwIfAborted();
+      return verified.payload;
+    } catch (error) {
+      signal.throwIfAborted();
+      if (error instanceof SignalDockError) throw error;
+      throw new SignalDockError(
+        'UNAUTHORIZED',
+        'The subscription token signature or identity claims are invalid.',
+      );
+    }
+  }
+  private async verifyAccess(
+    token: string,
+    clientId: string,
+    subject: string,
+    signal: AbortSignal,
+  ) {
+    assertSubscriptionAccessToken(token);
+    const claims = await this.verifyJwt(
+      token,
+      resource,
+      ['iss', 'aud', 'sub', 'client_id', 'scope', 'exp'],
+      signal,
+    );
+    if (
+      claims.sub !== subject ||
+      claims['client_id'] !== clientId ||
+      typeof claims['scope'] !== 'string' ||
+      typeof claims.exp !== 'number' ||
+      !Number.isSafeInteger(claims.exp) ||
+      claims.exp * 1000 <= this.now()
+    )
+      throw new SignalDockError(
+        'UNAUTHORIZED',
+        'The access token belongs to another account, client, or expired grant.',
+      );
+    const scopes = [...new Set(claims['scope'].split(/\s+/).filter(Boolean))];
+    requireInferenceScopes(scopes);
+    return { scopes, expiresAt: claims.exp * 1000 };
   }
   private async discovery(
     signal: AbortSignal,
@@ -348,14 +449,16 @@ export class OpenAISubscriptionOAuth {
       JSON.parse(new TextDecoder().decode(await bodyBytes(response, 128000))),
     );
   }
-  private registration(
+  private async registration(
     tokens: Record<string, unknown>,
     identity: Pick<
       SubscriptionRegistration,
       'issuer' | 'subject' | 'clientId' | 'hostId'
     > &
       Partial<SubscriptionRegistration>,
-  ): SubscriptionRegistration {
+    signal: AbortSignal,
+    requireResponseScope = false,
+  ): Promise<SubscriptionRegistration> {
     if (
       tokens['token_type'] !== 'Bearer' ||
       typeof tokens['expires_in'] !== 'number' ||
@@ -371,17 +474,39 @@ export class OpenAISubscriptionOAuth {
         'UNAUTHORIZED',
         'The token response is invalid.',
       );
-    const scope =
-      typeof tokens['scope'] === 'string'
-        ? tokens['scope'].split(/\s+/).filter(Boolean)
-        : (identity.scopes ?? []);
+    const accessToken = stringValue(
+      tokens['access_token'],
+      'access token',
+      64000,
+    );
+    const access = await this.verifyAccess(
+      accessToken,
+      identity.clientId,
+      identity.subject,
+      signal,
+    );
+    const responseScope = tokens['scope'];
     if (
-      !scope.includes('chatgpt.tokens.use.direct') ||
-      !scope.includes('resource.invoke')
+      (requireResponseScope && typeof responseScope !== 'string') ||
+      (responseScope !== undefined && typeof responseScope !== 'string')
+    )
+      throw new SignalDockError(
+        'UNAUTHORIZED',
+        'The token response must declare its granted scopes.',
+      );
+    const scope =
+      typeof responseScope === 'string'
+        ? [...new Set(responseScope.split(/\s+/).filter(Boolean))]
+        : access.scopes;
+    requireInferenceScopes(scope);
+    if (
+      !sameScopes(scope, access.scopes) ||
+      (identity.scopes &&
+        scope.some((item) => !identity.scopes!.includes(item)))
     )
       throw new SignalDockError(
         'FORBIDDEN',
-        'The linked account did not grant subscription inference permission.',
+        'The token response and signed grant disagree or widened the approved scopes.',
       );
     return {
       ...identity,
@@ -389,7 +514,7 @@ export class OpenAISubscriptionOAuth {
       subject: identity.subject,
       clientId: identity.clientId,
       hostId: this.hostId,
-      accessToken: stringValue(tokens['access_token'], 'access token', 64000),
+      accessToken,
       refreshToken: stringValue(
         tokens['refresh_token'],
         'refresh token',
@@ -400,7 +525,10 @@ export class OpenAISubscriptionOAuth {
           ? tokens['id_token']
           : (identity.idToken ?? ''),
       scopes: scope,
-      expiresAt: this.now() + tokens['expires_in'] * 1000,
+      expiresAt: Math.min(
+        access.expiresAt,
+        this.now() + tokens['expires_in'] * 1000,
+      ),
     };
   }
   private now(): number {
@@ -420,4 +548,37 @@ function equal(a: string, b: string): boolean {
   const left = Buffer.from(a);
   const right = Buffer.from(b);
   return left.length === right.length && timingSafeEqual(left, right);
+}
+
+/** Defense for stored credentials from older versions; API keys never enter this OAuth path. */
+export function assertSubscriptionAccessToken(token: string): void {
+  if (
+    typeof token !== 'string' ||
+    token.length > 64000 ||
+    token.startsWith('sk-') ||
+    !/^[-A-Za-z0-9_]+\.[-A-Za-z0-9_]+\.[-A-Za-z0-9_]+$/.test(token)
+  )
+    throw new SignalDockError(
+      'UNAUTHORIZED',
+      'A signed subscription access token is required; API keys use a separate connection.',
+    );
+}
+function requireInferenceScopes(scopes: readonly string[]): void {
+  if (
+    !scopes.includes('chatgpt.tokens.use.direct') ||
+    !scopes.includes('resource.invoke')
+  )
+    throw new SignalDockError(
+      'FORBIDDEN',
+      'The signed grant does not authorize subscription inference.',
+    );
+}
+function sameScopes(
+  left: readonly string[],
+  right: readonly string[],
+): boolean {
+  return (
+    left.every((item) => typeof item === 'string' && right.includes(item)) &&
+    right.every((item) => left.includes(item))
+  );
 }

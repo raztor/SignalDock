@@ -20,6 +20,8 @@ import {
   textOutput,
 } from '../../src/http.js';
 
+import { assertSubscriptionAccessToken } from './oauth.js';
+
 /** Subscription-backed inference is intentionally separate from API-key audio. */
 export class OpenAISubscriptionConnector implements ProcessingConnector {
   describe(): ConnectorManifest {
@@ -41,6 +43,7 @@ export class OpenAISubscriptionConnector implements ProcessingConnector {
         'REQUIRES_CONFIGURATION',
         'Link a supported subscription account first.',
       );
+    assertSubscriptionAccessToken(context.authentication.accessToken);
     const payload = await jsonBody(
       await request(
         context,
@@ -103,6 +106,7 @@ export class OpenAISubscriptionConnector implements ProcessingConnector {
         'INVALID_ARGUMENT',
         'Subscription requests use the public Responses API.',
       );
+    assertSubscriptionAccessToken(context.authentication.accessToken);
     const response = await request(
       context,
       new URL('https://api.openai.com/v1/responses'),
