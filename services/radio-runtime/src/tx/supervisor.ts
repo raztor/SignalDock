@@ -490,15 +490,8 @@ export class TxSupervisor {
     const generation = before.generation;
     if (before.connection !== 'ready') return false;
     let observed: TxObservation;
-    if (generation === tx.grant.generation) {
-      observed = await bounded(
-        tx.driver.observe({ ...tx.grant }),
-        undefined,
-        this.timeoutMs,
-      );
-    } else {
-      const currentDriver = this.options.driver(radioId);
-      if (!currentDriver.observeCurrent) return false;
+    const currentDriver = this.options.driver(radioId);
+    if (currentDriver.observeCurrent) {
       const proof = await bounded(
         currentDriver.observeCurrent({
           radioId,
@@ -513,7 +506,13 @@ export class TxSupervisor {
           'Current radio observation belongs to another context.',
         );
       observed = proof;
-    }
+    } else if (generation === tx.grant.generation) {
+      observed = await bounded(
+        tx.driver.observe({ ...tx.grant }),
+        undefined,
+        this.timeoutMs,
+      );
+    } else return false;
     const after = this.options.runtime.snapshot(radioId);
     if (
       after.generation !== generation ||

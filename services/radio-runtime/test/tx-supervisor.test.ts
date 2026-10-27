@@ -303,6 +303,37 @@ describe('local TX supervisor', () => {
     );
     expect((await f.supervisor.stop(tx.grant.txGrantId)).state).toBe('idle');
   });
+  it('uses fresh raw physical idle when the same-generation grant record remains uncertain', async () => {
+    const f = fixture();
+    const tx = await f.start();
+    f.uncertainEnd();
+    await f.supervisor.stop(tx.grant.txGrantId);
+    f.state.txState = 'stop_unconfirmed';
+    f.driver.observe = async () => {
+      throw new Error('Cached last-transmission record must not be used.');
+    };
+    f.driver.observeCurrent = async (context) => ({
+      ...context,
+      state: 'idle',
+      physicallyConfirmed: true,
+    });
+    expect(await f.supervisor.reconcile(f.state.radioId)).toBe(true);
+    expect(f.releases).toEqual([false, true]);
+    expect(f.supervisor.get(tx.grant.txGrantId).state).toBe('idle');
+  });
+  it('does not replace an uncertain fresh observation with a cached old idle result', async () => {
+    const f = fixture();
+    const tx = await f.start();
+    f.uncertainEnd();
+    await f.supervisor.stop(tx.grant.txGrantId);
+    f.driver.observeCurrent = async (context) => ({
+      ...context,
+      state: 'unknown',
+      physicallyConfirmed: false,
+    });
+    expect(await f.supervisor.reconcile(f.state.radioId)).toBe(false);
+    expect(f.releases).toEqual([false]);
+  });
   it('does not release across a changed or mismatched current-epoch observation', async () => {
     const f = fixture();
     const tx = await f.start();
