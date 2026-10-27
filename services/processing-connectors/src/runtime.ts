@@ -629,9 +629,7 @@ export class ProcessingRuntime {
       consentedAt: new Date(row.consented_at).toISOString(),
     }));
   }
-  async enqueueFinalizedCommunication(
-    communication: Communication,
-  ): Promise<{
+  async enqueueFinalizedCommunication(communication: Communication): Promise<{
     status: 'queued' | 'disabled' | 'requires_configuration';
     jobId?: string;
   }> {

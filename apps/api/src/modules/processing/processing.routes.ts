@@ -118,15 +118,13 @@ export function registerProcessingRoutes(
       profileId: true,
       revision: true,
     }).parse(request.body);
-    return reply
-      .code(201)
-      .send(
-        await service.saveProfile(await principal(request), {
-          ...body,
-          profileId: randomUUID(),
-          revision: 1,
-        }),
-      );
+    return reply.code(201).send(
+      await service.saveProfile(await principal(request), {
+        ...body,
+        profileId: randomUUID(),
+        revision: 1,
+      }),
+    );
   });
   app.put(`${base}/profiles`, async (request) => {
     const body = z
@@ -197,21 +195,19 @@ export function registerProcessingRoutes(
             : {}),
         }
       : undefined;
-    return reply
-      .code(202)
-      .send(
-        await service.enqueue(
-          actor,
-          {
-            ...body.request,
-            instanceId: body.request.instanceId ?? actor.instanceId,
-            jobId: body.request.jobId ?? randomUUID(),
-          },
-          body.idempotencyKey,
-          body.radioId,
-          source,
-        ),
-      );
+    return reply.code(202).send(
+      await service.enqueue(
+        actor,
+        {
+          ...body.request,
+          instanceId: body.request.instanceId ?? actor.instanceId,
+          jobId: body.request.jobId ?? randomUUID(),
+        },
+        body.idempotencyKey,
+        body.radioId,
+        source,
+      ),
+    );
   });
   app.delete(`${base}/jobs/:id`, async (request, reply) => {
     await service.cancel(
