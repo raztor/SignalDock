@@ -274,7 +274,7 @@ export class RadioRuntime {
   setTransmissionState(
     radioId: string,
     txGrantId: string,
-    state: 'preparing' | 'transmitting' | 'stopping',
+    state: 'preparing' | 'tx_unconfirmed' | 'transmitting' | 'stopping',
   ): void {
     const reservation = this.transmissions.get(radioId);
     if (
