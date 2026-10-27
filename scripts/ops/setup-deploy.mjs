@@ -13,6 +13,8 @@ try {
       'SIGNALDOCK_COOKIE_ORIGIN=http://localhost:8080',
       'SIGNALDOCK_BASE_PATH=',
       'WEB_BASE_PATH=',
+      'SIGNALDOCK_RELAY_URL=',
+      'SIGNALDOCK_DRIVER_CREDENTIALS_FILE=',
       'LIVEKIT_URL=',
       'LIVEKIT_INTERNAL_URL=ws://livekit:7880',
       `LIVEKIT_API_KEY=${randomBytes(12).toString('hex')}`,

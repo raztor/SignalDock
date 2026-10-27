@@ -37,7 +37,9 @@ jobs:
       - run: npm ci
       - run: python -m venv .venv-codegen
       - run: .venv-codegen/bin/python -m pip install -r scripts/codegen/requirements.txt
-      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Install audio codecs
+        timeout-minutes: 5
+        run: sudo apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update && sudo apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y ffmpeg
       - run: python -m venv .venv && .venv/bin/python -m pip install services/drivers/vgc-benlink
       - run: PYTHONPATH=services/drivers/vgc-benlink/src:packages/radio-driver-sdk/generated/python .venv/bin/python -m unittest discover -s services/drivers/vgc-benlink/test -p 'test_*.py'
       - run: python -m compileall -q services/drivers/vgc-benlink/validation
@@ -68,15 +70,6 @@ jobs:
   container:
     needs: verify
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:18.6
-        env:
-          POSTGRES_USER: signaldock
-          POSTGRES_PASSWORD: ci-test-only
-          POSTGRES_DB: signaldock
-        ports: [5432:5432]
-        options: --health-cmd "pg_isready -U signaldock -d signaldock" --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: actions/setup-node@v7.1.0
@@ -85,14 +78,7 @@ jobs:
       - run: npm run setup:deploy
       - run: docker compose --env-file deploy/.env -f deploy/compose.yaml config --quiet
       - run: docker build --build-arg VCS_REF=${{ github.sha }} -f deploy/api.Dockerfile -t signaldock-api:test .
-      - run: |
-          docker run -d --name signaldock-api-test --network=host --read-only --cap-drop=ALL --security-opt=no-new-privileges --tmpfs /tmp:rw,noexec,nosuid,size=128m,uid=1000,gid=1000 \
-            -e DATABASE_URL=postgresql://signaldock:ci-test-only@127.0.0.1:5432/signaldock \
-            -e SIGNALDOCK_BASE_PATH=/station -e SIGNALDOCK_EMBEDDED_JOBS=false signaldock-api:test
-          curl --silent --show-error --retry 20 --retry-all-errors --retry-delay 1 --max-time 5 --fail http://127.0.0.1:3000/station/api/v1/health
-          docker run -d --name signaldock-worker-test --network=host --volumes-from signaldock-api-test --read-only --cap-drop=ALL --security-opt=no-new-privileges --tmpfs /tmp:rw,noexec,nosuid,size=128m,uid=1000,gid=1000 \
-            -e DATABASE_URL=postgresql://signaldock:ci-test-only@127.0.0.1:5432/signaldock signaldock-api:test node apps/api/dist/worker.js
-      - run: node scripts/checks/container-station.mjs
+      - run: node scripts/checks/compose-station.mjs
       - run: docker build --build-arg WEB_BASE_PATH=/station -f deploy/web.Dockerfile -t signaldock-web:test .
       - run: |
           docker run -d --name signaldock-web-test --read-only --cap-drop=ALL --security-opt=no-new-privileges \
@@ -111,7 +97,7 @@ jobs:
           JS
       - if: always()
         run: |
-          for name in signaldock-api-test signaldock-worker-test signaldock-web-test; do
+          for name in signaldock-web-test; do
             docker logs "$name" || true
             docker rm -f "$name" || true
           done

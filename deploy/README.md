@@ -35,13 +35,24 @@ Browser RX and microphone TX were accepted on the development Mac. Native device
 
 ## VGC driver
 
-See [the driver module](../services/drivers/vgc-benlink/README.md) for its Python image, configuration, private gRPC authentication, audio transport, and host requirements. The driver's endpoint and token reference are configured in a radio's private driver configuration. Mount the referenced credentials file privately in the API and set `SIGNALDOCK_DRIVER_CREDENTIALS_FILE`; never return driver tokens through public APIs. Align socket/volume ownership with the unprivileged container user.
+See [the driver module](../services/drivers/vgc-benlink/README.md) for its Python image, configuration, private gRPC authentication, audio transport, and host requirements. The driver's endpoint and token reference are configured in a radio's private driver configuration. Set `SIGNALDOCK_DRIVER_CREDENTIALS_FILE` in `deploy/.env` to the **container** path of its private JSON reference-to-token-file map; Compose forwards it to the backend. Mount the map, referenced token files and driver socket directory using a private Compose override, for example:
+
+```yaml
+services:
+  api:
+    volumes:
+      - /absolute/private/driver-credentials.json:/run/signaldock/driver-credentials.json:ro
+      - /absolute/private/vgc.token:/run/signaldock/vgc.token:ro
+      - /absolute/private/driver-sockets:/run/signaldock/driver-sockets:ro
+```
+
+Use `SIGNALDOCK_DRIVER_CREDENTIALS_FILE=/run/signaldock/driver-credentials.json`, and reference `/run/signaldock/vgc.token` inside that map. Add `-f /absolute/private/compose.override.yaml` after `-f deploy/compose.yaml` when starting the deployment. Preserve the existing private `/data` volume. Never mount these files or sockets into the web service or publish them through a static/public volume. Align file/socket permissions with the unprivileged API user. Back up these additional private mounts separately; the station archive contains `/data` only.
 
 The development Mac's Bluetooth helper runs natively, outside Docker. The Linux image does not establish physical Linux hardware acceptance. Do not expose the private driver RPC publicly or grant the web container access to Bluetooth.
 
 ## Optional push relay
 
-The relay entry point is included in the backend image at `apps/push-relay/dist/main.js`. Run it as a separate service with its own database and private configuration (`RELAY_DATABASE_URL`, `RELAY_TOKEN_KEY_BASE64`, `RELAY_PROJECT_ID`, `RELAY_ENROLLMENT_SECRET`, and `EXPO_ACCESS_TOKEN`). Configure the station's `SIGNALDOCK_RELAY_URL` and its signed installation enrollment. See [the relay module](../apps/push-relay/README.md) for the exact interface.
+The relay entry point is included in the backend image at `apps/push-relay/dist/main.js`. Run it as a separate service with its own database and private configuration (`RELAY_DATABASE_URL`, `RELAY_TOKEN_KEY_BASE64`, `RELAY_PROJECT_ID`, `RELAY_ENROLLMENT_SECRET`, and `EXPO_ACCESS_TOKEN`). Set the station's `SIGNALDOCK_RELAY_URL` in `deploy/.env`; Compose forwards it to both API and worker. Configure its signed installation enrollment. See [the relay module](../apps/push-relay/README.md) for the exact interface.
 
 Private enrollment, signature, replay, revocation, and receipt tests are implemented. Public enrollment remains disabled until the security and real-device delivery gates pass. A self-hosted station can operate without a relay or processing credentials.
 
@@ -53,7 +64,11 @@ Stop writes and back up the database **and** private instance data together:
 bash scripts/ops/backup.sh /absolute/private/new-backup-directory
 ```
 
-The script pauses the API and worker, writes a custom-format PostgreSQL dump and a compressed `/data` archive, and restarts only services that were previously running. Preserve the protected directory and deployment secrets. Recordings without database metadata, or database metadata without identity/keyring/artifacts, are incomplete backups.
+The script requires Node 24 and an existing API container. Before pausing anything, it inspects the deployed API/worker configuration and validates that they share the same `DATABASE_URL` and writable `/data` mount. It uses the deployed API's URL even if `deploy/.env` has since changed, dumps that actual database through the bundled PostgreSQL client, and archives the actual deployed API volume/image with `--volumes-from`. External PostgreSQL URLs are supported; the bundled `db` service must still be running to provide the client. Loopback addresses and localhost aliases, including IPv6 and IPv4-mapped forms, are rejected before maintenance: the client runs in the `db` container, where those addresses can identify a different database than in the API's network namespace. Host-network/custom deployments using such URLs require a custom backup procedure in the API's network namespace. Its PostgreSQL client must support the server version, and any file-based TLS settings must also be mounted at matching private paths in that client container.
+
+Credentials are supplied through protected temporary files and stdin as libpq environment values, never as process arguments or ordinary logs. URLs must explicitly identify host, user and database, with passwords URL-encoded in user information. Common libpq TLS, timeout and `options` query settings are supported; unsupported query settings, service/passfile overrides, custom data directories and mismatched worker configuration fail before maintenance. Temporary credentials are removed on exit. The script pauses API and worker, writes a custom-format dump plus compressed `/data` archive, and restarts only services that were previously running, including after a failed dump/archive. A nonzero exit means the backup must not be used; partially written files may remain in its protected directory.
+
+Preserve the protected directory and deployment secrets. Recordings without database metadata, or database metadata without identity/keyring/artifacts, are incomplete backups. Script regression tests run without Docker using `node --test scripts/ops/backup.test.mjs`; they exercise actual shell credential handling, external URLs, prior service states and failures.
 
 Restore only into a fresh database and empty instance-data volume, with API and worker stopped. Use the matching PostgreSQL client to run `pg_restore --no-owner --no-privileges`, extract `instance-data.tar.gz` into the private volume, restore deployment secrets and ownership, then start the services. Verify the station ID, user login, provider credential decryption, and recording playback. Control leases and active transmissions are never restored.
 
