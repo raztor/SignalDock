@@ -1,0 +1,10 @@
+server {
+  listen 8080;
+  server_name _;
+  root /usr/share/nginx/html;
+  location / {
+    try_files $uri $uri/ ${WEB_BASE_PATH}/index.html;
+    add_header X-Content-Type-Options nosniff always;
+    add_header Referrer-Policy no-referrer always;
+  }
+}
