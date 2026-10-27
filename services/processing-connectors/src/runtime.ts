@@ -449,7 +449,13 @@ export class ProcessingRuntime {
         'INVALID_ARGUMENT',
         'Processing requires one versioned communication source and its matching recording.',
       );
-    await this.options.validateInputs(actor, request, source, undefined, radioId);
+    await this.options.validateInputs(
+      actor,
+      request,
+      source,
+      undefined,
+      radioId,
+    );
     const fingerprint = semanticFingerprint(request, radioId, source);
     return this.options.db.transaction(async (tx) => {
       // Lock/revalidate the source before any domain or queue row, so deletion cannot race a late enqueue.

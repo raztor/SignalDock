@@ -1088,6 +1088,182 @@
         }
       }
     },
+    "/api/v1/notification-preferences": {
+      "get": {
+        "operationId": "get_api_v1_notification_preferences",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-validation-source": "apps/api/src/modules/notifications/routes.ts",
+        "responses": {
+          "2XX": {
+            "description": "Successful response; see the authoritative shared models and linked route validator."
+          },
+          "default": {
+            "description": "Typed SignalDock API error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "put_api_v1_notification_preferences",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-validation-source": "apps/api/src/modules/notifications/routes.ts",
+        "responses": {
+          "2XX": {
+            "description": "Successful response; see the authoritative shared models and linked route validator."
+          },
+          "default": {
+            "description": "Typed SignalDock API error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/notifications": {
+      "get": {
+        "operationId": "get_api_v1_notifications",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-validation-source": "apps/api/src/modules/notifications/routes.ts",
+        "responses": {
+          "2XX": {
+            "description": "Successful response; see the authoritative shared models and linked route validator."
+          },
+          "default": {
+            "description": "Typed SignalDock API error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/notifications/{id}/foreground": {
+      "post": {
+        "operationId": "post_api_v1_notifications_id_foreground",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "x-validation-source": "apps/api/src/modules/notifications/routes.ts",
+        "responses": {
+          "2XX": {
+            "description": "Successful response; see the authoritative shared models and linked route validator."
+          },
+          "default": {
+            "description": "Typed SignalDock API error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/notifications/{id}/read": {
+      "post": {
+        "operationId": "post_api_v1_notifications_id_read",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "x-validation-source": "apps/api/src/modules/notifications/routes.ts",
+        "responses": {
+          "2XX": {
+            "description": "Successful response; see the authoritative shared models and linked route validator."
+          },
+          "default": {
+            "description": "Typed SignalDock API error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/notifications/presence": {
+      "post": {
+        "operationId": "post_api_v1_notifications_presence",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-validation-source": "apps/api/src/modules/notifications/routes.ts",
+        "responses": {
+          "2XX": {
+            "description": "Successful response; see the authoritative shared models and linked route validator."
+          },
+          "default": {
+            "description": "Typed SignalDock API error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/packets": {
       "get": {
         "operationId": "get_api_v1_packets",
@@ -1649,6 +1825,119 @@
           }
         ],
         "x-validation-source": "apps/api/src/modules/processing/processing.routes.ts",
+        "responses": {
+          "2XX": {
+            "description": "Successful response; see the authoritative shared models and linked route validator."
+          },
+          "default": {
+            "description": "Typed SignalDock API error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/push/configuration": {
+      "get": {
+        "operationId": "get_api_v1_push_configuration",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-validation-source": "apps/api/src/modules/notifications/routes.ts",
+        "responses": {
+          "2XX": {
+            "description": "Successful response; see the authoritative shared models and linked route validator."
+          },
+          "default": {
+            "description": "Typed SignalDock API error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/push/subscriptions": {
+      "get": {
+        "operationId": "get_api_v1_push_subscriptions",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-validation-source": "apps/api/src/modules/notifications/routes.ts",
+        "responses": {
+          "2XX": {
+            "description": "Successful response; see the authoritative shared models and linked route validator."
+          },
+          "default": {
+            "description": "Typed SignalDock API error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "post_api_v1_push_subscriptions",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-validation-source": "apps/api/src/modules/notifications/routes.ts",
+        "responses": {
+          "2XX": {
+            "description": "Successful response; see the authoritative shared models and linked route validator."
+          },
+          "default": {
+            "description": "Typed SignalDock API error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/push/subscriptions/{id}": {
+      "delete": {
+        "operationId": "delete_api_v1_push_subscriptions_id",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "x-validation-source": "apps/api/src/modules/notifications/routes.ts",
         "responses": {
           "2XX": {
             "description": "Successful response; see the authoritative shared models and linked route validator."

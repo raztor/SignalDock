@@ -18,8 +18,8 @@ async function files(directory) {
 export async function implementedPaths() {
   const paths = {};
   const sources = [
-    ...(await files('apps/api/src/modules')).filter((path) =>
-      path.endsWith('.routes.ts'),
+    ...(await files('apps/api/src/modules')).filter(
+      (path) => path.endsWith('.routes.ts') || path.endsWith('/routes.ts'),
     ),
     'apps/api/src/app/events.ts',
   ];
