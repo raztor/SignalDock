@@ -42,6 +42,8 @@ A restarted backend establishes its driver session with `Disconnect → Connect 
 
 `ApplyTuning`, memory write/select and readback remain within the VGC module. Unrelated memory parameters, power, squelch and sub-audio fields are preserved. Effective frequency is inferred from verified single-watch settings and channel readback; `status.curr_ch_id` is insufficient and is never treated as authoritative. Region changes require reconnection. Tuning suspends and flushes the previous receive pipeline before changing audio context.
 
+Tuning and memory selection return their verified radio result before asynchronously reopening RX, keeping native compilation/transport latency outside the command response. Reopening is fenced by generation/revision; another tuning operation or disconnect cancels it, and a late opening cannot attach to a new context. A receive reopening failure emits a discontinuity/end marker, reports a subscriber error and publishes degraded state while preserving the successfully applied tuning.
+
 Before mutation, the driver saves original settings/memory in a private, fsynced journal next to its socket. A failed or interrupted write attempts full readback-verified restoration. An unresolved journal blocks subsequent writes and TX. With the service stopped, `--recover --config ... --socket ...` explicitly restores and verifies that snapshot. Archive/inspect stale sockets before recovery. Successful intentional user changes persist; disconnect does not revert them. Include the journal directory in private backups.
 
 ## Audio and PTT

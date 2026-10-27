@@ -277,6 +277,66 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue((await anext(receive)).end_of_burst)
         await receive.aclose()
 
+    async def test_verified_tuning_returns_before_delayed_receive_reopening(self):
+        self.driver._subscribers["fixture-listener"] = asyncio.Queue(maxsize=50)
+        gate = asyncio.Event()
+        reopening = FakeTransport(self.control, gate)
+        self.driver.transport_factory = lambda _: reopening
+        changed = await asyncio.wait_for(self.driver.tune(operation(self.driver), Tuning(145500000)), 0.1)
+        self.assertEqual(changed.observed_tuning.rx_hz, 145500000)
+        self.assertEqual(changed.tuning_confidence, "confirmed")
+        await reopening.opened.wait()
+        self.assertFalse(reopening.ready)
+        self.assertEqual(self.control.tune_calls, 1)
+        gate.set()
+        await asyncio.gather(*self.driver._rx_resumes)
+        self.assertTrue(reopening.ready)
+
+    async def test_failed_receive_reopening_publishes_gap_and_preserves_applied_tuning(self):
+        queue = asyncio.Queue(maxsize=50)
+        self.driver._subscribers["fixture-listener"] = queue
+        broken = FakeTransport(self.control)
+        async def fail_open():
+            raise ConnectionError("Fixture receive opening failed.")
+        broken.open = fail_open
+        self.driver.transport_factory = lambda _: broken
+        changed = await self.driver.tune(operation(self.driver), Tuning(145500000))
+        await asyncio.gather(*self.driver._rx_resumes)
+        self.assertEqual(changed.tuning_confidence, "confirmed")
+        self.assertEqual(self.driver.state.observed_tuning.rx_hz, 145500000)
+        self.assertEqual(self.driver.state.connection, "degraded")
+        gap, failure = queue.get_nowait(), queue.get_nowait()
+        self.assertTrue(gap["discontinuity"] and gap["end_of_burst"])
+        self.assertIsInstance(failure, DriverError)
+        self.assertEqual(self.driver._events[-1]["snapshot"].connection, "degraded")
+
+    async def test_superseded_receive_reopening_cannot_attach_late(self):
+        self.driver._subscribers["fixture-listener"] = asyncio.Queue(maxsize=50)
+        gate = asyncio.Event()
+        late = FakeTransport(self.control)
+        async def late_open():
+            late.opened.set()
+            try:
+                await gate.wait()
+            except asyncio.CancelledError:
+                await gate.wait()
+            late.ready = True
+        late.open = late_open
+        current = FakeTransport(self.control)
+        transports = iter([late, current])
+        self.driver.transport_factory = lambda _: next(transports)
+        await self.driver.tune(operation(self.driver), Tuning(145500000))
+        await late.opened.wait()
+        await self.driver.tune(operation(self.driver), Tuning(146520000))
+        gate.set()
+        await asyncio.gather(*self.driver._rx_resumes)
+        self.assertTrue(late.closed)
+        self.assertEqual(late.writes, [])
+        self.assertIs(self.driver.transport, current)
+        self.assertTrue(current.ready)
+        self.assertEqual(self.driver.state.connection, "ready")
+        self.assertEqual(self.driver.state.observed_tuning.rx_hz, 146520000)
+
     def test_string_tx_opt_in_and_invalid_limits_are_rejected(self):
         with self.assertRaises(DriverError):
             replace(self.config, allow_experimental_tx="false")

@@ -46,6 +46,7 @@ class VgcDriver:
         self._reader = None
         self._monitor = None
         self._watchdog = None
+        self._rx_resumes: set[asyncio.Task] = set()
         self._subscribers: dict[str, asyncio.Queue] = {}
         self._watchers: set[asyncio.Queue] = set()
         self._events = deque(maxlen=256)
@@ -175,6 +176,7 @@ class VgcDriver:
             await self._disconnect()
 
     async def _disconnect(self):
+        self._cancel_rx_resumes()
         if self.state.connection == "disconnected" and self.state.tx_state == "idle" and self.transport is None and self._opening is None:
             return
         was_disconnected = self.state.connection == "disconnected"
@@ -242,7 +244,7 @@ class VgcDriver:
                 if len(self._operations) > 256:
                     del self._operations[next(iter(self._operations))]
                 if resume_rx:
-                    await self._ensure_audio()
+                    self._defer_rx_resume()
                 return snapshot
             except BaseException:
                 self.state.connection = "degraded"
@@ -297,7 +299,8 @@ class VgcDriver:
             if self.transmission is not None or self.state.tx_state != "idle":
                 raise DriverError("CONTROL_BUSY", "Memory changes are forbidden while TX is active or uncertain.")
             try:
-                resume_rx = await self._pause_rx_for_tuning() if action == "select" or (action == "write" and value.memory_id == self.state.selected_memory_id) else False
+                resume_rx = await self._pause_rx_for_tuning() if (action == "select"
+                    or (action == "write" and value.memory_id == self.state.selected_memory_id) or self._rx_resumes) else False
                 if action == "write":
                     result = await asyncio.wait_for(self.control.write_memory(value), max(0.001, min(15, utc_epoch(operation.deadline_utc) - time.time())))
                     observation = await asyncio.wait_for(self.control.observe(), 5)
@@ -315,7 +318,7 @@ class VgcDriver:
                 if len(self._operations) > 256:
                     del self._operations[next(iter(self._operations))]
                 if resume_rx:
-                    await self._ensure_audio()
+                    self._defer_rx_resume()
                 return result
             except BaseException:
                 self.state.connection = "degraded"
@@ -362,14 +365,49 @@ class VgcDriver:
                 await self._close_audio()
 
     async def _pause_rx_for_tuning(self):
-        if self.transport is not None:
+        pending = any(not task.done() for task in self._rx_resumes)
+        self._cancel_rx_resumes()
+        if self.transport is not None or pending:
             await self._close_audio()
             self._rx_discontinuity = True
             await self._on_pcm(b"", True)
         return bool(self._subscribers)
 
-    async def _ensure_audio(self):
+    def _cancel_rx_resumes(self):
+        for task in tuple(self._rx_resumes):
+            if task is not asyncio.current_task():
+                task.cancel()
+
+    def _defer_rx_resume(self):
+        task = asyncio.create_task(self._resume_rx(self.state.generation, self.state.revision))
+        self._rx_resumes.add(task)
+        task.add_done_callback(self._rx_resumes.discard)
+
+    async def _resume_rx(self, generation, revision):
+        def current():
+            return (self.state.generation == generation and self.state.revision == revision
+                and self.state.connection == "ready" and self.transmission is None and bool(self._subscribers))
+        if not current():
+            return
+        try:
+            await self._ensure_audio((generation, revision))
+        except asyncio.CancelledError:
+            return
+        except BaseException:
+            if not current():
+                return
+            self._rx_discontinuity = True
+            await self._on_pcm(b"", True)
+            self.state.connection = "degraded"
+            self.state.revision += 1
+            self._publish()
+            for queue in self._subscribers.values():
+                self._queue_latest(queue, DriverError("RADIO_UNAVAILABLE", "Receive stream could not resume after verified tuning."))
+
+    async def _ensure_audio(self, expected_context=None):
         async with self._audio_lock:
+            if expected_context is not None and expected_context != (self.state.generation, self.state.revision):
+                raise DriverError("STALE_REVISION", "Receive reopening belongs to a superseded radio context.")
             if self.transport is not None:
                 return
             transport = self.transport_factory(self.config)
@@ -378,7 +416,8 @@ class VgcDriver:
             self._opening = opening
             try:
                 await asyncio.wait_for(opening, self.config.audio_open_timeout)
-                if self.transport is not transport or self.state.connection != "ready":
+                if (self.transport is not transport or self.state.connection != "ready"
+                        or (expected_context is not None and expected_context != (self.state.generation, self.state.revision))):
                     await transport.close()
                     raise DriverError("DEADLINE_EXCEEDED", "The audio opening was cancelled before completion.")
                 self.codec = self.codec_factory(self.config.ffmpeg, self._on_pcm, self._on_sbc)
