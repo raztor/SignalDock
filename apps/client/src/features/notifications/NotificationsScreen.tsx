@@ -53,6 +53,8 @@ export function NotificationsScreen({
   const seen = useRef(new Set<string>());
   const generation = useRef(0);
   const loadedOlder = useRef(false);
+  const selectRadio = useRef(onSelectRadio);
+  selectRadio.current = onSelectRadio;
 
   const open = useCallback(
     async (record: NotificationRecord) => {
@@ -67,7 +69,7 @@ export function NotificationsScreen({
         setItems((values) =>
           values.map((item) => (item.id === updated.id ? updated : item)),
         );
-        if (record.radioId) onSelectRadio?.(record.radioId);
+        if (record.radioId) selectRadio.current?.(record.radioId);
       } catch (failure) {
         if (current === generation.current)
           setError(
@@ -77,7 +79,7 @@ export function NotificationsScreen({
           );
       }
     },
-    [session, onSelectRadio],
+    [session],
   );
 
   useEffect(() => {
