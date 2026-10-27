@@ -1,0 +1,9 @@
+node_modules
+dist
+**/generated/**
+package-lock.json
+vendor
+results
+.venv
+.venv-codegen
+.local

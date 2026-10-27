@@ -1,0 +1,12 @@
+.git
+**/node_modules
+**/dist
+**/.expo
+**/.local
+.venv
+.venv-codegen
+vendor
+results
+build
+coverage
+.env*

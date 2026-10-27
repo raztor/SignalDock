@@ -1,0 +1,141 @@
+syntax = "proto3";
+
+package signaldock.driver.v1;
+
+// Private protocol. Transport authentication and validation are required by hosts.
+service RadioDriverService {
+  rpc Describe(DescribeRequest) returns (DescribeResponse);
+  rpc Connect(RadioRequest) returns (RadioSnapshot);
+  rpc Disconnect(RadioRequest) returns (DisconnectResponse);
+  rpc GetSnapshot(RadioRequest) returns (RadioSnapshot);
+  rpc Reconcile(RadioRequest) returns (RadioSnapshot);
+  rpc ApplyTuning(ApplyTuningRequest) returns (RadioSnapshot);
+  rpc ListMemories(RadioRequest) returns (ListMemoriesResponse);
+  rpc ReadMemory(ReadMemoryRequest) returns (Memory);
+  rpc WriteMemory(WriteMemoryRequest) returns (Memory);
+  rpc SelectMemory(SelectMemoryRequest) returns (RadioSnapshot);
+  rpc WatchEvents(WatchEventsRequest) returns (stream RadioEvent);
+  rpc OpenRxStream(OpenRxStreamRequest) returns (stream AudioFrame);
+  rpc PrepareTransmission(PrepareTransmissionRequest) returns (TransmissionState);
+  rpc PushTxAudio(stream TxAudioRequest) returns (TransmissionState);
+  rpc EndTransmission(EndTransmissionRequest) returns (TransmissionState);
+  rpc RenewTransmission(RenewTransmissionRequest) returns (TransmissionState);
+  rpc ObserveTransmission(ObserveTransmissionRequest) returns (TransmissionState);
+}
+
+message DescribeRequest {}
+message DescribeResponse {
+  string driver_id = 1;
+  string version = 2;
+  uint32 protocol_min = 3;
+  uint32 protocol_max = 4;
+  repeated string verified_models = 5;
+  RadioCapabilities capabilities = 6;
+}
+message FrequencyRange { uint64 min_hz = 1; uint64 max_hz = 2; }
+message RadioCapabilities {
+  bool tuning_writable = 1;
+  repeated FrequencyRange tuning_ranges = 2;
+  repeated string modes = 3;
+  bool rx_audio = 4;
+  bool tx_audio = 5;
+  string ptt_mechanism = 6;
+  bool physical_tx_observation = 7;
+  uint32 independently_receivable_channels = 8;
+  string verification = 9;
+  bool memory_read = 10;
+  bool memory_write = 11;
+  bool memory_select = 12;
+}
+message RadioRequest { string radio_id = 1; }
+message DisconnectResponse {}
+message Tuning {
+  uint64 rx_hz = 1;
+  optional uint64 tx_hz = 2;
+  string mode = 3;
+}
+message RadioSnapshot {
+  string radio_id = 1;
+  string generation = 2;
+  uint64 revision = 3;
+  string connection = 4;
+  optional Tuning observed_tuning = 5;
+  optional Tuning desired_tuning = 6;
+  string tuning_confidence = 7;
+  string tx_state = 8;
+  optional string selected_memory_id = 9;
+}
+message OperationContext {
+  string operation_id = 1;
+  string radio_id = 2;
+  string generation = 3;
+  uint64 expected_revision = 4;
+  string deadline_utc = 5;
+  string control_grant = 6;
+  uint64 fencing = 7;
+  string owner_id = 8;
+  string session_id = 9;
+}
+message ApplyTuningRequest { OperationContext context = 1; Tuning tuning = 2; }
+message Memory { string memory_id = 1; string name = 2; Tuning tuning = 3; }
+message ListMemoriesResponse { repeated Memory memories = 1; }
+message ReadMemoryRequest { string radio_id = 1; string memory_id = 2; }
+message WriteMemoryRequest { OperationContext context = 1; Memory memory = 2; }
+message SelectMemoryRequest { OperationContext context = 1; string memory_id = 2; }
+message WatchEventsRequest { string radio_id = 1; string generation = 2; uint64 after_sequence = 3; }
+message RadioEvent {
+  uint32 protocol_version = 1;
+  string event_id = 2;
+  string radio_id = 3;
+  string generation = 4;
+  uint64 sequence = 5;
+  string occurred_at_utc = 6;
+  oneof payload { RadioSnapshot snapshot = 7; }
+}
+message AudioFormat { uint32 sample_rate_hz = 1; uint32 channels = 2; string encoding = 3; }
+message OpenRxStreamRequest { string radio_id = 1; string generation = 2; string stream_id = 3; }
+message AudioFrame {
+  string stream_id = 1;
+  uint64 sequence = 2;
+  uint64 media_time_us = 3;
+  AudioFormat format = 4;
+  bytes payload = 5;
+  uint64 tuning_revision = 6;
+  string attribution_confidence = 7;
+  bool discontinuity = 8;
+  bool end_of_burst = 9;
+}
+message PrepareTransmissionRequest {
+  OperationContext context = 1;
+  string tx_grant_id = 2;
+  string expires_at_utc = 3;
+  AudioFormat format = 4;
+  string max_until_utc = 5;
+  uint64 fencing = 6;
+}
+message TxAudioRequest {
+  string radio_id = 1;
+  string generation = 2;
+  string tx_grant_id = 3;
+  AudioFrame frame = 4;
+  uint64 fencing = 5;
+}
+message EndTransmissionRequest {
+  string radio_id = 1;
+  string generation = 2;
+  string tx_grant_id = 3;
+  string reason = 4;
+  uint64 fencing = 5;
+}
+message ObserveTransmissionRequest { string radio_id = 1; string generation = 2; string tx_grant_id = 3; }
+message RenewTransmissionRequest {
+  string radio_id = 1; string generation = 2; string tx_grant_id = 3;
+  string expires_at_utc = 4; uint64 fencing = 5;
+}
+message TransmissionState {
+  string radio_id = 1;
+  string generation = 2;
+  string tx_grant_id = 3;
+  string state = 4;
+  bool physically_confirmed = 5;
+}

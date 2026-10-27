@@ -1,0 +1,60 @@
+name: Foundation
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+concurrency:
+  group: foundation-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18.6
+        env:
+          POSTGRES_USER: signaldock
+          POSTGRES_PASSWORD: ci-test-only
+          POSTGRES_DB: signaldock
+        ports: [5432:5432]
+        options: --health-cmd "pg_isready -U signaldock -d signaldock" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql://signaldock:ci-test-only@127.0.0.1:5432/signaldock
+      SIGNALDOCK_TEST_DATABASE_URL: postgresql://signaldock:ci-test-only@127.0.0.1:5432/signaldock
+      SIGNALDOCK_VGC_PYTHON: ${{ github.workspace }}/.venv/bin/python
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - uses: actions/setup-python@v7.1.0
+        with:
+          python-version: '3.13'
+      - run: npm ci
+      - run: python -m venv .venv-codegen
+      - run: .venv-codegen/bin/python -m pip install -r scripts/codegen/requirements.txt
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - run: python -m venv .venv && .venv/bin/python -m pip install services/drivers/vgc-benlink
+      - run: PYTHONPATH=services/drivers/vgc-benlink/src:packages/radio-driver-sdk/generated/python .venv/bin/python -m unittest discover -s services/drivers/vgc-benlink/test -p 'test_*.py'
+      - run: python -m compileall -q services/drivers/vgc-benlink/validation
+      - run: bash -n services/drivers/vgc-benlink/transports/macos/run_mac_bluetooth_probe.sh
+      - run: npm run generate:driver
+      - run: git diff --exit-code -- packages/radio-driver-sdk/src/generated packages/radio-driver-sdk/generated
+      - run: npm run check
+      - run: npm run check:driver
+      - run: npm run simulate
+      - run: npm run export:web
+  container:
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - run: docker build --build-arg VCS_REF=${{ github.sha }} -f deploy/api.Dockerfile -t signaldock-api:test .
+      - run: docker run -d --name signaldock-api-test --read-only --cap-drop=ALL --security-opt=no-new-privileges -p 127.0.0.1:3000:3000 signaldock-api:test
+      - run: curl --silent --show-error --retry 10 --retry-all-errors --retry-delay 1 --max-time 5 --fail http://127.0.0.1:3000/api/v1/health
+      - if: always()
+        run: docker logs signaldock-api-test && docker rm -f signaldock-api-test

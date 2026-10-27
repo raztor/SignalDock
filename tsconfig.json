@@ -1,0 +1,38 @@
+{
+  "files": [],
+  "references": [
+    {
+      "path": "packages/contracts"
+    },
+    {
+      "path": "packages/artifact-storage"
+    },
+    {
+      "path": "packages/database"
+    },
+    {
+      "path": "packages/job-queue"
+    },
+    {
+      "path": "packages/client-sdk"
+    },
+    {
+      "path": "packages/radio-driver-sdk"
+    },
+    {
+      "path": "packages/processing-sdk"
+    },
+    {
+      "path": "services/radio-runtime"
+    },
+    {
+      "path": "services/media-gateway"
+    },
+    {
+      "path": "packages/history"
+    },
+    {
+      "path": "apps/api"
+    }
+  ]
+}
