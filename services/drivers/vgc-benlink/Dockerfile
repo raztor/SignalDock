@@ -1,5 +1,5 @@
 # Build from the repository root. Hardware/BlueZ access is configured by the host.
-FROM python:3.13-slim
+FROM python:3.13.18-slim-bookworm
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg git \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app

@@ -6,6 +6,8 @@ SignalDock includes instance login and administration, radio-scoped permissions,
 
 Use Node 24 (`.nvmrc`), npm 11, and PostgreSQL 18. The deterministic simulation does not require physical hardware or processing credentials:
 
+Dependency versions follow the [compatible stable release matrix](implementation/dependencies.md). The TypeScript 7 compiler runs alongside the TypeScript 6 compiler API needed by contract generation and Expo tooling. CI and the driver image use Python 3.13.18; the Mac validation lock remains platform-specific.
+
 ```sh
 nvm use
 npm ci
@@ -34,6 +36,7 @@ Public schemas live in `packages/contracts/src`; generated artifacts include run
 ```sh
 npm run generate:contracts
 npm run check
+npm run check:dependencies
 npm run export:web
 npm run check:licenses
 ```

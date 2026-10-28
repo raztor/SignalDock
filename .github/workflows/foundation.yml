@@ -33,8 +33,9 @@ jobs:
           cache: npm
       - uses: actions/setup-python@v7.1.0
         with:
-          python-version: '3.13'
+          python-version: '3.13.18'
       - run: npm ci
+      - run: npm run check:dependencies
       - run: python -m venv .venv-codegen
       - run: .venv-codegen/bin/python -m pip install -r scripts/codegen/requirements.txt
       - name: Install audio codecs
@@ -52,7 +53,7 @@ jobs:
       - run: npm run export:web
       - run: npm run check:backup
       - run: npm run check:licenses
-      - uses: actions/upload-artifact@v6.0.0
+      - uses: actions/upload-artifact@v7.0.2
         with:
           name: dependency-license-inventory
           path: .local/reports/dependency-licenses.json
@@ -79,6 +80,11 @@ jobs:
       - run: docker compose --env-file deploy/.env -f deploy/compose.yaml config --quiet
       - run: docker build --build-arg VCS_REF=${{ github.sha }} -f deploy/api.Dockerfile -t signaldock-api:test .
       - run: node scripts/checks/compose-station.mjs
+      - name: Build and smoke test Python driver image
+        timeout-minutes: 15
+        run: |
+          docker build -f services/drivers/vgc-benlink/Dockerfile -t signaldock-vgc:test .
+          docker run --rm --read-only --cap-drop=ALL --security-opt=no-new-privileges signaldock-vgc:test --help
       - run: docker build --build-arg WEB_BASE_PATH=/station -f deploy/web.Dockerfile -t signaldock-web:test .
       - run: |
           docker run -d --name signaldock-web-test --read-only --cap-drop=ALL --security-opt=no-new-privileges \

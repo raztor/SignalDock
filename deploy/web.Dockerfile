@@ -8,7 +8,7 @@ ARG WEB_BASE_PATH=
 ENV SIGNALDOCK_WEB_BASE_PATH=$WEB_BASE_PATH
 RUN npm ci --ignore-scripts && npm run export:web
 
-FROM nginxinc/nginx-unprivileged:1.29.1-alpine
+FROM nginxinc/nginx-unprivileged:1.30.6-alpine
 ARG WEB_BASE_PATH=
 ENV WEB_BASE_PATH=$WEB_BASE_PATH
 COPY deploy/nginx.conf.template /etc/nginx/templates/default.conf.template
