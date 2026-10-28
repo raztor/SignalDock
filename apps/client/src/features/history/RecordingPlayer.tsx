@@ -1,8 +1,16 @@
-import { useEffect } from 'react';
-import { Pressable, Text, View } from 'react-native';
-import { useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
 import { normalizeServerUrl } from '@signaldock/client-sdk';
 import type { ClientSession, RecordingRecord } from '@signaldock/contracts';
+import {
+  Pressable,
+  Text,
+  radius as uiRadius,
+  space as uiSpace,
+  useScreenActive,
+  useTheme,
+} from '@signaldock/ui';
+import { useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
+import { useEffect } from 'react';
+import { View } from 'react-native';
 
 export interface RecordingPlayerProps {
   session: ClientSession;
@@ -13,7 +21,12 @@ export default function RecordingPlayer({
   session,
   recording,
 }: RecordingPlayerProps) {
+  const { colors } = useTheme();
+  const active = useScreenActive();
   const player = useAudioPlayer(null);
+  useEffect(() => {
+    if (!active) player.pause();
+  }, [active, player]);
   const status = useAudioPlayerStatus(player);
   useEffect(() => {
     player.pause();
@@ -27,7 +40,7 @@ export default function RecordingPlayer({
   ]);
   if (recording.state !== 'available')
     return (
-      <Text style={{ color: '#e7b66b' }}>
+      <Text style={{ color: colors.warning }}>
         Audio {recording.state}
         {recording.gapReason ? `: ${recording.gapReason}` : ''}
       </Text>
@@ -49,22 +62,22 @@ export default function RecordingPlayer({
     player.play();
   }
   return (
-    <View style={{ gap: 8 }}>
+    <View style={{ gap: uiSpace.sm }}>
       <Pressable
         accessibilityRole="button"
         onPress={toggle}
         style={{
-          padding: 12,
-          backgroundColor: '#213c50',
-          borderRadius: 9,
+          padding: uiSpace.md,
+          backgroundColor: colors.surfaceElevated,
+          borderRadius: uiRadius.md,
           alignSelf: 'flex-start',
         }}
       >
-        <Text style={{ color: '#76e8d0' }}>
+        <Text style={{ color: colors.primary }}>
           {status.playing ? 'Pause recording' : 'Play recording'}
         </Text>
       </Pressable>
-      <Text style={{ color: '#9fb0c9' }}>
+      <Text style={{ color: colors.textSecondary }}>
         {Math.floor(status.currentTime)} / {Math.floor(status.duration)} seconds
       </Text>
     </View>

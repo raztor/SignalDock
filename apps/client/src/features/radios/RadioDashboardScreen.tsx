@@ -1,13 +1,3 @@
-import { useEffect, useRef, useState } from 'react';
-import {
-  Button,
-  ScrollView,
-  StyleSheet,
-  Switch,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
 import { apiRequest } from '@signaldock/client-sdk';
 import type {
   ControlLease,
@@ -18,13 +8,31 @@ import type {
   RadioSnapshot,
   RadioView,
 } from '@signaldock/contracts';
+import {
+  Button,
+  Disclosure,
+  Icon,
+  LoadingState,
+  Pressable,
+  ScrollView,
+  SettingToggle,
+  Text,
+  TextInput,
+  useFeatureStyles,
+} from '@signaldock/ui';
+import type { ReactNode } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { View } from 'react-native';
 import { formatMegahertz, operationId, parseMegahertz } from './radio-input';
 
 export function RadioDashboardScreen({
   session,
   radioId,
   onSelectRadio,
-}: FeatureScreenProps) {
+  audioPanel,
+}: FeatureScreenProps & { audioPanel?: ReactNode }) {
+  const styles = useFeatureStyles('radios');
+  const [loaded, setLoaded] = useState(false);
   const [radios, setRadios] = useState<RadioView[]>([]);
   const [memories, setMemories] = useState<RadioMemory[]>([]);
   const [lease, setLease] = useState<ControlLease | null>(null);
@@ -47,6 +55,7 @@ export function RadioDashboardScreen({
     const version = ++epoch.current;
     const controller = new AbortController();
     setRadios([]);
+    setLoaded(false);
     setMemories([]);
     setError('');
     setBusy(false);
@@ -61,6 +70,7 @@ export function RadioDashboardScreen({
         });
         if (epoch.current !== version) return;
         setRadios(result);
+        setLoaded(true);
         const current = result.find((radio) => radio.radioId === radioId);
         const held = leaseRef.current;
         if (
@@ -206,7 +216,9 @@ export function RadioDashboardScreen({
   );
   return (
     <ScrollView contentContainerStyle={styles.page}>
-      <Text style={styles.heading}>Radios</Text>
+      <Text accessibilityRole="header" style={styles.title}>
+        Radios
+      </Text>
       <Text style={styles.muted}>
         Select a radio to view its confirmed state. Selection never changes its
         frequency.
@@ -216,7 +228,8 @@ export function RadioDashboardScreen({
           {error}
         </Text>
       ) : null}
-      {!radios.length ? (
+      {!loaded && !error && <LoadingState label="Loading station radios…" />}
+      {loaded && !error && !radios.length ? (
         <Text style={styles.muted}>
           No radios are assigned to this account. An administrator can configure
           a radio and assign its permissions.
@@ -224,37 +237,41 @@ export function RadioDashboardScreen({
       ) : null}
       <View style={styles.cards}>
         {radios.map((radio) => (
-          <View
+          <Pressable
             key={radio.radioId}
-            style={[
-              styles.card,
-              radio.radioId === radioId ? styles.selected : null,
-            ]}
+            accessibilityRole="button"
+            accessibilityLabel={`Select ${radio.displayName}`}
+            accessibilityState={{ selected: radio.radioId === radioId }}
+            onPress={() => onSelectRadio?.(radio.radioId)}
+            style={[styles.card, radio.radioId === radioId && styles.selected]}
           >
-            <Text style={styles.title}>{radio.displayName}</Text>
-            <Text style={styles.muted}>
-              {radio.health.state} · {radio.snapshot?.txState ?? 'unknown'}
-            </Text>
+            <View style={styles.row}>
+              <Icon name="radio" />
+              <Text accessibilityRole="header" style={styles.heading}>
+                {radio.displayName}
+              </Text>
+              <Text style={styles.small}>
+                {radio.radioId === radioId ? 'Selected' : 'Select radio'}
+              </Text>
+            </View>
             <Text style={styles.frequency}>
               {radio.snapshot?.observedTuning
                 ? `${formatMegahertz(radio.snapshot.observedTuning.rxHz)} MHz`
                 : 'Frequency unavailable'}
             </Text>
-            <Text style={styles.muted}>
-              {radio.descriptor?.capabilities.verification ?? 'Unverified'} ·{' '}
-              {radio.snapshot?.tuningConfidence ?? 'unknown'}
+            <Text style={styles.small}>
+              {radio.health.state} · {radio.snapshot?.txState ?? 'unknown'} ·{' '}
+              {radio.snapshot?.tuningConfidence ?? 'unknown'} ·{' '}
+              {radio.descriptor?.capabilities.verification ?? 'Unverified'}
             </Text>
-            <Button
-              title={radio.radioId === radioId ? 'Selected' : 'Select radio'}
-              disabled={radio.radioId === radioId}
-              onPress={() => onSelectRadio?.(radio.radioId)}
-            />
-          </View>
+          </Pressable>
         ))}
       </View>
       {selected ? (
         <View style={styles.panel}>
-          <Text style={styles.title}>{selected.displayName}</Text>
+          <Text accessibilityRole="header" style={styles.heading}>
+            Operate {selected.displayName}
+          </Text>
           <Text style={styles.muted}>
             {lease
               ? 'You control this radio.'
@@ -264,6 +281,7 @@ export function RadioDashboardScreen({
           </Text>
           <Button
             title={lease ? 'Release control' : 'Take control'}
+            variant={lease ? 'secondary' : 'primary'}
             disabled={
               busy ||
               !controlAllowed ||
@@ -379,86 +397,90 @@ export function RadioDashboardScreen({
               This driver does not advertise writable tuning.
             </Text>
           ) : null}
-          <Text style={styles.title}>Memories</Text>
-          {memories.map((memory) => (
-            <View key={memory.memoryId} style={styles.memory}>
-              <Text>
-                {memory.name} · {formatMegahertz(memory.tuning.rxHz)} MHz
-                {selected.snapshot?.selectedMemoryId === memory.memoryId
-                  ? ' · Active'
-                  : ''}
-              </Text>
-              <Button
-                title="Recall"
-                disabled={
-                  !editable ||
-                  !selected.descriptor?.capabilities.memories?.select
-                }
-                onPress={() =>
-                  void run(async () => {
-                    const version = epoch.current;
-                    const snapshot = await apiRequest<RadioSnapshot>(
-                      session,
-                      `radios/${selected.radioId}/memories/${encodeURIComponent(memory.memoryId)}/select`,
-                      { method: 'POST', body: JSON.stringify(context()) },
-                    );
-                    if (epoch.current === version) updateSnapshot(snapshot);
-                  })
-                }
-              />
-              <Button
-                title="Store current inputs"
-                disabled={
-                  !editable ||
-                  !selected.descriptor?.capabilities.memories?.write
-                }
-                onPress={() =>
-                  void run(async () => {
-                    const version = epoch.current;
-                    const saved = await apiRequest<RadioMemory>(
-                      session,
-                      `radios/${selected.radioId}/memories/${encodeURIComponent(memory.memoryId)}`,
-                      {
-                        method: 'PUT',
-                        body: JSON.stringify({
-                          context: context(),
-                          memory: {
-                            ...memory,
-                            tuning: {
-                              rxHz: parseMegahertz(rx),
-                              ...(tx ? { txHz: parseMegahertz(tx) } : {}),
-                              mode,
-                            },
-                          },
-                        }),
-                      },
-                    );
-                    const snapshot = await apiRequest<RadioSnapshot>(
-                      session,
-                      `radios/${selected.radioId}/state`,
-                    );
-                    if (epoch.current === version) {
-                      setMemories((items) =>
-                        items.map((item) =>
-                          item.memoryId === saved.memoryId ? saved : item,
-                        ),
+          <Disclosure title="Channel memories">
+            {memories.map((memory) => (
+              <View key={memory.memoryId} style={styles.memory}>
+                <Text>
+                  {memory.name} · {formatMegahertz(memory.tuning.rxHz)} MHz
+                  {selected.snapshot?.selectedMemoryId === memory.memoryId
+                    ? ' · Active'
+                    : ''}
+                </Text>
+                <Button
+                  title="Recall"
+                  disabled={
+                    !editable ||
+                    !selected.descriptor?.capabilities.memories?.select
+                  }
+                  onPress={() =>
+                    void run(async () => {
+                      const version = epoch.current;
+                      const snapshot = await apiRequest<RadioSnapshot>(
+                        session,
+                        `radios/${selected.radioId}/memories/${encodeURIComponent(memory.memoryId)}/select`,
+                        { method: 'POST', body: JSON.stringify(context()) },
                       );
-                      updateSnapshot(snapshot);
-                    }
-                  })
-                }
-              />
-            </View>
-          ))}
-          {!memories.length ? (
-            <Text style={styles.muted}>
-              No readable memories are available.
-            </Text>
-          ) : null}
+                      if (epoch.current === version) updateSnapshot(snapshot);
+                    })
+                  }
+                />
+                <Button
+                  title="Store current inputs"
+                  disabled={
+                    !editable ||
+                    !selected.descriptor?.capabilities.memories?.write
+                  }
+                  onPress={() =>
+                    void run(async () => {
+                      const version = epoch.current;
+                      const saved = await apiRequest<RadioMemory>(
+                        session,
+                        `radios/${selected.radioId}/memories/${encodeURIComponent(memory.memoryId)}`,
+                        {
+                          method: 'PUT',
+                          body: JSON.stringify({
+                            context: context(),
+                            memory: {
+                              ...memory,
+                              tuning: {
+                                rxHz: parseMegahertz(rx),
+                                ...(tx ? { txHz: parseMegahertz(tx) } : {}),
+                                mode,
+                              },
+                            },
+                          }),
+                        },
+                      );
+                      const snapshot = await apiRequest<RadioSnapshot>(
+                        session,
+                        `radios/${selected.radioId}/state`,
+                      );
+                      if (epoch.current === version) {
+                        setMemories((items) =>
+                          items.map((item) =>
+                            item.memoryId === saved.memoryId ? saved : item,
+                          ),
+                        );
+                        updateSnapshot(snapshot);
+                      }
+                    })
+                  }
+                />
+              </View>
+            ))}
+            {!memories.length ? (
+              <Text style={styles.muted}>
+                No readable memories are available.
+              </Text>
+            ) : null}
+          </Disclosure>
         </View>
       ) : null}
+      {audioPanel}
       {session.user.role === 'administrator' ? (
-        <RadioConfigurationPanel session={session} />
+        <Disclosure title="Station radio configuration">
+          <RadioConfigurationPanel session={session} />
+        </Disclosure>
       ) : null}
     </ScrollView>
   );
@@ -467,6 +489,7 @@ export function RadioDashboardScreen({
 function RadioConfigurationPanel({
   session,
 }: Pick<FeatureScreenProps, 'session'>) {
+  const styles = useFeatureStyles('radios');
   const [configurations, setConfigurations] = useState<RadioConfiguration[]>(
     [],
   );
@@ -509,7 +532,9 @@ function RadioConfigurationPanel({
   }, [session.baseUrl, session.instanceId, session.accessToken]);
   return (
     <View style={styles.panel}>
-      <Text style={styles.title}>Radio configuration</Text>
+      <Text accessibilityRole="header" style={styles.title}>
+        Radio configuration
+      </Text>
       <Text style={styles.muted}>
         Install a driver connector before configuring it. Configuring a radio
         does not grant operational access.
@@ -579,10 +604,11 @@ function RadioConfigurationPanel({
         autoCapitalize="none"
         accessibilityLabel="Connector configuration"
       />
-      <View style={styles.row}>
-        <Text>Enabled</Text>
-        <Switch value={enabled} onValueChange={setEnabled} />
-      </View>
+      <SettingToggle
+        label="Radio enabled"
+        value={enabled}
+        onValueChange={setEnabled}
+      />
       {error ? (
         <Text accessibilityRole="alert" style={styles.error}>
           {error}
@@ -640,51 +666,5 @@ function message(failure: unknown): string {
     ? failure.message
     : 'The radio request failed.';
 }
-const styles = StyleSheet.create({
-  page: { padding: 24, gap: 18, backgroundColor: '#f4f7fb' },
-  heading: { fontSize: 28, fontWeight: '700', color: '#142338' },
-  title: { fontSize: 18, fontWeight: '600', color: '#142338' },
-  muted: { color: '#53657b', lineHeight: 21 },
-  error: { color: '#a51d2d' },
-  cards: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
-  card: {
-    padding: 18,
-    gap: 12,
-    borderRadius: 14,
-    backgroundColor: 'white',
-    borderWidth: 1,
-    borderColor: '#dbe3ec',
-    minWidth: 260,
-    flexGrow: 1,
-  },
-  selected: { borderColor: '#235edb', borderWidth: 2 },
-  frequency: {
-    fontSize: 23,
-    fontWeight: '600',
-    fontVariant: ['tabular-nums'],
-    color: '#153d70',
-  },
-  panel: { padding: 20, gap: 12, backgroundColor: 'white', borderRadius: 14 },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    flexWrap: 'wrap',
-  },
-  label: { fontWeight: '500', color: '#31445c' },
-  input: {
-    borderWidth: 1,
-    borderColor: '#b8c6d7',
-    borderRadius: 8,
-    padding: 12,
-    color: '#172b45',
-    backgroundColor: '#fbfdff',
-  },
-  memory: {
-    paddingVertical: 10,
-    borderTopWidth: 1,
-    borderColor: '#e5ebf3',
-    gap: 8,
-  },
-});
+
 export default RadioDashboardScreen;

@@ -1,14 +1,3 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  ActivityIndicator,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Switch,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
 import { apiRequest } from '@signaldock/client-sdk';
 import type {
   FeatureScreenProps,
@@ -16,6 +5,16 @@ import type {
   NotificationPreference,
   NotificationRecord,
 } from '@signaldock/contracts';
+import {
+  Disclosure,
+  Pressable,
+  SettingToggle,
+  Text,
+  TextInput,
+  useFeatureStyles,
+} from '@signaldock/ui';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, FlatList, View } from 'react-native';
 import { BrowserNotificationAdapter } from './browser-notifications';
 
 const categories: NotificationCategory[] = [
@@ -35,6 +34,7 @@ export function NotificationsScreen({
   session,
   onSelectRadio,
 }: FeatureScreenProps) {
+  const styles = useFeatureStyles('notifications');
   const [items, setItems] = useState<NotificationRecord[]>([]);
   const [preference, setPreference] = useState<NotificationPreference | null>(
     null,
@@ -281,149 +281,10 @@ export function NotificationsScreen({
     setBrowserEnabled(result === 'granted');
   }
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={styles.page}>
-      <Text style={styles.title}>Notifications</Text>
-      <Text style={styles.muted}>
-        Updates from this station. Radio content is fetched only after you open
-        an item.
-      </Text>
-      {!!error && (
-        <Text accessibilityRole="alert" style={styles.error}>
-          {error}
-        </Text>
-      )}
-      <View style={styles.card}>
-        <Text style={styles.heading}>Delivery</Text>
-        <Text style={styles.muted}>
-          {relay
-            ? 'A relay is configured for enrolled devices.'
-            : 'In-app history is available. Mobile delivery has no configured relay.'}
-        </Text>
-        <Text style={styles.muted}>
-          Native enrollment is restricted to verified private development
-          builds. Foreground browser alerts work while this screen is open.
-        </Text>
-        <Pressable
-          accessibilityRole="button"
-          style={styles.button}
-          onPress={() => {
-            void enableBrowser();
-          }}
-        >
-          <Text style={styles.buttonText}>Enable browser alerts</Text>
-        </Pressable>
-        {!!browserStatus && <Text style={styles.muted}>{browserStatus}</Text>}
-      </View>
-      {preference ? (
-        <View style={styles.card}>
-          <Text style={styles.heading}>Preferences</Text>
-          <View style={styles.row}>
-            <Text style={styles.label}>Notifications enabled</Text>
-            <Switch
-              accessibilityLabel="Notifications enabled"
-              value={preference.enabled}
-              onValueChange={(enabled) =>
-                setPreference({ ...preference, enabled })
-              }
-            />
-          </View>
-          {categories.map((category) => (
-            <View style={styles.row} key={category}>
-              <Text style={styles.label}>{category}</Text>
-              <Switch
-                accessibilityLabel={`${category} notifications`}
-                value={preference.categories.includes(category)}
-                onValueChange={(enabled) =>
-                  setPreference({
-                    ...preference,
-                    categories: enabled
-                      ? [...preference.categories, category]
-                      : preference.categories.filter(
-                          (value) => value !== category,
-                        ),
-                  })
-                }
-              />
-            </View>
-          ))}
-          <View style={styles.row}>
-            <Text style={styles.label}>
-              Suppress ordinary pushes while listening
-            </Text>
-            <Switch
-              accessibilityLabel="Suppress while listening"
-              value={preference.suppressWhileListening}
-              onValueChange={(suppressWhileListening) =>
-                setPreference({ ...preference, suppressWhileListening })
-              }
-            />
-          </View>
-          <Text style={styles.label}>Frequency filter (Hz, optional)</Text>
-          <TextInput
-            accessibilityLabel="Frequency filter in Hz"
-            style={styles.input}
-            value={frequency}
-            onChangeText={setFrequency}
-            keyboardType="numeric"
-          />
-          <Text style={styles.label}>Cooldown (seconds)</Text>
-          <TextInput
-            accessibilityLabel="Cooldown seconds"
-            style={styles.input}
-            value={String(preference.cooldownSeconds)}
-            onChangeText={(text) => {
-              if (/^\d*$/.test(text))
-                setPreference({ ...preference, cooldownSeconds: Number(text) });
-            }}
-            keyboardType="numeric"
-          />
-          <Text style={styles.label}>Quiet hours (HH:MM, optional)</Text>
-          <View style={styles.row}>
-            <TextInput
-              accessibilityLabel="Quiet hours start"
-              style={[styles.input, styles.grow]}
-              value={quietStart}
-              onChangeText={setQuietStart}
-              placeholder="22:00"
-              placeholderTextColor="#8195b0"
-            />
-            <TextInput
-              accessibilityLabel="Quiet hours end"
-              style={[styles.input, styles.grow]}
-              value={quietEnd}
-              onChangeText={setQuietEnd}
-              placeholder="07:00"
-              placeholderTextColor="#8195b0"
-            />
-          </View>
-          <TextInput
-            accessibilityLabel="Quiet hours time zone"
-            style={styles.input}
-            value={timeZone}
-            onChangeText={setTimeZone}
-            autoCapitalize="none"
-          />
-          <Pressable
-            accessibilityRole="button"
-            disabled={busy}
-            style={styles.button}
-            onPress={() => {
-              void save();
-            }}
-          >
-            {busy ? (
-              <ActivityIndicator />
-            ) : (
-              <Text style={styles.buttonText}>Save preferences</Text>
-            )}
-          </Pressable>
-        </View>
-      ) : (
-        <ActivityIndicator />
-      )}
-      <Text style={styles.heading}>Station history</Text>
-      {!items.length && <Text style={styles.muted}>No notifications yet.</Text>}
-      {items.map((item) => (
+    <FlatList
+      data={items}
+      keyExtractor={(item) => item.id}
+      renderItem={({ item }) => (
         <Pressable
           accessibilityRole="button"
           key={item.id}
@@ -432,7 +293,7 @@ export function NotificationsScreen({
             void open(item);
           }}
         >
-          <Text style={styles.heading}>
+          <Text accessibilityRole="header" style={styles.heading}>
             {item.category}
             {item.readAt ? '' : ' · unread'}
           </Text>
@@ -448,64 +309,178 @@ export function NotificationsScreen({
             <Text style={styles.muted}>Radio {item.radioId}</Text>
           )}
         </Pressable>
-      ))}
-      {!!cursor && (
-        <Pressable
-          accessibilityRole="button"
-          style={styles.button}
-          onPress={() => {
-            void more();
-          }}
-        >
-          <Text style={styles.buttonText}>Load older updates</Text>
-        </Pressable>
       )}
-    </ScrollView>
+      style={styles.screen}
+      contentContainerStyle={styles.page}
+      keyboardShouldPersistTaps="handled"
+      ListHeaderComponent={
+        <View style={styles.section}>
+          <Text accessibilityRole="header" style={styles.title}>
+            Notifications
+          </Text>
+          <Text style={styles.muted}>
+            Updates from this station. Radio content is fetched only after you
+            open an item.
+          </Text>
+          {!!error && (
+            <Text accessibilityRole="alert" style={styles.error}>
+              {error}
+            </Text>
+          )}
+          <Text accessibilityRole="header" style={styles.heading}>
+            Station history
+          </Text>
+          {!items.length && (
+            <Text style={styles.muted}>No notifications yet.</Text>
+          )}
+        </View>
+      }
+      ListFooterComponent={
+        <View style={styles.section}>
+          {!!cursor && (
+            <Pressable
+              accessibilityRole="button"
+              style={styles.button}
+              onPress={() => {
+                void more();
+              }}
+            >
+              <Text style={styles.buttonText}>Load older updates</Text>
+            </Pressable>
+          )}
+          <Disclosure title="Delivery & notification preferences">
+            <View style={styles.card}>
+              <Text accessibilityRole="header" style={styles.heading}>
+                Delivery
+              </Text>
+              <Text style={styles.muted}>
+                {relay
+                  ? 'A relay is configured for enrolled devices.'
+                  : 'In-app history is available. Mobile delivery has no configured relay.'}
+              </Text>
+              <Text style={styles.muted}>
+                Browser alerts appear while this app is open. Device
+                notifications depend on your station’s delivery settings.
+              </Text>
+              <Pressable
+                accessibilityRole="button"
+                style={styles.button}
+                onPress={() => {
+                  void enableBrowser();
+                }}
+              >
+                <Text style={styles.buttonText}>Enable browser alerts</Text>
+              </Pressable>
+              {!!browserStatus && (
+                <Text style={styles.muted}>{browserStatus}</Text>
+              )}
+            </View>
+            {preference ? (
+              <View style={styles.card}>
+                <Text accessibilityRole="header" style={styles.heading}>
+                  Preferences
+                </Text>
+                <SettingToggle
+                  label="Notifications enabled"
+                  value={preference.enabled}
+                  onValueChange={(enabled) =>
+                    setPreference({ ...preference, enabled })
+                  }
+                />
+                {categories.map((category) => (
+                  <SettingToggle
+                    key={category}
+                    label={`${category} notifications`}
+                    value={preference.categories.includes(category)}
+                    onValueChange={(enabled) =>
+                      setPreference({
+                        ...preference,
+                        categories: enabled
+                          ? [...preference.categories, category]
+                          : preference.categories.filter(
+                              (value) => value !== category,
+                            ),
+                      })
+                    }
+                  />
+                ))}
+                <SettingToggle
+                  label="Suppress ordinary pushes while listening"
+                  value={preference.suppressWhileListening}
+                  onValueChange={(suppressWhileListening) =>
+                    setPreference({ ...preference, suppressWhileListening })
+                  }
+                />
+                <Text style={styles.label}>
+                  Frequency filter (Hz, optional)
+                </Text>
+                <TextInput
+                  accessibilityLabel="Frequency filter in Hz"
+                  style={styles.input}
+                  value={frequency}
+                  onChangeText={setFrequency}
+                  keyboardType="numeric"
+                />
+                <Text style={styles.label}>Cooldown (seconds)</Text>
+                <TextInput
+                  accessibilityLabel="Cooldown seconds"
+                  style={styles.input}
+                  value={String(preference.cooldownSeconds)}
+                  onChangeText={(text) => {
+                    if (/^\d*$/.test(text))
+                      setPreference({
+                        ...preference,
+                        cooldownSeconds: Number(text),
+                      });
+                  }}
+                  keyboardType="numeric"
+                />
+                <Text style={styles.label}>Quiet hours (HH:MM, optional)</Text>
+                <View style={styles.row}>
+                  <TextInput
+                    accessibilityLabel="Quiet hours start"
+                    style={[styles.input, styles.grow]}
+                    value={quietStart}
+                    onChangeText={setQuietStart}
+                    placeholder="22:00"
+                  />
+                  <TextInput
+                    accessibilityLabel="Quiet hours end"
+                    style={[styles.input, styles.grow]}
+                    value={quietEnd}
+                    onChangeText={setQuietEnd}
+                    placeholder="07:00"
+                  />
+                </View>
+                <TextInput
+                  accessibilityLabel="Quiet hours time zone"
+                  style={styles.input}
+                  value={timeZone}
+                  onChangeText={setTimeZone}
+                  autoCapitalize="none"
+                />
+                <Pressable
+                  accessibilityRole="button"
+                  disabled={busy}
+                  style={styles.button}
+                  onPress={() => {
+                    void save();
+                  }}
+                >
+                  {busy ? (
+                    <ActivityIndicator />
+                  ) : (
+                    <Text style={styles.buttonText}>Save preferences</Text>
+                  )}
+                </Pressable>
+              </View>
+            ) : (
+              <ActivityIndicator />
+            )}
+          </Disclosure>
+        </View>
+      }
+    />
   );
 }
 export default NotificationsScreen;
-const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: '#0b1220' },
-  page: {
-    padding: 24,
-    gap: 16,
-    maxWidth: 960,
-    width: '100%',
-    alignSelf: 'center',
-  },
-  title: { color: '#eef5ff', fontSize: 28, fontWeight: '700' },
-  heading: { color: '#eef5ff', fontSize: 18, fontWeight: '600' },
-  muted: { color: '#a0b2ca', lineHeight: 21 },
-  label: { color: '#eef5ff', flexShrink: 1 },
-  card: {
-    backgroundColor: '#131f32',
-    borderRadius: 14,
-    padding: 20,
-    gap: 12,
-    borderWidth: 1,
-    borderColor: '#263951',
-  },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 16,
-  },
-  input: {
-    backgroundColor: '#0b1525',
-    borderColor: '#3b526e',
-    borderWidth: 1,
-    borderRadius: 8,
-    padding: 12,
-    color: '#eef5ff',
-  },
-  grow: { flex: 1 },
-  button: {
-    backgroundColor: '#50dfc2',
-    borderRadius: 8,
-    padding: 14,
-    alignItems: 'center',
-  },
-  buttonText: { color: '#06131b', fontWeight: '700' },
-  error: { color: '#ffb4a9' },
-});

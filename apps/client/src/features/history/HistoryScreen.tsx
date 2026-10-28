@@ -1,19 +1,21 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  ActivityIndicator,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
 import { apiRequest } from '@signaldock/client-sdk';
 import type {
   Communication,
   Conversation,
   FeatureScreenProps,
 } from '@signaldock/contracts';
+import {
+  Button,
+  Disclosure,
+  ScrollView,
+  Text,
+  TextInput,
+  space as uiSpace,
+  useFeatureStyles,
+  useTheme,
+} from '@signaldock/ui';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, FlatList, View } from 'react-native';
 import RecordingPlayer from './RecordingPlayer';
 
 type Page = {
@@ -29,6 +31,8 @@ export function HistoryScreen(props: FeatureScreenProps) {
   );
 }
 function HistoryWorkspace({ session, radioId }: FeatureScreenProps) {
+  const { colors } = useTheme();
+  const styles = useFeatureStyles('history');
   const [page, setPage] = useState<Page>({ items: [] }),
     [conversations, setConversations] = useState<Conversation[]>([]),
     [conversation, setConversation] = useState<Conversation | null>(null);
@@ -156,106 +160,119 @@ function HistoryWorkspace({ session, radioId }: FeatureScreenProps) {
     setNewNote('');
   }
   return (
-    <ScrollView
-      style={styles.screen}
-      contentContainerStyle={styles.page}
-      keyboardShouldPersistTaps="handled"
-    >
-      <View style={styles.row}>
-        <View style={{ flex: 1, gap: 6 }}>
-          <Text style={styles.eyebrow}>STATION ARCHIVE</Text>
-          <Text style={styles.title}>Communications</Text>
-          <Text style={styles.muted}>
-            Audio, transcripts, and notes grouped by their recorded source.
-          </Text>
-        </View>
-        <Button label="Refresh" onPress={() => void load()} disabled={busy} />
-      </View>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.filters}
-      >
-        <Button
-          label="All frequencies"
-          onPress={() => setConversation(null)}
-          active={!conversation}
-        />
-        {conversations
-          .filter((group) => !radioId || group.radioId === radioId)
-          .map((group) => (
-            <Button
-              key={group.id}
-              label={`${frequency(group.frequencyHz)} · ${group.radioId.slice(0, 6)}`}
-              onPress={() => setConversation(group)}
-              active={conversation?.id === group.id}
-            />
-          ))}
-      </ScrollView>
-      <View style={styles.row}>
-        <TextInput
-          accessibilityLabel="Search transcripts and notes"
-          placeholder="Search transcripts, tags, or notes"
-          placeholderTextColor="#71849e"
-          value={search}
-          onChangeText={setSearch}
-          onSubmitEditing={() => setAppliedSearch(search)}
-          style={[styles.input, { flex: 1 }]}
-        />
-        <Button label="Search" onPress={() => setAppliedSearch(search)} />
-      </View>
-      {!!error && (
-        <Text accessibilityRole="alert" style={styles.error}>
-          {error}
-        </Text>
-      )}
-      {busy && <ActivityIndicator color="#50dfc2" />}
-      {(conversation?.radioId ?? radioId) &&
-        canWrite((conversation?.radioId ?? radioId)!) && (
-          <View style={styles.card}>
-            <Text style={styles.heading}>Station note</Text>
-            <TextInput
-              accessibilityLabel="New station note"
-              placeholder="Add a note for this radio and frequency"
-              placeholderTextColor="#71849e"
-              multiline
-              value={newNote}
-              onChangeText={setNewNote}
-              style={styles.input}
-            />
-            <Button
-              label="Add note"
-              onPress={() => void saveNote()}
-              disabled={!newNote.trim()}
-            />
-          </View>
-        )}
-      {!busy && !page.items.length && (
-        <View style={styles.empty}>
-          <Text style={styles.heading}>No communications yet</Text>
-          <Text style={styles.muted}>
-            Recordings appear when the connected radio receives or transmits.
-            Only the tuned frequency is monitored.
-          </Text>
-        </View>
-      )}
-      {page.items.map((item) => (
+    <FlatList
+      data={page.items}
+      keyExtractor={(item) => `${session.instanceId}:${item.id}`}
+      renderItem={({ item }) => (
         <CommunicationCard
-          key={`${session.instanceId}:${item.id}`}
           item={item}
           session={session}
           canWrite={canWrite(item.radioId)}
           onMutate={mutate}
         />
-      ))}
-      {!!page.nextCursor && (
-        <Button
-          label="Load earlier communications"
-          onPress={() => void load(true)}
-          disabled={busy}
-        />
       )}
-    </ScrollView>
+      style={styles.screen}
+      contentContainerStyle={styles.page}
+      keyboardShouldPersistTaps="handled"
+      ListHeaderComponent={
+        <View style={styles.section}>
+          <View style={styles.row}>
+            <View style={{ flex: 1, gap: uiSpace.sm }}>
+              <Text style={styles.eyebrow}>Station archive</Text>
+              <Text accessibilityRole="header" style={styles.title}>
+                Communications
+              </Text>
+              <Text style={styles.muted}>
+                Audio, transcripts, and notes grouped by their recorded source.
+              </Text>
+            </View>
+            <Button
+              label="Refresh"
+              onPress={() => void load()}
+              disabled={busy}
+            />
+          </View>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.filters}
+          >
+            <Button
+              label="All frequencies"
+              onPress={() => setConversation(null)}
+              active={!conversation}
+            />
+            {conversations
+              .filter((group) => !radioId || group.radioId === radioId)
+              .map((group) => (
+                <Button
+                  key={group.id}
+                  label={`${frequency(group.frequencyHz)} · ${group.radioId.slice(0, 6)}`}
+                  onPress={() => setConversation(group)}
+                  active={conversation?.id === group.id}
+                />
+              ))}
+          </ScrollView>
+          <View style={styles.row}>
+            <TextInput
+              accessibilityLabel="Search transcripts and notes"
+              placeholder="Search transcripts, tags, or notes"
+              value={search}
+              onChangeText={setSearch}
+              onSubmitEditing={() => setAppliedSearch(search)}
+              style={[styles.input, { flex: 1 }]}
+            />
+            <Button label="Search" onPress={() => setAppliedSearch(search)} />
+          </View>
+          {!!error && (
+            <Text accessibilityRole="alert" style={styles.error}>
+              {error}
+            </Text>
+          )}
+          {busy && <ActivityIndicator color={colors.primary} />}
+          {(conversation?.radioId ?? radioId) &&
+            canWrite((conversation?.radioId ?? radioId)!) && (
+              <Disclosure title="Add station note">
+                <TextInput
+                  accessibilityLabel="New station note"
+                  placeholder="Add a note for this radio and frequency"
+                  multiline
+                  value={newNote}
+                  onChangeText={setNewNote}
+                  style={styles.input}
+                />
+                <Button
+                  label="Add note"
+                  onPress={() => void saveNote()}
+                  disabled={!newNote.trim()}
+                />
+              </Disclosure>
+            )}
+          {!busy && !page.items.length && (
+            <View style={styles.empty}>
+              <Text accessibilityRole="header" style={styles.heading}>
+                No communications yet
+              </Text>
+              <Text style={styles.muted}>
+                Recordings appear when the connected radio receives or
+                transmits. Only the tuned frequency is monitored.
+              </Text>
+            </View>
+          )}
+        </View>
+      }
+      ListFooterComponent={
+        <>
+          {!!page.nextCursor && (
+            <Button
+              label="Load earlier communications"
+              onPress={() => void load(true)}
+              disabled={busy}
+            />
+          )}
+        </>
+      }
+    />
   );
 }
 export default HistoryScreen;
@@ -271,6 +288,7 @@ function CommunicationCard({
   canWrite: boolean;
   onMutate: (path: string, method: string, body?: unknown) => Promise<void>;
 }) {
+  const styles = useFeatureStyles('history');
   const [editing, setEditing] = useState(false),
     [text, setText] = useState(''),
     [confirmDelete, setConfirmDelete] = useState(false),
@@ -279,7 +297,7 @@ function CommunicationCard({
   return (
     <View style={styles.card}>
       <View style={styles.row}>
-        <Text style={styles.heading}>
+        <Text accessibilityRole="header" style={styles.heading}>
           {item.direction.toUpperCase()} · {frequency(item.frequencyHz)}
         </Text>
         <Text
@@ -321,7 +339,7 @@ function CommunicationCard({
           />
           {revisions &&
             item.transcripts.map((revision) => (
-              <View key={revision.id} style={{ gap: 6 }}>
+              <View key={revision.id} style={{ gap: uiSpace.sm }}>
                 <Text style={styles.body}>
                   v{revision.revision}: {revision.text}
                 </Text>
@@ -360,7 +378,7 @@ function CommunicationCard({
         />
       )}
       {editing && (
-        <View style={{ gap: 10 }}>
+        <View style={{ gap: uiSpace.md }}>
           <TextInput
             accessibilityLabel="Transcript correction"
             multiline
@@ -412,110 +430,3 @@ function frequency(hz?: number) {
     ? 'Unknown frequency'
     : `${(hz / 1e6).toFixed(4)} MHz`;
 }
-function Button({
-  label,
-  onPress,
-  disabled = false,
-  active = false,
-}: {
-  label: string;
-  onPress: () => void;
-  disabled?: boolean;
-  active?: boolean;
-}) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityState={{ disabled, selected: active }}
-      onPress={onPress}
-      disabled={disabled}
-      style={[
-        styles.button,
-        active && styles.active,
-        disabled && { opacity: 0.5 },
-      ]}
-    >
-      <Text
-        style={{ color: active ? '#06131b' : '#a4eadc', fontWeight: '600' }}
-      >
-        {label}
-      </Text>
-    </Pressable>
-  );
-}
-const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: '#0b1220' },
-  page: {
-    width: '100%',
-    maxWidth: 1100,
-    alignSelf: 'center',
-    padding: 24,
-    gap: 20,
-  },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-    gap: 12,
-  },
-  eyebrow: {
-    color: '#50dfc2',
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 2,
-  },
-  title: { color: '#eef5ff', fontSize: 32, fontWeight: '700' },
-  heading: { color: '#eef5ff', fontSize: 18, fontWeight: '600' },
-  muted: { color: '#9fb0c9', fontSize: 13, lineHeight: 21 },
-  body: { color: '#e4edf8', fontSize: 15, lineHeight: 23 },
-  card: {
-    backgroundColor: '#131f32',
-    borderColor: '#263951',
-    borderWidth: 1,
-    borderRadius: 16,
-    padding: 20,
-    gap: 12,
-  },
-  empty: {
-    borderColor: '#263951',
-    borderWidth: 1,
-    borderStyle: 'dashed',
-    borderRadius: 14,
-    padding: 30,
-    gap: 12,
-  },
-  filters: { gap: 8 },
-  input: {
-    backgroundColor: '#0b1525',
-    borderWidth: 1,
-    borderColor: '#3b526e',
-    borderRadius: 9,
-    padding: 13,
-    color: '#eef5ff',
-    fontSize: 15,
-    minHeight: 46,
-  },
-  button: {
-    alignSelf: 'flex-start',
-    backgroundColor: '#213746',
-    paddingVertical: 11,
-    paddingHorizontal: 14,
-    borderRadius: 8,
-  },
-  active: { backgroundColor: '#50dfc2' },
-  badge: {
-    color: '#50dfc2',
-    fontSize: 11,
-    backgroundColor: '#203c3d',
-    padding: 6,
-    borderRadius: 5,
-  },
-  uncertain: { color: '#e7b66b' },
-  transcript: {
-    backgroundColor: '#0e192a',
-    borderRadius: 10,
-    padding: 15,
-    gap: 10,
-  },
-  error: { color: '#ffb4a9', lineHeight: 22 },
-});
