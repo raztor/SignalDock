@@ -7,3 +7,5 @@ Run `npm run dev:client` from the repository root after building the shared pack
 Browser media requires a capable radio, explicit permissions, a live control lease for TX, and configured backend media. Simulator audio is unavailable. Context changes cancel pending media and stop active transmission. Native media remains gated on development-build/device acceptance.
 
 Application registration and navigation are in `src/app`; independently owned features are in `src/features`. See [development](../../docs/development.md) and [physical browser acceptance](../../docs/implementation/vgc-acceptance.md). Processing, incidents, APRS and notification screens are composed through explicit capabilities. Native audio, maps and push still require device acceptance.
+
+The [frontend design system](../../docs/frontend/design-system.md) documents the shared themes, responsive station navigation, components and migrated screens. The [validation record](../../docs/frontend/validation.md) distinguishes software checks, visual review and native/device acceptance. Theme preference is stored separately from server identity and authentication.

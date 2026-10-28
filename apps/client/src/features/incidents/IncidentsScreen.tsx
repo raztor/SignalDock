@@ -1,18 +1,20 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import {
-  ActivityIndicator,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
 import type {
   FeatureScreenProps,
   IncidentRecord,
   IncidentState,
 } from '@signaldock/contracts';
+import {
+  Button,
+  Disclosure,
+  Pressable,
+  ScrollView,
+  Text,
+  TextInput,
+  useFeatureStyles,
+  useTheme,
+} from '@signaldock/ui';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, View } from 'react-native';
 import {
   IncidentClient,
   type IncidentDetailView,
@@ -37,32 +39,15 @@ const label = (state: string) => state.replaceAll('_', ' ');
 const message = (error: unknown) =>
   error instanceof Error ? error.message : 'The request failed.';
 
-function ActionButton({
-  title,
-  onPress,
-  disabled = false,
-}: {
-  title: string;
-  onPress: () => void;
-  disabled?: boolean;
-}) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      disabled={disabled}
-      onPress={onPress}
-      style={[styles.button, disabled && styles.disabled]}
-    >
-      <Text style={styles.buttonText}>{title}</Text>
-    </Pressable>
-  );
-}
+const ActionButton = Button;
 
 export function IncidentsScreen({
   session,
   radioId,
   onSelectRadio,
 }: FeatureScreenProps) {
+  const { colors } = useTheme();
+  const styles = useFeatureStyles('incidents');
   const client = useMemo(
     () => new IncidentClient(session),
     [
@@ -253,14 +238,17 @@ export function IncidentsScreen({
       contentContainerStyle={styles.content}
       keyboardShouldPersistTaps="handled"
     >
-      <Text style={styles.title}>Incidents</Text>
-      <Text style={styles.secondary}>
+      <Text accessibilityRole="header" style={styles.title}>
+        Incidents
+      </Text>
+      <Text style={styles.muted}>
         Review source evidence and record operator decisions. Detection does not
         provide complete emergency coverage.
       </Text>
       <View style={styles.row}>
         <ActionButton
           title="All states"
+          active={!filter}
           disabled={loading || saving}
           onPress={() => setFilter(undefined)}
         />
@@ -268,7 +256,8 @@ export function IncidentsScreen({
           <ActionButton
             key={state}
             title={label(state)}
-            disabled={loading || saving || filter === state}
+            active={filter === state}
+            disabled={loading || saving}
             onPress={() => setFilter(state)}
           />
         ))}
@@ -286,11 +275,11 @@ export function IncidentsScreen({
       {loading && (
         <ActivityIndicator
           accessibilityLabel="Loading incidents"
-          color="#50dfc2"
+          color={colors.primary}
         />
       )}
       {!loading && !records.length && (
-        <Text style={styles.secondary}>
+        <Text style={styles.muted}>
           No incidents match this filter in your permitted radios.
         </Text>
       )}
@@ -305,7 +294,7 @@ export function IncidentsScreen({
           style={styles.card}
         >
           <Text style={styles.cardTitle}>{incident.title}</Text>
-          <Text style={styles.secondary}>
+          <Text style={styles.muted}>
             {incident.priority.toUpperCase()} · {label(incident.state)} ·{' '}
             {new Date(incident.updatedAt).toLocaleString()}
           </Text>
@@ -325,8 +314,10 @@ export function IncidentsScreen({
       )}
       {detail && (
         <View style={styles.card}>
-          <Text style={styles.heading}>{detail.incident.title}</Text>
-          <Text style={styles.secondary}>
+          <Text accessibilityRole="header" style={styles.heading}>
+            {detail.incident.title}
+          </Text>
+          <Text style={styles.muted}>
             {detail.incident.priority.toUpperCase()} ·{' '}
             {label(detail.incident.state)}
           </Text>
@@ -339,7 +330,9 @@ export function IncidentsScreen({
             onPress={() => onSelectRadio?.(detail.incident.radioId)}
             disabled={!onSelectRadio || saving}
           />
-          <Text style={styles.heading}>Source evidence</Text>
+          <Text accessibilityRole="header" style={styles.heading}>
+            Source evidence
+          </Text>
           {detail.incident.evidence.map((entry, index) => (
             <View
               key={`${entry.communicationId}:${entry.transcriptRevisionId}:${index}`}
@@ -357,7 +350,7 @@ export function IncidentsScreen({
               </Text>
             </View>
           ))}
-          <Text style={styles.secondary}>
+          <Text style={styles.muted}>
             Callsigns and spoken locations are candidates; they do not
             authenticate the speaker or confirm a geographic position.
           </Text>
@@ -366,7 +359,6 @@ export function IncidentsScreen({
               <TextInput
                 accessibilityLabel="Incident decision note"
                 placeholder="Decision note (required to resolve or dismiss)"
-                placeholderTextColor="#8095ad"
                 value={note}
                 onChangeText={setNote}
                 multiline
@@ -424,10 +416,12 @@ export function IncidentsScreen({
               </View>
             </View>
           )}
-          <Text style={styles.heading}>Assessments and provenance</Text>
+          <Text accessibilityRole="header" style={styles.heading}>
+            Assessments and provenance
+          </Text>
           {detail.assessments.map((assessment) => (
             <View key={assessment.id} style={styles.evidence}>
-              <Text style={styles.secondary}>
+              <Text style={styles.muted}>
                 {assessment.connectorId} ·{' '}
                 {new Date(assessment.createdAt).toLocaleString()}
               </Text>
@@ -436,10 +430,12 @@ export function IncidentsScreen({
               </Text>
             </View>
           ))}
-          <Text style={styles.heading}>Operator and assessment history</Text>
+          <Text accessibilityRole="header" style={styles.heading}>
+            Operator and assessment history
+          </Text>
           {detail.actions.map((action) => (
             <View key={action.id} style={styles.evidence}>
-              <Text style={styles.secondary}>
+              <Text style={styles.muted}>
                 {label(action.kind)} ·{' '}
                 {new Date(action.occurredAt).toLocaleString()}
               </Text>
@@ -451,9 +447,8 @@ export function IncidentsScreen({
         </View>
       )}
       {session.user.role === 'administrator' && (
-        <View style={styles.card}>
-          <Text style={styles.heading}>Local detection rules</Text>
-          <Text style={styles.secondary}>
+        <Disclosure title="Local detection rules">
+          <Text style={styles.muted}>
             Literal phrases, optional radio/frequency scope. No custom
             executable expressions. Removing the last configured rule disables
             local incident detection by default.
@@ -468,7 +463,7 @@ export function IncidentsScreen({
           {ruleRows?.map((rule) => (
             <View key={rule.id} style={styles.evidence}>
               <Text style={styles.cardTitle}>{rule.name}</Text>
-              <Text style={styles.secondary}>
+              <Text style={styles.muted}>
                 {rule.enabled ? 'Enabled' : 'Disabled'} · {rule.priority} ·{' '}
                 {rule.phrases.join('; ')}
               </Text>
@@ -486,7 +481,6 @@ export function IncidentsScreen({
             value={ruleName}
             onChangeText={setRuleName}
             placeholder="Rule name"
-            placeholderTextColor="#8095ad"
             style={styles.input}
           />
           <TextInput
@@ -494,7 +488,6 @@ export function IncidentsScreen({
             value={rulePhrases}
             onChangeText={setRulePhrases}
             placeholder="Phrases separated by semicolons"
-            placeholderTextColor="#8095ad"
             style={styles.input}
           />
           <View style={styles.row}>
@@ -503,7 +496,6 @@ export function IncidentsScreen({
               value={minHz}
               onChangeText={setMinHz}
               placeholder="Minimum Hz (optional)"
-              placeholderTextColor="#8095ad"
               style={styles.input}
               keyboardType="numeric"
             />
@@ -512,7 +504,6 @@ export function IncidentsScreen({
               value={maxHz}
               onChangeText={setMaxHz}
               placeholder="Maximum Hz (optional)"
-              placeholderTextColor="#8095ad"
               style={styles.input}
               keyboardType="numeric"
             />
@@ -541,67 +532,10 @@ export function IncidentsScreen({
               void rulesAction(() => client.saveRule(body));
             }}
           />
-        </View>
+        </Disclosure>
       )}
     </ScrollView>
   );
 }
-
-const styles = StyleSheet.create({
-  page: { flex: 1, backgroundColor: '#0b1220' },
-  content: {
-    padding: 24,
-    gap: 18,
-    maxWidth: 1100,
-    width: '100%',
-    alignSelf: 'center',
-  },
-  title: { color: '#eef5ff', fontSize: 30, fontWeight: '700' },
-  heading: { color: '#eef5ff', fontSize: 19, fontWeight: '600' },
-  cardTitle: { color: '#eef5ff', fontSize: 17, fontWeight: '600' },
-  secondary: { color: '#a0b2ca', fontSize: 14, lineHeight: 21 },
-  body: { color: '#e2eaf6', fontSize: 15, lineHeight: 23 },
-  small: { color: '#8fa5bf', fontSize: 12, lineHeight: 18 },
-  row: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  section: { gap: 12 },
-  card: {
-    borderWidth: 1,
-    borderColor: '#2c405b',
-    backgroundColor: '#132034',
-    padding: 20,
-    borderRadius: 14,
-    gap: 12,
-  },
-  evidence: {
-    borderLeftWidth: 2,
-    borderLeftColor: '#387f76',
-    paddingLeft: 12,
-    gap: 6,
-  },
-  button: {
-    backgroundColor: '#244337',
-    borderWidth: 1,
-    borderColor: '#3e7867',
-    borderRadius: 8,
-    padding: 12,
-  },
-  buttonText: {
-    color: '#b8f3df',
-    fontSize: 13,
-    fontWeight: '600',
-    textTransform: 'capitalize',
-  },
-  disabled: { opacity: 0.45 },
-  input: {
-    borderWidth: 1,
-    borderColor: '#3b526e',
-    borderRadius: 8,
-    backgroundColor: '#0b1525',
-    color: '#eef5ff',
-    padding: 12,
-    minWidth: 150,
-  },
-  error: { color: '#ffb4a9', fontSize: 14, lineHeight: 21 },
-});
 
 export default IncidentsScreen;

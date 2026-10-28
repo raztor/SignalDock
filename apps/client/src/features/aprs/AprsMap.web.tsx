@@ -1,17 +1,25 @@
-import { useEffect, useRef, useState } from 'react';
+import { EmptyState } from '@signaldock/ui';
+import {
+  Text,
+  radius as uiRadius,
+  space as uiSpace,
+  type as uiType,
+  useTheme,
+} from '@signaldock/ui';
 import type {
   GeoJSONSource,
   Map as MapLibreMap,
   MapMouseEvent,
 } from 'maplibre-gl';
-import { Text, View } from 'react-native';
+import 'maplibre-gl/dist/maplibre-gl.css';
+import { useEffect, useRef, useState } from 'react';
+import { View } from 'react-native';
+import type { AprsMapProps } from './AprsMap.types';
 import {
   latestStations,
   positionCollection,
   trackCollection,
 } from './map-model';
-import type { AprsMapProps } from './AprsMap.types';
-import 'maplibre-gl/dist/maplibre-gl.css';
 
 export default function AprsMap({
   positions,
@@ -19,6 +27,8 @@ export default function AprsMap({
   referenceTime = Date.now(),
   onPacketSelect,
 }: AprsMapProps) {
+  const { colors } = useTheme();
+  const hasMapContent = Boolean(styleUrl || positions.length);
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<MapLibreMap | null>(null);
   const current = useRef({ positions, onPacketSelect, referenceTime });
@@ -26,6 +36,7 @@ export default function AprsMap({
   const [error, setError] = useState('');
   const fitted = useRef(false);
   useEffect(() => {
+    if (!hasMapContent) return;
     let disposed = false;
     fitted.current = false;
     setError('');
@@ -43,7 +54,7 @@ export default function AprsMap({
               {
                 id: 'background',
                 type: 'background',
-                paint: { 'background-color': '#101c2b' },
+                paint: { 'background-color': colors.background },
               },
             ],
           },
@@ -54,6 +65,9 @@ export default function AprsMap({
         });
         map.current = instance;
         instance.addControl(new module.NavigationControl());
+        const resize = new ResizeObserver(() => instance.resize());
+        resize.observe(container.current);
+        instance.on('remove', () => resize.disconnect());
         instance.on('error', () => {
           if (!disposed)
             setError(
@@ -78,7 +92,7 @@ export default function AprsMap({
             type: 'line',
             source: 'tracks',
             paint: {
-              'line-color': '#3f7f9e',
+              'line-color': colors.secondary,
               'line-width': 2,
               'line-opacity': 0.6,
             },
@@ -92,10 +106,10 @@ export default function AprsMap({
               'circle-color': [
                 'case',
                 ['any', ['get', 'stale'], ['get', 'clockSkew']],
-                '#8394aa',
-                '#50dfc2',
+                colors.textSecondary,
+                colors.primary,
               ],
-              'circle-stroke-color': '#ffffff',
+              'circle-stroke-color': colors.surface,
               'circle-stroke-width': 1.5,
             },
           });
@@ -120,7 +134,7 @@ export default function AprsMap({
             for (const position of stations)
               bounds.extend([position.lon, position.lat]);
             instance.fitBounds(bounds, {
-              padding: 48,
+              padding: uiSpace.xxxl,
               maxZoom: 12,
               duration: 0,
             });
@@ -141,7 +155,43 @@ export default function AprsMap({
       map.current?.remove();
       map.current = null;
     };
-  }, [styleUrl]);
+  }, [styleUrl, hasMapContent]);
+  useEffect(() => {
+    const instance = map.current;
+    if (!instance) return;
+    const apply = () => {
+      if (instance.getLayer('background') && !styleUrl)
+        instance.setPaintProperty(
+          'background',
+          'background-color',
+          colors.background,
+        );
+      if (instance.getLayer('received-tracks'))
+        instance.setPaintProperty(
+          'received-tracks',
+          'line-color',
+          colors.secondary,
+        );
+      if (instance.getLayer('received-stations')) {
+        instance.setPaintProperty('received-stations', 'circle-color', [
+          'case',
+          ['any', ['get', 'stale'], ['get', 'clockSkew']],
+          colors.textSecondary,
+          colors.primary,
+        ]);
+        instance.setPaintProperty(
+          'received-stations',
+          'circle-stroke-color',
+          colors.surface,
+        );
+      }
+    };
+    if (instance.isStyleLoaded()) apply();
+    else instance.on('load', apply);
+    return () => {
+      instance.off('load', apply);
+    };
+  }, [colors, styleUrl]);
   useEffect(() => {
     const instance = map.current;
     if (!instance || !instance.isStyleLoaded()) return;
@@ -169,26 +219,38 @@ export default function AprsMap({
           [west, south],
           [east, north],
         ],
-        { padding: 48, maxZoom: 12, duration: 0 },
+        { padding: uiSpace.xxxl, maxZoom: 12, duration: 0 },
       );
       fitted.current = true;
     }
   }, [positions, referenceTime]);
+  if (!hasMapContent)
+    return (
+      <EmptyState
+        title="No received positions"
+        message="Positions will appear when your station receives APRS packets. Packets without a supported position remain available below."
+      />
+    );
   return (
-    <View style={{ gap: 8 }}>
+    <View style={{ gap: uiSpace.sm }}>
       <div
         ref={container}
         aria-label="Received APRS positions"
-        style={{ height: 360, borderRadius: 12, overflow: 'hidden' }}
+        style={{ height: 360, borderRadius: uiRadius.lg, overflow: 'hidden' }}
       />
       {!styleUrl && (
-        <Text style={{ color: '#92a7bf', fontSize: 12 }}>
+        <Text
+          style={{
+            color: colors.textSecondary,
+            fontSize: uiType.caption.fontSize,
+          }}
+        >
           Position overlay only. A station administrator can configure a
           base-map style and its attribution.
         </Text>
       )}
       {!!error && (
-        <Text accessibilityRole="alert" style={{ color: '#ffb4a9' }}>
+        <Text accessibilityRole="alert" style={{ color: colors.error }}>
           {error}
         </Text>
       )}

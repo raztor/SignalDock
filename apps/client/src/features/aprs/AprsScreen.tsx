@@ -1,28 +1,30 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  ActivityIndicator,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
-import { randomUUID } from 'expo-crypto';
 import { apiRequest } from '@signaldock/client-sdk';
 import {
   CommunicationSchema,
   IdSchema,
-  TimestampSchema,
   PacketRecordSchema,
   PositionRecordSchema,
+  TimestampSchema,
   type Communication,
   type FeatureScreenProps,
+  type JobState,
   type PacketRecord,
   type PositionRecord,
-  type JobState,
 } from '@signaldock/contracts';
 import type { AudioDecodeResult } from '@signaldock/digital-decoders';
+import {
+  Disclosure,
+  Pressable,
+  ScrollView,
+  Text,
+  TextInput,
+  space as uiSpace,
+  useFeatureStyles,
+  useTheme,
+} from '@signaldock/ui';
+import { randomUUID } from 'expo-crypto';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, View } from 'react-native';
 import AprsMap from './AprsMap';
 import { latestStations, positionAge } from './map-model';
 
@@ -58,6 +60,8 @@ function AprsScreenContent({
   radioId,
   mapStyleUrl,
 }: FeatureScreenProps & { mapStyleUrl?: string }) {
+  const { colors } = useTheme();
+  const styles = useFeatureStyles('aprs');
   const [packets, setPackets] = useState<PacketRecord[]>([]);
   const [positions, setPositions] = useState<PositionRecord[]>([]);
   const [recordings, setRecordings] = useState<Communication[]>([]);
@@ -348,8 +352,10 @@ function AprsScreenContent({
   return (
     <ScrollView contentContainerStyle={styles.page}>
       <View style={styles.header}>
-        <View>
-          <Text style={styles.title}>APRS and digital</Text>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text accessibilityRole="header" style={styles.title}>
+            APRS and digital
+          </Text>
           <Text style={styles.muted}>
             Received positions, packets, and recording evidence
           </Text>
@@ -370,7 +376,6 @@ function AprsScreenContent({
           value={callsign}
           onChangeText={(value) => setCallsign(value.toUpperCase())}
           placeholder="Callsign"
-          placeholderTextColor="#7890aa"
           autoCapitalize="characters"
           onSubmitEditing={() => setFilterCallsign(callsign.trim())}
         />
@@ -417,7 +422,7 @@ function AprsScreenContent({
           {error}
         </Text>
       )}
-      {loading && <ActivityIndicator color="#50dfc2" />}
+      {loading && <ActivityIndicator color={colors.primary} />}
       <AprsMap
         key={context}
         positions={positions}
@@ -443,7 +448,9 @@ function AprsScreenContent({
                 void choosePacket(position.packetId);
               }}
             >
-              <Text style={styles.heading}>{position.callsign}</Text>
+              <Text accessibilityRole="header" style={styles.heading}>
+                {position.callsign}
+              </Text>
               <Text style={styles.text}>
                 {position.lat.toFixed(5)}, {position.lon.toFixed(5)}
               </Text>
@@ -461,13 +468,15 @@ function AprsScreenContent({
           );
         })}
       </View>
-      {!positions.length && !loading && (
+      {!positions.length && !loading && !!mapStyleUrl && (
         <Text style={styles.muted}>
           No positions in this time window. Packets without a supported position
           remain in the packet list.
         </Text>
       )}
-      <Text style={styles.heading}>Packets</Text>
+      <Text accessibilityRole="header" style={styles.heading}>
+        Packets
+      </Text>
       {packets.map((packet) => (
         <Pressable
           key={packet.packetId}
@@ -507,7 +516,9 @@ function AprsScreenContent({
       )}
       {selectedPacket && (
         <View style={styles.card}>
-          <Text style={styles.heading}>Packet evidence</Text>
+          <Text accessibilityRole="header" style={styles.heading}>
+            Packet evidence
+          </Text>
           <Text selectable style={styles.text}>
             {selectedPacket.rawText ??
               'Binary packet; see stored frame evidence.'}
@@ -556,8 +567,7 @@ function AprsScreenContent({
           </Pressable>
         </View>
       )}
-      <View style={styles.card}>
-        <Text style={styles.heading}>Decode a recording</Text>
+      <Disclosure title="Decode a recording">
         <Text style={styles.muted}>
           Select captured audio. Decoding creates evidence; it never transmits.
         </Text>
@@ -624,7 +634,7 @@ function AprsScreenContent({
           )}
         </View>
         {run && (
-          <View style={{ gap: 8 }}>
+          <View style={{ gap: uiSpace.sm }}>
             <Text style={styles.text}>Decoder status: {run.state}</Text>
             {run.error && <Text style={styles.error}>{run.error}</Text>}
             {run.result && (
@@ -645,7 +655,7 @@ function AprsScreenContent({
             )}
           </View>
         )}
-      </View>
+      </Disclosure>
     </ScrollView>
   );
 }
@@ -672,57 +682,3 @@ function abortableDelay(
     if (signal.aborted) abort();
   });
 }
-const styles = StyleSheet.create({
-  page: { padding: 20, gap: 16, backgroundColor: '#0b1220' },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: 12,
-    flexWrap: 'wrap',
-  },
-  title: { fontSize: 28, fontWeight: '700', color: '#eef5ff' },
-  heading: { fontSize: 18, fontWeight: '600', color: '#eef5ff' },
-  text: { fontSize: 14, lineHeight: 21, color: '#d2e1f1' },
-  muted: { fontSize: 12, lineHeight: 18, color: '#94a9c1' },
-  warning: { fontSize: 13, color: '#f6d38a' },
-  error: { color: '#ffb4a9' },
-  filters: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    alignItems: 'center',
-  },
-  input: {
-    minWidth: 150,
-    padding: 10,
-    borderWidth: 1,
-    borderColor: '#354b66',
-    borderRadius: 8,
-    color: '#eef5ff',
-  },
-  button: { padding: 12, borderRadius: 8, backgroundColor: '#50dfc2' },
-  buttonText: { color: '#06131b', fontWeight: '700' },
-  secondary: {
-    padding: 10,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#354b66',
-  },
-  selected: { borderColor: '#50dfc2', backgroundColor: '#173b3c' },
-  card: {
-    padding: 16,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#263951',
-    backgroundColor: '#131f32',
-    gap: 8,
-  },
-  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
-  packet: {
-    padding: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#263951',
-    gap: 5,
-  },
-  link: { color: '#50dfc2', paddingVertical: 8 },
-});

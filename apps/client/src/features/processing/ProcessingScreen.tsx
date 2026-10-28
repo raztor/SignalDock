@@ -1,14 +1,3 @@
-import { createElement, useCallback, useEffect, useRef, useState } from 'react';
-import {
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Switch,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
 import { apiFetch, apiRequest } from '@signaldock/client-sdk';
 import type {
   Communication,
@@ -21,6 +10,19 @@ import type {
   ProcessingProfile,
 } from '@signaldock/contracts';
 import type { ProcessingTaskDefinition } from '@signaldock/processing-sdk';
+import {
+  Action,
+  ConfirmButton,
+  Disclosure,
+  ScrollView,
+  SettingToggle,
+  Text,
+  TextInput,
+  useFeatureStyles,
+  useScreenActive,
+} from '@signaldock/ui';
+import { createElement, useCallback, useEffect, useRef, useState } from 'react';
+import { Platform, View } from 'react-native';
 
 type Task = Pick<ProcessingTaskDefinition, 'taskId' | 'version' | 'capability'>;
 const defaults: Record<string, string> = {
@@ -42,6 +44,12 @@ export function ProcessingScreen({
   radioId,
   onTransmitSpeech,
 }: ProcessingScreenProps) {
+  const styles = useFeatureStyles('processing');
+  const active = useScreenActive();
+  const previewAudio = useRef<HTMLAudioElement>(null);
+  useEffect(() => {
+    if (!active) previewAudio.current?.pause();
+  }, [active]);
   const [connections, setConnections] = useState<ProcessingConnectionView[]>(
     [],
   );
@@ -337,7 +345,9 @@ export function ProcessingScreen({
     });
   return (
     <ScrollView contentContainerStyle={styles.page}>
-      <Text style={styles.title}>Processing</Text>
+      <Text accessibilityRole="header" style={styles.title}>
+        Processing
+      </Text>
       <Text style={styles.muted}>
         Choose where recordings and messages are processed. Cloud access
         requires an enabled profile.
@@ -348,7 +358,109 @@ export function ProcessingScreen({
         </Text>
       ) : null}
       <View style={styles.card}>
-        <Text style={styles.heading}>Connections</Text>
+        <Text accessibilityRole="header" style={styles.heading}>
+          Speech and message jobs
+        </Text>
+        <Text style={styles.muted}>
+          {radioId
+            ? 'Select a communication as the source for transcription or analysis.'
+            : 'Select a radio from the dashboard to load recordings.'}
+        </Text>
+        {communications
+          .filter((communication) => !communication.deletedAt)
+          .map((communication) => (
+            <Action
+              key={communication.id}
+              label={`${new Date(communication.startedAt).toLocaleString()} · ${communication.frequencyHz ? (communication.frequencyHz / 1e6).toFixed(4) + ' MHz' : 'frequency unknown'}${communication.recording ? ' · recording' : ''}`}
+              active={communicationId === communication.id}
+              disabled={busy}
+              onPress={() => setCommunicationId(communication.id)}
+            />
+          ))}
+        {!profiles.length && (
+          <Text style={styles.muted}>
+            Add a provider connection and a processing profile below to run
+            speech jobs.
+          </Text>
+        )}
+        <Field
+          label="Speech text"
+          value={text}
+          onChangeText={setText}
+          multiline
+        />
+        <Text style={styles.muted}>
+          Synthesis produces a private preview. Transmitting it requires the
+          radio's authorized PTT workflow.
+        </Text>
+        <Action
+          label="Run selected profile"
+          disabled={busy || !selectedProfile}
+          onPress={() => void submit()}
+        />
+        <Action
+          label="Refresh jobs"
+          disabled={busy}
+          onPress={() => void run(async () => undefined)}
+        />
+        {jobs.map((job) => (
+          <View style={styles.item} key={job.jobId}>
+            <Text style={styles.label}>
+              {job.task} · {job.state}
+            </Text>
+            {job.error ? <Text style={styles.status}>{job.error}</Text> : null}
+            {job.result?.output.kind === 'transcript' ||
+            job.result?.output.kind === 'summary' ? (
+              <Text style={styles.body}>
+                {job.result.output.text || '(No speech detected)'}
+              </Text>
+            ) : null}
+            {job.result?.output.kind === 'audio' ? (
+              <Action
+                label="Listen to preview"
+                disabled={busy}
+                onPress={() => void play(job.jobId)}
+              />
+            ) : null}
+            {job.result?.output.kind === 'audio' &&
+            radioId &&
+            onTransmitSpeech ? (
+              <Action
+                label="Transmit prepared speech"
+                disabled={busy}
+                onPress={() =>
+                  void run(async (signal) => {
+                    await onTransmitSpeech(job.jobId, radioId, signal);
+                  })
+                }
+              />
+            ) : null}
+            {job.state === 'queued' || job.state === 'running' ? (
+              <Action
+                label="Cancel job"
+                disabled={busy}
+                onPress={() =>
+                  void run(async (signal) => {
+                    await apiRequest(session, `processing/jobs/${job.jobId}`, {
+                      method: 'DELETE',
+                      signal,
+                    });
+                  })
+                }
+              />
+            ) : null}
+          </View>
+        ))}
+        {preview && Platform.OS === 'web'
+          ? createElement('audio', {
+              controls: true,
+              ref: previewAudio,
+              src: preview,
+              style: { width: '100%' },
+            })
+          : null}
+      </View>
+      <Disclosure title="Provider connections">
         {connections.map((connection) => (
           <View key={connection.connection.connectionId} style={styles.item}>
             <Action
@@ -363,8 +475,14 @@ export function ProcessingScreen({
               {connection.capabilities.join(' · ')}
             </Text>
             {connection.status !== 'revoked' ? (
-              <Action
+              <ConfirmButton
                 label="Revoke connection"
+                variant="danger"
+                confirmation={{
+                  title: 'Revoke this provider connection?',
+                  message:
+                    'Processing jobs using this connection will no longer be able to use its credentials.',
+                }}
                 disabled={busy}
                 onPress={() =>
                   void run(async (signal) => {
@@ -469,10 +587,9 @@ export function ProcessingScreen({
           speech requires a separate connection. Setup instructions are in the
           processing documentation.
         </Text>
-      </View>
+      </Disclosure>
       {session.user.role === 'administrator' ? (
-        <View style={styles.card}>
-          <Text style={styles.heading}>Automatic RX transcription</Text>
+        <Disclosure title="Automatic RX transcription">
           <Text style={styles.muted}>
             Off until explicitly enabled for a radio and destination. Changing
             the endpoint, connection or profile revision requires new consent.
@@ -521,16 +638,11 @@ export function ProcessingScreen({
             value={serviceOwnerUserId}
             onChangeText={setServiceOwnerUserId}
           />
-          <View style={styles.row}>
-            <Switch
-              value={automaticConsent}
-              onValueChange={setAutomaticConsent}
-            />
-            <Text style={[styles.label, { flex: 1 }]}>
-              I approve automatic uploads of this radio's RX recordings to the
-              displayed destination and profile revision.
-            </Text>
-          </View>
+          <SettingToggle
+            label="I approve automatic uploads of this radio’s RX recordings to the displayed destination and profile revision."
+            value={automaticConsent}
+            onValueChange={setAutomaticConsent}
+          />
           <Action
             label="Enable automatic uploads for this radio"
             disabled={
@@ -571,10 +683,9 @@ export function ProcessingScreen({
               })
             }
           />
-        </View>
+        </Disclosure>
       ) : null}
-      <View style={styles.card}>
-        <Text style={styles.heading}>Profiles</Text>
+      <Disclosure title="Processing profiles">
         {profiles.map((profile) => (
           <Action
             key={profile.profileId}
@@ -616,110 +727,17 @@ export function ProcessingScreen({
           transcription may set language. No credentials belong in these
           settings.
         </Text>
-        <View style={styles.row}>
-          <Switch value={allowCloud} onValueChange={setAllowCloud} />
-          <Text style={styles.label}>Allow cloud processing</Text>
-        </View>
+        <SettingToggle
+          label="Allow cloud processing"
+          value={allowCloud}
+          onValueChange={setAllowCloud}
+        />
         <Action
           label="Create profile"
           disabled={busy || !selectedConnection}
           onPress={() => void createProfile()}
         />
-      </View>
-      <View style={styles.card}>
-        <Text style={styles.heading}>Speech and message jobs</Text>
-        <Text style={styles.muted}>
-          {radioId
-            ? 'Select a communication as the source for transcription or analysis.'
-            : 'Select a radio from the dashboard to load recordings.'}
-        </Text>
-        {communications
-          .filter((communication) => !communication.deletedAt)
-          .map((communication) => (
-            <Action
-              key={communication.id}
-              label={`${new Date(communication.startedAt).toLocaleString()} · ${communication.frequencyHz ? (communication.frequencyHz / 1e6).toFixed(4) + ' MHz' : 'frequency unknown'}${communication.recording ? ' · recording' : ''}`}
-              active={communicationId === communication.id}
-              disabled={busy}
-              onPress={() => setCommunicationId(communication.id)}
-            />
-          ))}
-        <Field
-          label="Speech text"
-          value={text}
-          onChangeText={setText}
-          multiline
-        />
-        <Text style={styles.muted}>
-          Synthesis produces a private preview. Transmitting it requires the
-          radio's authorized PTT workflow.
-        </Text>
-        <Action
-          label="Run selected profile"
-          disabled={busy || !selectedProfile}
-          onPress={() => void submit()}
-        />
-        <Action
-          label="Refresh jobs"
-          disabled={busy}
-          onPress={() => void run(async () => undefined)}
-        />
-        {jobs.map((job) => (
-          <View style={styles.item} key={job.jobId}>
-            <Text style={styles.label}>
-              {job.task} · {job.state}
-            </Text>
-            {job.error ? <Text style={styles.status}>{job.error}</Text> : null}
-            {job.result?.output.kind === 'transcript' ||
-            job.result?.output.kind === 'summary' ? (
-              <Text style={styles.body}>
-                {job.result.output.text || '(No speech detected)'}
-              </Text>
-            ) : null}
-            {job.result?.output.kind === 'audio' ? (
-              <Action
-                label="Listen to preview"
-                disabled={busy}
-                onPress={() => void play(job.jobId)}
-              />
-            ) : null}
-            {job.result?.output.kind === 'audio' &&
-            radioId &&
-            onTransmitSpeech ? (
-              <Action
-                label="Transmit prepared speech"
-                disabled={busy}
-                onPress={() =>
-                  void run(async (signal) => {
-                    await onTransmitSpeech(job.jobId, radioId, signal);
-                  })
-                }
-              />
-            ) : null}
-            {job.state === 'queued' || job.state === 'running' ? (
-              <Action
-                label="Cancel job"
-                disabled={busy}
-                onPress={() =>
-                  void run(async (signal) => {
-                    await apiRequest(session, `processing/jobs/${job.jobId}`, {
-                      method: 'DELETE',
-                      signal,
-                    });
-                  })
-                }
-              />
-            ) : null}
-          </View>
-        ))}
-        {preview && Platform.OS === 'web'
-          ? createElement('audio', {
-              controls: true,
-              src: preview,
-              style: { width: '100%' },
-            })
-          : null}
-      </View>
+      </Disclosure>
     </ScrollView>
   );
 }
@@ -736,6 +754,7 @@ function Field({
   secret?: boolean;
   multiline?: boolean;
 }) {
+  const styles = useFeatureStyles('processing');
   return (
     <View>
       <Text style={styles.label}>{label}</Text>
@@ -752,33 +771,7 @@ function Field({
     </View>
   );
 }
-function Action({
-  label,
-  onPress,
-  disabled = false,
-  active = false,
-}: {
-  label: string;
-  onPress: () => void;
-  disabled?: boolean;
-  active?: boolean;
-}) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityState={{ disabled, selected: active }}
-      disabled={disabled}
-      onPress={onPress}
-      style={[
-        styles.button,
-        active && styles.active,
-        disabled && styles.disabled,
-      ]}
-    >
-      <Text style={styles.body}>{label}</Text>
-    </Pressable>
-  );
-}
+
 function parseObject(text: string): Record<string, unknown> {
   const value: unknown = JSON.parse(text);
   if (!value || typeof value !== 'object' || Array.isArray(value))
@@ -790,33 +783,3 @@ function message(error: unknown) {
     ? error.message
     : 'The operation could not be completed.';
 }
-const styles = StyleSheet.create({
-  page: { padding: 24, gap: 16, backgroundColor: '#101820' },
-  title: { color: '#f4f8fb', fontSize: 28, fontWeight: '700' },
-  heading: { color: '#f4f8fb', fontSize: 20, fontWeight: '600' },
-  label: { color: '#d4e0e9', fontSize: 14, marginTop: 8 },
-  body: { color: '#e7eef4', fontSize: 14 },
-  muted: { color: '#a3b4c3', lineHeight: 21 },
-  status: { color: '#ffd38a', lineHeight: 22 },
-  card: { backgroundColor: '#1a2733', borderRadius: 16, padding: 20, gap: 12 },
-  item: { borderTopWidth: 1, borderColor: '#344655', paddingTop: 12, gap: 8 },
-  input: {
-    backgroundColor: '#101c26',
-    borderColor: '#445868',
-    borderWidth: 1,
-    borderRadius: 8,
-    color: '#f4f8fb',
-    padding: 12,
-    marginTop: 6,
-  },
-  multiline: { minHeight: 80, textAlignVertical: 'top' },
-  options: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  button: { backgroundColor: '#304758', padding: 12, borderRadius: 8 },
-  active: {
-    backgroundColor: '#285d70',
-    borderWidth: 1,
-    borderColor: '#75d8e4',
-  },
-  disabled: { opacity: 0.5 },
-  row: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-});

@@ -1,27 +1,31 @@
-import { useEffect, useRef, useState } from 'react';
-import {
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
+import { Checkbox } from '@signaldock/ui';
 import { apiRequest } from '@signaldock/client-sdk';
 import {
   PublicUserSchema,
   RadioConfigurationSchema,
   SignalDockError,
   type FeatureScreenProps,
-  type PublicUser,
-  type Role,
   type Permission,
+  type PublicUser,
   type RadioConfiguration,
+  type Role,
 } from '@signaldock/contracts';
+import {
+  ConfirmButton,
+  Disclosure,
+  Pressable,
+  ScrollView,
+  Text,
+  TextInput,
+  useFeatureStyles,
+} from '@signaldock/ui';
+import { useEffect, useRef, useState } from 'react';
+import { View } from 'react-native';
 
 type RoleTemplates = Record<Role, Permission[]>;
 const roles: Role[] = ['listener', 'operator', 'administrator'];
 export function UserAdminScreen({ session }: FeatureScreenProps) {
+  const styles = useFeatureStyles('admin');
   const contextKey = `${session.baseUrl}:${session.instanceId}:${session.user.id}:${session.accessToken}`;
   const currentContext = useRef(contextKey);
   currentContext.current = contextKey;
@@ -110,7 +114,9 @@ export function UserAdminScreen({ session }: FeatureScreenProps) {
       contentContainerStyle={styles.content}
       keyboardShouldPersistTaps="handled"
     >
-      <Text style={styles.title}>Users and radio permissions</Text>
+      <Text accessibilityRole="header" style={styles.title}>
+        Users and radio permissions
+      </Text>
       <Text style={styles.muted}>
         Administrator status manages the station. Radio operation is assigned
         explicitly, including for your own account.
@@ -121,12 +127,10 @@ export function UserAdminScreen({ session }: FeatureScreenProps) {
         </Text>
       )}
       {!!message && <Text style={styles.success}>{message}</Text>}
-      <View style={styles.card}>
-        <Text style={styles.heading}>Create user</Text>
+      <Disclosure title="Create a user">
         <TextInput
           accessibilityLabel="New username"
           placeholder="Username"
-          placeholderTextColor="#8295b0"
           value={username}
           onChangeText={setUsername}
           autoCapitalize="none"
@@ -136,7 +140,6 @@ export function UserAdminScreen({ session }: FeatureScreenProps) {
         <TextInput
           accessibilityLabel="New user password"
           placeholder="Password (12+ characters)"
-          placeholderTextColor="#8295b0"
           value={password}
           onChangeText={setPassword}
           secureTextEntry
@@ -147,7 +150,7 @@ export function UserAdminScreen({ session }: FeatureScreenProps) {
             <Pressable
               key={value}
               accessibilityRole="radio"
-              accessibilityState={{ selected: role === value }}
+              accessibilityState={{ checked: role === value }}
               style={[styles.choice, role === value && styles.chosen]}
               onPress={() => setRole(value)}
             >
@@ -172,7 +175,7 @@ export function UserAdminScreen({ session }: FeatureScreenProps) {
         >
           <Text style={styles.buttonText}>Create user</Text>
         </Pressable>
-      </View>
+      </Disclosure>
       {users.map((user) => (
         <UserCard
           key={`${session.instanceId}:${session.baseUrl}:${user.id}`}
@@ -246,6 +249,7 @@ function UserCard({
   onRevoke: () => Promise<void>;
   onPassword: (password: string) => Promise<void>;
 }) {
+  const styles = useFeatureStyles('admin');
   const [role, setRole] = useState(user.role);
   const [grants, setGrants] = useState(user.radioPermissions);
   const [password, setPassword] = useState('');
@@ -261,7 +265,7 @@ function UserCard({
     );
   return (
     <View style={styles.card}>
-      <Text style={styles.heading}>
+      <Text accessibilityRole="header" style={styles.heading}>
         {user.username}
         {user.id === currentUserId ? ' (you)' : ''}
       </Text>
@@ -271,7 +275,7 @@ function UserCard({
           <Pressable
             key={value}
             accessibilityRole="radio"
-            accessibilityState={{ selected: role === value }}
+            accessibilityState={{ checked: role === value }}
             disabled={disabled}
             style={[styles.choice, role === value && styles.chosen]}
             onPress={() => {
@@ -295,28 +299,18 @@ function UserCard({
         </Text>
       )}
       {radios.map((radio) => (
-        <Pressable
+        <Checkbox
           key={radio.radioId}
-          accessibilityRole="checkbox"
-          accessibilityState={{
-            checked: grants.some((grant) => grant.radioId === radio.radioId),
-          }}
+          label={radio.displayName}
+          value={grants.some((grant) => grant.radioId === radio.radioId)}
           disabled={disabled || !templates}
-          style={styles.choice}
-          onPress={() => setRadio(radio.radioId)}
-        >
-          <Text style={styles.text}>
-            {grants.some((grant) => grant.radioId === radio.radioId)
-              ? '✓ '
-              : ''}
-            {radio.displayName}
-          </Text>
-        </Pressable>
+          onValueChange={() => setRadio(radio.radioId)}
+        />
       ))}
       {(role === 'operator' || role === 'administrator') && (
         <Text style={styles.muted}>
-          The selected role's radio template includes transmit permission on
-          assigned radios.
+          Changing role applies that role’s permission template to assigned
+          radios.
         </Text>
       )}
       <Pressable
@@ -330,96 +324,55 @@ function UserCard({
         <Text style={styles.buttonText}>Save role and radio access</Text>
       </Pressable>
       <View style={styles.row}>
-        <Pressable
-          accessibilityRole="button"
+        <ConfirmButton
+          label={user.enabled ? 'Disable account' : 'Enable account'}
           disabled={disabled}
-          style={styles.choice}
+          confirmation={{
+            title: user.enabled
+              ? 'Disable this account?'
+              : 'Enable this account?',
+            message: user.enabled
+              ? 'This stops the account’s access until it is enabled again.'
+              : 'This allows the account to sign in with its assigned permissions.',
+          }}
           onPress={() => {
             void onToggle();
           }}
-        >
-          <Text style={styles.text}>
-            {user.enabled ? 'Disable account' : 'Enable account'}
-          </Text>
-        </Pressable>
-        <Pressable
-          accessibilityRole="button"
+        />
+        <ConfirmButton
+          label="Revoke sessions"
+          variant="danger"
           disabled={disabled}
-          style={styles.choice}
+          confirmation={{
+            title: 'Revoke this user’s sessions?',
+            message:
+              'The user will need to sign in again on every connected device.',
+          }}
           onPress={() => {
             void onRevoke();
           }}
-        >
-          <Text style={styles.text}>Revoke sessions</Text>
-        </Pressable>
+        />
       </View>
       <TextInput
         accessibilityLabel={`New password for ${user.username}`}
         placeholder="Replacement password"
-        placeholderTextColor="#8295b0"
         value={password}
         onChangeText={setPassword}
         secureTextEntry
         style={styles.input}
       />
-      <Pressable
-        accessibilityRole="button"
+      <ConfirmButton
+        label="Reset password"
         disabled={disabled || password.length < 12}
-        style={styles.choice}
+        confirmation={{
+          title: 'Replace this user’s password?',
+          message:
+            'The new password will replace the current password for this station account.',
+        }}
         onPress={() => {
           void onPassword(password).then(() => setPassword(''));
         }}
-      >
-        <Text style={styles.text}>Reset password</Text>
-      </Pressable>
+      />
     </View>
   );
 }
-const styles = StyleSheet.create({
-  page: { flex: 1, backgroundColor: '#0b1220' },
-  content: {
-    padding: 24,
-    gap: 16,
-    maxWidth: 900,
-    width: '100%',
-    alignSelf: 'center',
-  },
-  title: { color: '#eef5ff', fontSize: 26, fontWeight: '700' },
-  heading: { color: '#eef5ff', fontSize: 18, fontWeight: '600' },
-  text: { color: '#dbe8f8', fontSize: 14 },
-  muted: { color: '#9fb0c9', fontSize: 14, lineHeight: 21 },
-  card: {
-    backgroundColor: '#131f32',
-    borderColor: '#263951',
-    borderWidth: 1,
-    borderRadius: 14,
-    padding: 20,
-    gap: 12,
-  },
-  input: {
-    backgroundColor: '#0b1525',
-    borderColor: '#3b526e',
-    borderWidth: 1,
-    borderRadius: 9,
-    padding: 14,
-    color: '#eef5ff',
-    fontSize: 15,
-  },
-  row: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
-  choice: {
-    borderColor: '#3b526e',
-    borderWidth: 1,
-    borderRadius: 8,
-    padding: 12,
-  },
-  chosen: { borderColor: '#50dfc2', backgroundColor: '#163a39' },
-  button: {
-    backgroundColor: '#50dfc2',
-    borderRadius: 9,
-    padding: 14,
-    alignItems: 'center',
-  },
-  buttonText: { color: '#06131b', fontWeight: '700' },
-  error: { color: '#ffb4a9', lineHeight: 21 },
-  success: { color: '#50dfc2', lineHeight: 21 },
-});

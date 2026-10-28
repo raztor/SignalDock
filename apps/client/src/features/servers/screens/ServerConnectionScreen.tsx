@@ -1,18 +1,27 @@
-import { useEffect, useRef, useState } from 'react';
+import { normalizeServerUrl, SignalDockClient } from '@signaldock/client-sdk';
+import type { RecentServer, ServerInfo } from '@signaldock/contracts';
 import {
-  ActivityIndicator,
+  Button,
+  ConfirmDialog,
+  createStyles,
+  EmptyState,
+  FormLayout,
+  Heading,
+  Icon,
+  layout,
   Pressable,
   ScrollView,
-  StyleSheet,
+  space,
   Text,
   TextInput,
-  View,
-} from 'react-native';
-import { StatusBar } from 'expo-status-bar';
-import { SignalDockClient, normalizeServerUrl } from '@signaldock/client-sdk';
-import type { RecentServer, ServerInfo } from '@signaldock/contracts';
-import { recentServerStore as store } from '../data/recent-server-store';
+  radius as uiRadius,
+  type as uiType,
+  useTheme,
+} from '@signaldock/ui';
+import { useEffect, useRef, useState } from 'react';
+import { useWindowDimensions, View } from 'react-native';
 import { DEFAULT_SERVER_URL } from '../../../shared/config/defaults';
+import { recentServerStore as store } from '../data/recent-server-store';
 
 export interface ServerConnectionScreenProps {
   onServerSelected?: (
@@ -25,6 +34,11 @@ export default function ServerConnectionScreen({
   onServerSelected,
   onServerRemoved,
 }: ServerConnectionScreenProps = {}) {
+  const { width } = useWindowDimensions();
+  const compact = width < layout.compact;
+  const styles = useConnectionStyles();
+  const { mode, setPreference, colors } = useTheme();
+  const [removing, setRemoving] = useState<RecentServer | null>(null);
   const [url, setUrl] = useState(DEFAULT_SERVER_URL);
   const [recent, setRecent] = useState<RecentServer[]>([]);
   const [result, setResult] = useState<ServerInfo | null>(null);
@@ -91,9 +105,11 @@ export default function ServerConnectionScreen({
         setError(
           current.controller.signal.aborted
             ? 'The connection timed out. Check the URL and network access.'
-            : failure instanceof Error
-              ? failure.message
-              : 'The server could not be reached.',
+            : failure instanceof TypeError
+              ? 'The station could not be reached.'
+              : failure instanceof Error
+                ? failure.message
+                : 'The server could not be reached.',
         );
       }
     } finally {
@@ -125,249 +141,283 @@ export default function ServerConnectionScreen({
   }
 
   return (
-    <ScrollView
-      style={styles.screen}
-      contentContainerStyle={styles.page}
-      keyboardShouldPersistTaps="handled"
-    >
-      <StatusBar style="light" />
-      <View style={styles.header}>
-        <Text style={styles.brand}>
-          SignalDock<Text style={styles.dot}> ●</Text>
+    <FormLayout>
+      <ScrollView contentContainerStyle={styles.page}>
+        <View style={styles.header}>
+          <View style={styles.brand}>
+            <Icon name="radio" color={colors.primary} size={24} />
+            <Heading>SignalDock</Heading>
+          </View>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Switch color theme"
+            onPress={() => setPreference(mode === 'dark' ? 'light' : 'dark')}
+            style={styles.theme}
+          >
+            <Icon name={mode === 'dark' ? 'sun' : 'moon'} />
+          </Pressable>
+        </View>
+        <View
+          style={[
+            styles.layout,
+            compact && {
+              flexDirection: 'column',
+              gap: space.xl,
+              paddingVertical: space.lg,
+              alignItems: 'stretch',
+            },
+          ]}
+        >
+          <View
+            style={[
+              styles.intro,
+              compact && { flexBasis: 'auto', flexGrow: 0 },
+            ]}
+          >
+            <Text style={styles.kicker}>Your station, connected.</Text>
+            <Text accessibilityRole="header" style={styles.title}>
+              A clear connection{'\n'}to your radio.
+            </Text>
+            <Text style={styles.description}>
+              Listen, operate and keep track of your station from one workspace.
+            </Text>
+            <View style={styles.note}>
+              <Icon name="server" />
+              <Text style={styles.muted}>
+                Connect to your own server. Your station data stays with that
+                instance.
+              </Text>
+            </View>
+          </View>
+          <View
+            style={[
+              styles.form,
+              compact && {
+                flexBasis: 'auto',
+                width: '100%',
+                maxWidth: '100%',
+                flexGrow: 0,
+                padding: space.lg,
+              },
+            ]}
+          >
+            <View style={styles.formHeader}>
+              <Heading>Connect to a server</Heading>
+              <Text style={styles.muted}>
+                Use the address provided by your station administrator.
+              </Text>
+            </View>
+            <Text style={styles.label}>Server address</Text>
+            <TextInput
+              accessibilityLabel="Server URL"
+              value={url}
+              onChangeText={(value) => {
+                resetConnection();
+                setUrl(value);
+              }}
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="url"
+              placeholder="https://radio.example.com"
+              returnKeyType="go"
+              onSubmitEditing={() => {
+                if (!busy) void connect();
+              }}
+            />
+            <Button
+              label="Connect to station"
+              loading={busy}
+              variant="primary"
+              onPress={() => {
+                void connect();
+              }}
+            />
+            <Text style={styles.hint}>
+              Include the full address and any deployment prefix.
+            </Text>
+            {!!error && (
+              <View style={styles.feedback}>
+                <Text accessibilityRole="alert" style={styles.error}>
+                  {error}
+                </Text>
+                <Text style={styles.muted}>
+                  Check the address and network connection, then try again.
+                </Text>
+              </View>
+            )}
+            {result && (
+              <View style={styles.feedback}>
+                <Heading>{result.displayName}</Heading>
+                <Text style={styles.muted}>
+                  Version {result.version} · Protocol {result.protocol.min}–
+                  {result.protocol.max}
+                </Text>
+                <Text selectable style={styles.hint}>
+                  {result.identity.keyId}
+                </Text>
+                <Text style={styles.muted}>
+                  {result.features.authentication === 'local'
+                    ? 'Server reached. Continue with your station account.'
+                    : 'Server reached. Sign-in is not available on this instance.'}
+                </Text>
+              </View>
+            )}
+            <View style={styles.recentHeader}>
+              <Heading>Recent stations</Heading>
+              <Text style={styles.hint}>Saved on this device</Text>
+            </View>
+            {!recent.length ? (
+              <EmptyState
+                title="Your next connection starts here"
+                message="Connected stations will appear here for quick access."
+              />
+            ) : (
+              recent.map((server) => (
+                <View key={server.baseUrl} style={styles.recent}>
+                  <Pressable
+                    accessibilityRole="button"
+                    disabled={busy}
+                    accessibilityLabel={`Connect to ${server.alias}`}
+                    onPress={() => {
+                      void connect(server.baseUrl);
+                    }}
+                    style={styles.recentMain}
+                  >
+                    <Text style={styles.label}>{server.alias}</Text>
+                    <Text numberOfLines={2} style={styles.hint}>
+                      {server.baseUrl}
+                    </Text>
+                  </Pressable>
+                  <Button
+                    label="Forget"
+                    variant="quiet"
+                    onPress={() => setRemoving(server)}
+                  />
+                </View>
+              ))
+            )}
+          </View>
+        </View>
+        <Text style={styles.footer}>
+          Self-hosted radio operations · Open source
         </Text>
-        <Text style={styles.badge}>DEVELOPMENT PREVIEW</Text>
-      </View>
-      <View style={styles.intro}>
-        <Text style={styles.eyebrow}>YOUR STATION. YOUR SERVER.</Text>
-        <Text style={styles.title}>Connect to your{'\n'}radio workspace.</Text>
-        <Text style={styles.description}>
-          Choose a self-hosted SignalDock server. Your accounts and station data
-          belong to that instance.
-        </Text>
-      </View>
-      <View style={styles.card}>
-        <Text style={styles.heading}>Server connection</Text>
-        <Text style={styles.muted}>
-          Enter the backend URL, including any deployment prefix.
-        </Text>
-        <Text style={styles.label}>SERVER URL</Text>
-        <TextInput
-          accessibilityLabel="Server URL"
-          style={styles.input}
-          value={url}
-          onChangeText={(value) => {
-            resetConnection();
-            setUrl(value);
-          }}
-          autoCapitalize="none"
-          autoCorrect={false}
-          keyboardType="url"
-          placeholder="https://radio.example.com"
-          placeholderTextColor="#6d829c"
-          onSubmitEditing={() => {
-            void connect();
+        <ConfirmDialog
+          visible={Boolean(removing)}
+          title="Forget this station?"
+          message="This removes its saved connection and signs out its session on this device."
+          confirmLabel="Forget station"
+          onCancel={() => setRemoving(null)}
+          onConfirm={() => {
+            if (removing) void remove(removing);
+            setRemoving(null);
           }}
         />
-        <Pressable
-          accessibilityRole="button"
-          disabled={busy}
-          style={[styles.button, busy && styles.disabled]}
-          onPress={() => {
-            void connect();
-          }}
-        >
-          {busy ? (
-            <ActivityIndicator color="#06131b" />
-          ) : (
-            <Text style={styles.buttonText}>Check server →</Text>
-          )}
-        </Pressable>
-        <Text style={styles.hint}>
-          HTTPS is required. HTTP loopback is available for local development.
-        </Text>
-        {!!error && (
-          <Text accessibilityRole="alert" style={styles.error}>
-            {error}
-          </Text>
-        )}
-      </View>
-      {result && (
-        <View style={[styles.card, styles.connected]}>
-          <Text style={styles.eyebrow}>SERVER REACHED</Text>
-          <Text style={styles.heading}>{result.displayName}</Text>
-          <Text style={styles.muted}>
-            Version {result.version} · Protocol {result.protocol.min}–
-            {result.protocol.max}
-          </Text>
-          <Text selectable style={styles.fingerprint}>
-            {result.identity.keyId}
-          </Text>
-          <Text style={styles.muted}>
-            {result.features.authentication === 'local'
-              ? 'This server supports local sign-in. Continue with your station account.'
-              : 'This server currently exposes discovery only. Local sign-in is unavailable.'}
-          </Text>
-        </View>
-      )}
-      <View style={styles.section}>
-        <Text style={styles.heading}>Recent servers</Text>
-        <Text style={styles.muted}>
-          Saved on this device. No passwords are stored here.
-        </Text>
-        {!recent.length && (
-          <View style={styles.empty}>
-            <Text style={styles.emptyTitle}>
-              Your stations will appear here
-            </Text>
-            <Text style={styles.muted}>
-              Check a server to add it to your recent connections.
-            </Text>
-          </View>
-        )}
-        {recent.map((server) => (
-          <View key={server.baseUrl} style={styles.recent}>
-            <Pressable
-              accessibilityRole="button"
-              style={styles.recentMain}
-              onPress={() => {
-                void connect(server.baseUrl);
-              }}
-            >
-              <Text style={styles.serverName}>{server.alias}</Text>
-              <Text style={styles.muted}>{server.baseUrl}</Text>
-            </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={`Remove ${server.alias}`}
-              style={styles.remove}
-              onPress={() => {
-                void remove(server);
-              }}
-            >
-              <Text style={styles.removeText}>Remove</Text>
-            </Pressable>
-          </View>
-        ))}
-      </View>
-      <Text style={styles.footer}>Open source · Self-hosted · GNU AGPL v3</Text>
-    </ScrollView>
+      </ScrollView>
+    </FormLayout>
   );
 }
-
-const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: '#0b1220' },
+const useConnectionStyles = createStyles((c) => ({
   page: {
+    flexGrow: 1,
     width: '100%',
-    maxWidth: 900,
+    maxWidth: layout.content,
     alignSelf: 'center',
-    paddingHorizontal: 24,
-    paddingTop: 56,
-    paddingBottom: 40,
-    gap: 28,
+    paddingHorizontal: space.xl,
+    paddingBottom: space.xl,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    paddingVertical: space.lg,
+  },
+  brand: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
+  theme: { width: layout.touch, alignItems: 'center' },
+  layout: {
+    flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 12,
+    gap: space.xxxl,
+    paddingVertical: space.xxl,
+    flex: 1,
+    alignItems: 'center',
   },
-  brand: {
-    color: '#eef5ff',
-    fontSize: 24,
-    fontWeight: '700',
-    letterSpacing: -0.6,
-  },
-  dot: { color: '#50dfc2', fontSize: 14 },
-  badge: {
-    color: '#93a8c5',
-    fontSize: 10,
-    letterSpacing: 1.5,
-    borderWidth: 1,
-    borderColor: '#2b3c54',
-    borderRadius: 6,
-    padding: 8,
-  },
-  intro: { paddingVertical: 12, gap: 16 },
-  eyebrow: {
-    color: '#50dfc2',
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 2,
+  intro: { flexBasis: 300, flexGrow: 1, gap: space.lg },
+  kicker: {
+    color: c.primary,
+    fontSize: uiType.label.fontSize,
+    fontWeight: '600',
   },
   title: {
-    fontSize: 42,
-    lineHeight: 49,
+    color: c.textPrimary,
+    fontSize: uiType.display.fontSize,
+    lineHeight: 44,
     fontWeight: '700',
-    letterSpacing: -1.5,
-    color: '#eef5ff',
+    letterSpacing: -1.2,
   },
   description: {
-    color: '#9fb0c9',
-    fontSize: 17,
+    color: c.textSecondary,
+    fontSize: uiType.body.fontSize,
     lineHeight: 26,
-    maxWidth: 630,
+    maxWidth: 360,
   },
-  card: {
-    backgroundColor: '#131f32',
-    borderWidth: 1,
-    borderColor: '#263951',
-    borderRadius: 18,
-    padding: 24,
-    gap: 12,
+  note: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: space.md,
+    marginTop: space.lg,
+    maxWidth: 360,
   },
-  heading: { color: '#eef5ff', fontSize: 20, fontWeight: '600' },
-  muted: { color: '#a0b2ca', fontSize: 14, lineHeight: 21 },
+  form: {
+    flexBasis: 360,
+    flexGrow: 1,
+    maxWidth: layout.form,
+    gap: space.md,
+    backgroundColor: c.surface,
+    borderRadius: uiRadius.lg,
+    padding: space.xl,
+  },
+  formHeader: { gap: space.sm, marginBottom: space.md },
   label: {
-    color: '#a0b2ca',
-    fontSize: 11,
+    color: c.textPrimary,
+    fontSize: uiType.label.fontSize,
     fontWeight: '600',
-    letterSpacing: 1.5,
-    marginTop: 12,
   },
-  input: {
-    backgroundColor: '#0b1525',
-    borderWidth: 1,
-    borderColor: '#3b526e',
-    borderRadius: 10,
-    padding: 16,
-    color: '#eef5ff',
-    fontSize: 16,
+  muted: {
+    color: c.textSecondary,
+    fontSize: uiType.body.fontSize,
+    lineHeight: 23,
   },
-  button: {
-    borderRadius: 10,
-    padding: 16,
-    alignItems: 'center',
-    backgroundColor: '#50dfc2',
-    minHeight: 52,
+  hint: {
+    color: c.textSecondary,
+    fontSize: uiType.caption.fontSize,
+    lineHeight: 18,
   },
-  buttonText: { color: '#06131b', fontWeight: '700', fontSize: 16 },
-  disabled: { opacity: 0.65 },
-  hint: { color: '#8195b0', fontSize: 12, lineHeight: 18 },
-  error: { color: '#ffb4a9', lineHeight: 22, marginTop: 6 },
-  connected: { borderColor: '#287d70' },
-  fingerprint: { color: '#88b5ad', fontSize: 12, lineHeight: 19 },
-  section: { gap: 12 },
-  empty: {
-    padding: 24,
-    borderWidth: 1,
-    borderColor: '#263951',
-    borderStyle: 'dashed',
-    borderRadius: 14,
-    gap: 8,
+  recentHeader: {
+    gap: space.xs,
+    paddingTop: space.xl,
+    marginTop: space.md,
+    borderTopWidth: 1,
+    borderColor: c.border,
   },
-  emptyTitle: { color: '#c8d6e9', fontSize: 15, fontWeight: '500' },
   recent: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#131f32',
-    borderRadius: 12,
-    padding: 16,
-    gap: 12,
+    gap: space.sm,
+    borderBottomWidth: 1,
+    borderColor: c.border,
+    paddingVertical: space.sm,
   },
-  recentMain: { flex: 1, gap: 4 },
-  serverName: { color: '#eef5ff', fontSize: 16, fontWeight: '600' },
-  remove: { padding: 8 },
-  removeText: { color: '#93a8c5', fontSize: 13 },
-  footer: { color: '#6d829c', fontSize: 12, textAlign: 'center', marginTop: 8 },
-});
+  recentMain: { flex: 1, minWidth: 0, gap: space.xs },
+  feedback: {
+    borderLeftWidth: 2,
+    borderColor: c.primary,
+    paddingLeft: space.lg,
+    gap: space.sm,
+  },
+  error: { color: c.error },
+  footer: {
+    fontSize: uiType.caption.fontSize,
+    color: c.textSecondary,
+    paddingVertical: space.md,
+  },
+}));

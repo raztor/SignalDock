@@ -1,14 +1,21 @@
-import { useEffect, useRef, useState } from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
 import { apiRequest } from '@signaldock/client-sdk';
 import {
   SessionSummarySchema,
   type FeatureScreenProps,
   type SessionSummary,
 } from '@signaldock/contracts';
-import { authStyles as styles } from '../auth.styles';
+import {
+  ConfirmDialog,
+  Pressable,
+  ScrollView,
+  Text,
+  useFeatureStyles,
+} from '@signaldock/ui';
+import { useEffect, useRef, useState } from 'react';
+import { View } from 'react-native';
 
 export function SessionListScreen({ session }: FeatureScreenProps) {
+  const styles = useFeatureStyles('auth');
   const contextKey = JSON.stringify([
     session.baseUrl,
     session.instanceId,
@@ -17,6 +24,7 @@ export function SessionListScreen({ session }: FeatureScreenProps) {
   ]);
   const currentContext = useRef(contextKey);
   currentContext.current = contextKey;
+  const [revoking, setRevoking] = useState<SessionSummary | null>(null);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -73,13 +81,15 @@ export function SessionListScreen({ session }: FeatureScreenProps) {
   };
   return (
     <ScrollView style={styles.page} contentContainerStyle={styles.content}>
-      <Text style={styles.title}>Your sessions</Text>
+      <Text accessibilityRole="header" style={styles.title}>
+        Your sessions
+      </Text>
       <Text style={styles.muted}>
         {session.user.username} · {session.baseUrl}
       </Text>
       <Text style={styles.muted}>
-        Revoking a session stops its access and refresh credentials. Other
-        SignalDock servers have separate sessions.
+        Revoking a session signs that device out. Sessions on other servers stay
+        separate.
       </Text>
       {!!error && (
         <Text accessibilityRole="alert" style={styles.error}>
@@ -112,7 +122,7 @@ export function SessionListScreen({ session }: FeatureScreenProps) {
               disabled={busy}
               style={[styles.secondary, busy && styles.disabled]}
               onPress={() => {
-                void revoke(item);
+                setRevoking(item);
               }}
             >
               <Text style={styles.secondaryText}>
@@ -122,6 +132,21 @@ export function SessionListScreen({ session }: FeatureScreenProps) {
           )}
         </View>
       ))}
+      <ConfirmDialog
+        visible={Boolean(revoking)}
+        title="Revoke this session?"
+        message={
+          revoking?.current
+            ? 'This signs you out and stops access from this session.'
+            : 'The selected device will need to sign in again.'
+        }
+        confirmLabel="Revoke session"
+        onCancel={() => setRevoking(null)}
+        onConfirm={() => {
+          if (revoking) void revoke(revoking);
+          setRevoking(null);
+        }}
+      />
     </ScrollView>
   );
 }

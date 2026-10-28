@@ -1,13 +1,23 @@
-import { useEffect, useRef, useState } from 'react';
-import { AppState, Platform, Pressable, Text, View } from 'react-native';
+import { apiRequest } from '@signaldock/client-sdk';
 import {
   RadioViewSchema,
   type FeatureScreenProps,
   type RadioView,
 } from '@signaldock/contracts';
-import { apiRequest } from '@signaldock/client-sdk';
-import { RadioMediaController, type MediaUiState } from './controller';
+import {
+  Heading,
+  Panel,
+  Pressable,
+  radius,
+  space,
+  Text,
+  type,
+  useTheme,
+} from '@signaldock/ui';
+import { useEffect, useRef, useState } from 'react';
+import { AppState, Platform, View } from 'react-native';
 import { browserMediaPort } from './browser-port';
+import { RadioMediaController, type MediaUiState } from './controller';
 import { mediaAccess } from './media-access';
 
 const idleMediaState: MediaUiState = {
@@ -22,6 +32,7 @@ export function MediaScreen({
   radioId,
   mediaAvailable = false,
 }: FeatureScreenProps & { mediaAvailable?: boolean }) {
+  const { colors } = useTheme();
   const latest = useRef(session);
   latest.current = session;
   const controller = useRef<RadioMediaController | undefined>(undefined);
@@ -149,23 +160,31 @@ export function MediaScreen({
     state.pending,
     state.transmitting,
   ]);
-  if (!radioId) return <Text>Select a radio from the dashboard.</Text>;
+  if (!radioId) return null;
   if (Platform.OS !== 'web')
     return (
       <View>
         <Text>
-          Live audio on mobile requires a validated native development build.
+          Live listening and voice transmission are not available on this device
+          yet.
         </Text>
         <Text>Radio control remains available from the dashboard.</Text>
       </View>
     );
+  if (!mediaAvailable)
+    return (
+      <Panel>
+        <Heading>Live audio</Heading>
+        <Text style={{ color: colors.textSecondary }}>
+          Live audio is not configured on this server. Radio control remains
+          available above.
+        </Text>
+      </Panel>
+    );
   return (
-    <View style={{ gap: 16, padding: 20 }}>
-      <Text
-        accessibilityRole="header"
-        style={{ fontSize: 24, fontWeight: '700' }}
-      >
-        Live radio audio
+    <View style={{ gap: space.md, padding: space.lg }}>
+      <Text accessibilityRole="header" style={type.heading}>
+        Live audio
       </Text>
       <Text>{currentDetails?.radio?.displayName ?? 'Selected radio'}</Text>
       {currentDetails?.error ? (
@@ -195,13 +214,15 @@ export function MediaScreen({
               : undefined);
         }}
         style={{
-          padding: 16,
+          padding: space.lg,
           backgroundColor:
-            access.canListen || state.listening ? '#dbeafe' : '#e5e7eb',
-          borderRadius: 12,
+            access.canListen || state.listening
+              ? colors.selected
+              : colors.disabled,
+          borderRadius: radius.md,
         }}
       >
-        <Text>
+        <Text style={{ ...type.label, color: colors.textPrimary }}>
           {state.listening
             ? 'Stop listening'
             : access.canListen
@@ -225,34 +246,34 @@ export function MediaScreen({
           void controller.current?.stopTransmit();
         }}
         style={{
-          padding: 24,
-          borderRadius: 16,
+          padding: space.lg,
+          borderRadius: radius.md,
           backgroundColor: state.transmitting
-            ? '#ef4444'
+            ? colors.error
             : state.pending
-              ? '#fbbf24'
+              ? colors.warning
               : access.canTransmit
-                ? '#1d4ed8'
-                : '#6b7280',
+                ? colors.primary
+                : colors.disabled,
         }}
       >
         <Text
           style={{
-            color: state.pending ? '#111827' : 'white',
+            color: colors.onPrimary,
             fontWeight: '700',
-            fontSize: 18,
+            fontSize: type.label.fontSize,
           }}
         >
           {state.transmitting
-            ? 'TRANSMITTING — RELEASE TO STOP'
+            ? 'Transmitting · Release to stop'
             : state.pending
-              ? 'PREPARING — KEEP HOLDING'
+              ? 'Preparing · Keep holding'
               : access.canTransmit
-                ? 'HOLD TO TALK'
+                ? 'Hold to talk'
                 : 'Transmission unavailable'}
         </Text>
       </Pressable>
-      <Text>
+      <Text style={{ ...type.caption, color: colors.textSecondary }}>
         One operator controls this radio. Transmissions stop after 30 seconds
         and require a new press. Release immediately if carrier status is
         uncertain.

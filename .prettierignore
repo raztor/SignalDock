@@ -7,3 +7,7 @@ results
 .venv
 .venv-codegen
 .local
+
+apps/client/ios/
+apps/client/android/
+**/.local/

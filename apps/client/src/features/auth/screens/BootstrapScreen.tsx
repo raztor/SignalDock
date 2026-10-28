@@ -1,21 +1,22 @@
-import { useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
-  Pressable,
+  Button,
   ScrollView,
   Text,
   TextInput,
-  View,
-} from 'react-native';
-import { authStyles as styles } from '../auth.styles';
-import { useAuthSession } from '../use-auth-session';
+  useFeatureStyles,
+} from '@signaldock/ui';
+import { useEffect, useState } from 'react';
+import { View } from 'react-native';
+
 import type { SessionController } from '../session-controller';
+import { useAuthSession } from '../use-auth-session';
 
 export function BootstrapScreen({
   controller,
 }: {
   controller: SessionController;
 }) {
+  const styles = useFeatureStyles('auth');
   const snapshot = useAuthSession(controller);
   const [setupToken, setSetupToken] = useState('');
   const [username, setUsername] = useState('admin');
@@ -58,7 +59,9 @@ export function BootstrapScreen({
       contentContainerStyle={styles.content}
       keyboardShouldPersistTaps="handled"
     >
-      <Text style={styles.title}>Set up your station</Text>
+      <Text accessibilityRole="header" style={styles.title}>
+        Set up your station
+      </Text>
       <Text style={styles.muted}>{snapshot.server?.info.displayName}</Text>
       <View style={styles.card}>
         <Text style={styles.muted}>
@@ -106,20 +109,15 @@ export function BootstrapScreen({
           Use at least 12 characters. After setup, explicitly assign radio
           permissions in Users to operate a radio.
         </Text>
-        <Pressable
-          accessibilityRole="button"
+        <Button
+          label="Create administrator"
+          variant="primary"
+          loading={busy}
           disabled={busy}
-          style={[styles.button, busy && styles.disabled]}
           onPress={() => {
             void submit();
           }}
-        >
-          {busy ? (
-            <ActivityIndicator color="#06131b" />
-          ) : (
-            <Text style={styles.buttonText}>Create administrator</Text>
-          )}
-        </Pressable>
+        />
         {!!error && (
           <Text accessibilityRole="alert" style={styles.error}>
             {error}

@@ -1,18 +1,19 @@
-import { useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
-  Pressable,
+  Button,
   ScrollView,
   Text,
   TextInput,
-  View,
-} from 'react-native';
-import { authStyles as styles } from '../auth.styles';
-import { useAuthSession } from '../use-auth-session';
+  useFeatureStyles,
+} from '@signaldock/ui';
+import { useEffect, useState } from 'react';
+import { View } from 'react-native';
+
 import type { SessionController } from '../session-controller';
+import { useAuthSession } from '../use-auth-session';
 import { BootstrapScreen } from './BootstrapScreen';
 
 export function LoginScreen({ controller }: { controller: SessionController }) {
+  const styles = useFeatureStyles('auth');
   const snapshot = useAuthSession(controller);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -40,7 +41,9 @@ export function LoginScreen({ controller }: { controller: SessionController }) {
       contentContainerStyle={styles.content}
       keyboardShouldPersistTaps="handled"
     >
-      <Text style={styles.title}>Sign in to your station</Text>
+      <Text accessibilityRole="header" style={styles.title}>
+        Sign in to your station
+      </Text>
       <Text style={styles.muted}>{snapshot.server?.info.displayName}</Text>
       <Text selectable style={styles.muted}>
         {snapshot.server?.baseUrl}
@@ -68,20 +71,15 @@ export function LoginScreen({ controller }: { controller: SessionController }) {
             void submit();
           }}
         />
-        <Pressable
-          accessibilityRole="button"
-          disabled={busy || !snapshot.server}
-          style={[styles.button, busy && styles.disabled]}
+        <Button
+          label="Sign in"
+          variant="primary"
+          loading={busy}
+          disabled={busy || !snapshot.server || !username.trim() || !password}
           onPress={() => {
             void submit();
           }}
-        >
-          {busy ? (
-            <ActivityIndicator color="#06131b" />
-          ) : (
-            <Text style={styles.buttonText}>Sign in</Text>
-          )}
-        </Pressable>
+        />
         {!!(error || snapshot.error) && (
           <Text accessibilityRole="alert" style={styles.error}>
             {error || snapshot.error}

@@ -5,7 +5,7 @@
     "version": "0.1.0",
     "scheme": "signaldock",
     "orientation": "default",
-    "userInterfaceStyle": "dark",
+    "userInterfaceStyle": "automatic",
     "web": {
       "bundler": "metro",
       "output": "single"
@@ -18,6 +18,13 @@
           "microphonePermission": "Allow SignalDock to transmit your voice to the selected radio."
         }
       ]
-    ]
+    ],
+    "ios": {
+      "bundleIdentifier": "org.signaldock.client",
+      "supportsTablet": true
+    },
+    "android": {
+      "package": "org.signaldock.client"
+    }
   }
 }
