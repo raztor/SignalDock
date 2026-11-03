@@ -2,6 +2,8 @@
 
 Reviewed on October 26, 2026 against the npm registry, PyPI, upstream release metadata, and the published container tags. Use the newest stable version supported by the consuming SDK and runtime. An upstream exact version requirement takes precedence over another package's `latest` tag. Keep exact direct versions and commit the npm lockfile after resolving updates.
 
+The client compatibility matrix was refreshed on November 3, 2026: Expo 58.0.22, `@expo/ui` 58.0.26, `expo-audio` 58.0.11, and React Native 0.88.1 satisfy the Expo compatibility gate. Keep this gate enabled in CI; pending SDK patch updates must be resolved before a PR can pass it.
+
 ## Compiler and client
 
 | Component                       | Selected version | Compatibility decision                                                                                                                                                                           |
@@ -10,9 +12,9 @@ Reviewed on October 26, 2026 against the npm registry, PyPI, upstream release me
 | Node types                      | 24.19.2          | Latest types for the Node 24 runtime; Node 26 types expose a different runtime API.                                                                                                              |
 | TypeScript compiler             | 7.0.2            | Installed as `@typescript/native`, which provides the `tsc` executable used by existing build/typecheck scripts.                                                                                 |
 | TypeScript compiler API         | 6.0.3            | `typescript` aliases `@typescript/typescript6` 6.0.2, which resolves the 6.0.3 API. Contract generation imports this API; Expo tooling can continue resolving `typescript`.                      |
-| Expo                            | 58.0.19          | Latest stable SDK. Its installed module map and live version endpoint define the client compatibility baseline.                                                                                  |
+| Expo                            | 58.0.22          | Its installed module map and live version endpoint define the client compatibility baseline.                                                                                                     |
 | React / React DOM               | 19.3.0           | Exact pair recommended by Expo 58. Keep both aligned with the shared native client rather than independently moving web dependencies to 19.3.1.                                                  |
-| React Native / React Native Web | 0.88.0 / 0.21.4  | Latest stable versions selected by the current Expo SDK.                                                                                                                                         |
+| React Native / React Native Web | 0.88.1 / 0.21.4  | Versions selected by the current Expo SDK compatibility recommendations.                                                                                                                         |
 | AsyncStorage                    | 2.2.0            | Restores Expo's recommended native version. The newer standalone 3.1.1 fails Expo's compatibility check. Existing saved-server storage uses the compatible `getItem`/`setItem`/`removeItem` API. |
 
 TypeScript 7 does not expose the compiler API used by `scripts/codegen/api-catalog.mjs`. The package aliases follow Microsoft's [side-by-side migration guidance](https://devblogs.microsoft.com/typescript/announcing-typescript-7-0/#running-side-by-side-with-typescript-60). Do not replace the API alias with the native compiler package. `npm run check:generated` exercises the real contract generator and detects a broken API or changed output.

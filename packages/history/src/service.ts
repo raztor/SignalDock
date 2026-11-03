@@ -320,6 +320,51 @@ export class HistoryService {
         : {}),
     };
   }
+  /**
+   * Communication counts per fixed UTC slot of `slotMinutes`, filtered by the
+   * same radio scope and list filters as {@link list}. Deleted items are excluded.
+   */
+  async activitySlots(
+    instanceId: string,
+    query: {
+      from: string;
+      to: string;
+      radioId?: string;
+      frequencyHz?: number;
+      direction?: Communication['direction'];
+      slotMinutes?: number;
+    },
+    allowedRadioIds?: readonly string[],
+  ): Promise<{ startedAt: string; count: number }[]> {
+    const slotMinutes = query.slotMinutes ?? 15;
+    if (!Number.isInteger(slotMinutes) || slotMinutes < 1 || slotMinutes > 60)
+      throw new SignalDockError('INVALID_ARGUMENT', 'Invalid activity slot.');
+    TimestampSchema.parse(query.from);
+    TimestampSchema.parse(query.to);
+    const values: unknown[] = [instanceId, query.from, query.to];
+    const conditions = [
+      'c.instance_id=$1',
+      'c.deleted_at IS NULL',
+      'c.started_at>=$2::timestamptz',
+      'c.started_at<$3::timestamptz',
+    ];
+    const add = (sql: string, value: unknown) => {
+      values.push(value);
+      conditions.push(sql.replace('?', `$${values.length}`));
+    };
+    if (allowedRadioIds) add('c.radio_id=ANY(?::uuid[])', allowedRadioIds);
+    if (query.radioId) add('c.radio_id=?', query.radioId);
+    if (query.frequencyHz !== undefined) add('c.rx_hz=?', query.frequencyHz);
+    if (query.direction) add('c.direction=?', query.direction);
+    const result = await this.database.query<{ slot: Date; count: string }>(
+      `SELECT date_bin('${slotMinutes} minutes', c.started_at, TIMESTAMPTZ '2000-01-01T00:00:00Z') AS slot, count(*)::text AS count FROM sd_communications c WHERE ${conditions.join(' AND ')} GROUP BY slot ORDER BY slot LIMIT 10000`,
+      values,
+    );
+    return result.rows.map((row) => ({
+      startedAt: new Date(row.slot).toISOString(),
+      count: Number(row.count),
+    }));
+  }
   async conversations(
     instanceId: string,
     allowedRadioIds?: readonly string[],

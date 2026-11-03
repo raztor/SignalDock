@@ -24,6 +24,30 @@ export interface CoverageInterval {
   reason?: string;
 }
 
+export interface HistoryActivityBucket {
+  day: string;
+  hour: number;
+  count: number;
+}
+
+export interface HistoryActivity {
+  timeZone: string;
+  days: string[];
+  buckets: {
+    day: string;
+    hour: number;
+    count: number;
+  }[];
+}
+
+export interface CommunicationWaveform {
+  communicationId: string;
+  recordingId?: string;
+  points: number;
+  peaks: number[];
+  durationMs: number;
+}
+
 export interface SessionSummary {
   id: string;
   createdAt: string;
@@ -947,6 +971,33 @@ export interface RadioView {
       | "REQUIRES_CONFIGURATION"
       | "INTERNAL_ERROR";
   };
+}
+
+export interface InstalledDriver {
+  driverId: string;
+  displayName: string;
+  description: string;
+  transport: "simulator" | "grpc" | "other";
+  requiresEndpoint: boolean;
+  verification: "simulated" | "experimental" | "hardware_verified";
+  capabilitiesSummary: {
+    rxAudio: boolean;
+    txAudio: boolean;
+    memories: boolean;
+    tuningWritable: boolean;
+    modes: ("FM" | "AM" | "USB" | "LSB" | "CW" | "DIGITAL")[];
+  };
+  configSchema: {
+    type: "object";
+    properties?: {
+      [k: string]: unknown;
+    };
+    [k: string]: unknown;
+  };
+  /**
+   * @maxItems 50
+   */
+  secretFields?: string[];
 }
 
 export interface TuningCommand {

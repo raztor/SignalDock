@@ -8,7 +8,10 @@ import {
   type ClientSession,
   ApiErrorSchema,
 } from '@signaldock/contracts';
-export { subscribeStationEvents } from './events.js';
+export {
+  subscribeStationEvents,
+  type StationEventStreamHooks,
+} from './events.js';
 
 /** Authenticated calls remain inside the selected instance's API prefix. */
 export async function apiFetch(

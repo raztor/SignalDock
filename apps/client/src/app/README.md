@@ -1,5 +1,5 @@
 # Application composition
 
-`App.tsx` composes instance selection, isolated authentication, role-aware navigation and domain screens. The authenticated workspace is keyed by canonical URL, pinned instance and user. Media stops before server, account, radio or route changes. Foreground notifications remain mounted within that workspace; credentials and audio never migrate across instances.
+`App.tsx` composes instance selection, isolated authentication, role-aware navigation and domain screens. The authenticated workspace is keyed by canonical URL, pinned instance and user. `StationProvider` and `MediaProvider` wrap the workspace content, so the radio list, control lease and live audio survive section navigation; `StationStrip` shows the selected radio on every section except Radios. Media stops before server, account or radio changes; section changes stop transmission only (`stopActiveTransmit`). `ToastProvider` shows operation results above the bottom dock. Foreground notifications remain mounted within that workspace; credentials and audio never migrate across instances.
 
 `transmit-speech.ts` obtains and renews a normal radio lease before an explicit prepared-speech action. The backend revalidates its source and uses the same supervised transmission path as microphone audio. Native media remains disabled until its development-build/device gate passes.

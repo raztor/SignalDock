@@ -123,6 +123,125 @@
     ],
     "additionalProperties": false
   },
+  "HistoryActivityBucket": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "day": {
+        "type": "string",
+        "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+      },
+      "hour": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 23
+      },
+      "count": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9007199254740991
+      }
+    },
+    "required": [
+      "day",
+      "hour",
+      "count"
+    ],
+    "additionalProperties": false
+  },
+  "HistoryActivity": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "timeZone": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 100
+      },
+      "days": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+        }
+      },
+      "buckets": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "day": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            },
+            "hour": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 23
+            },
+            "count": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "day",
+            "hour",
+            "count"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    "required": [
+      "timeZone",
+      "days",
+      "buckets"
+    ],
+    "additionalProperties": false
+  },
+  "CommunicationWaveform": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "communicationId": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "recordingId": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "points": {
+        "type": "integer",
+        "exclusiveMinimum": 0,
+        "maximum": 9007199254740991
+      },
+      "peaks": {
+        "type": "array",
+        "items": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      },
+      "durationMs": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9007199254740991
+      }
+    },
+    "required": [
+      "communicationId",
+      "points",
+      "peaks",
+      "durationMs"
+    ],
+    "additionalProperties": false
+  },
   "SessionSummary": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "type": "object",
@@ -2760,6 +2879,124 @@
       "snapshot",
       "control",
       "health"
+    ],
+    "additionalProperties": false
+  },
+  "InstalledDriver": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "driverId": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 100
+      },
+      "displayName": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 100
+      },
+      "description": {
+        "type": "string",
+        "maxLength": 500
+      },
+      "transport": {
+        "type": "string",
+        "enum": [
+          "simulator",
+          "grpc",
+          "other"
+        ]
+      },
+      "requiresEndpoint": {
+        "type": "boolean"
+      },
+      "verification": {
+        "type": "string",
+        "enum": [
+          "simulated",
+          "experimental",
+          "hardware_verified"
+        ]
+      },
+      "capabilitiesSummary": {
+        "type": "object",
+        "properties": {
+          "rxAudio": {
+            "type": "boolean"
+          },
+          "txAudio": {
+            "type": "boolean"
+          },
+          "memories": {
+            "type": "boolean"
+          },
+          "tuningWritable": {
+            "type": "boolean"
+          },
+          "modes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "FM",
+                "AM",
+                "USB",
+                "LSB",
+                "CW",
+                "DIGITAL"
+              ]
+            }
+          }
+        },
+        "required": [
+          "rxAudio",
+          "txAudio",
+          "memories",
+          "tuningWritable",
+          "modes"
+        ],
+        "additionalProperties": false
+      },
+      "configSchema": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "object"
+          },
+          "properties": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "additionalProperties": {}
+      },
+      "secretFields": {
+        "maxItems": 50,
+        "type": "array",
+        "items": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        }
+      }
+    },
+    "required": [
+      "driverId",
+      "displayName",
+      "description",
+      "transport",
+      "requiresEndpoint",
+      "verification",
+      "capabilitiesSummary",
+      "configSchema"
     ],
     "additionalProperties": false
   },

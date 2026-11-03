@@ -4,7 +4,6 @@ import {
   Button,
   ConfirmDialog,
   createStyles,
-  EmptyState,
   FormLayout,
   Heading,
   Icon,
@@ -12,16 +11,27 @@ import {
   Pressable,
   ScrollView,
   space,
+  StatusIndicator,
   Text,
   TextInput,
   radius as uiRadius,
   type as uiType,
   useTheme,
 } from '@signaldock/ui';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useWindowDimensions, View } from 'react-native';
 import { DEFAULT_SERVER_URL } from '../../../shared/config/defaults';
+import { QrScanButton } from '../components/QrScanButton';
+import { RecentStationCard } from '../components/RecentStationCard';
 import { recentServerStore as store } from '../data/recent-server-store';
+import {
+  CONNECT_TIMEOUT_MS,
+  healthFromInfo,
+  healthPresentation,
+  normalizeStationInput,
+  sortRecentStations,
+} from '../server-model';
+import { useStationHealth } from '../use-station-health';
 
 export interface ServerConnectionScreenProps {
   onServerSelected?: (
@@ -40,11 +50,21 @@ export default function ServerConnectionScreen({
   const { mode, setPreference, colors } = useTheme();
   const [removing, setRemoving] = useState<RecentServer | null>(null);
   const [url, setUrl] = useState(DEFAULT_SERVER_URL);
+  /** Show validation once the field was left or a connection was attempted. */
+  const [touched, setTouched] = useState(false);
+  const [scanned, setScanned] = useState(false);
   const [recent, setRecent] = useState<RecentServer[]>([]);
   const [result, setResult] = useState<ServerInfo | null>(null);
   const [busy, setBusy] = useState(false);
+  /** Canonical URL of the connection attempt in progress. */
+  const [connecting, setConnecting] = useState('');
   const [error, setError] = useState('');
+  const [now, setNow] = useState(() => Date.now());
   const request = useRef({ generation: 0, controller: new AbortController() });
+  const stations = useMemo(() => sortRecentStations(recent), [recent]);
+  const { health, refresh, markOnline } = useStationHealth(stations);
+  const check = normalizeStationInput(url);
+  const inputError = !check.ok && touched ? check.error : '';
 
   useEffect(() => {
     let active = true;
@@ -56,8 +76,11 @@ export default function ServerConnectionScreen({
       .catch(() => {
         if (active) setError('Recent servers could not be loaded.');
       });
+    // "Last used" labels stay current while the screen is open.
+    const clock = setInterval(() => setNow(Date.now()), 60_000);
     return () => {
       active = false;
+      clearInterval(clock);
       request.current.controller.abort();
       request.current.generation++;
     };
@@ -72,17 +95,28 @@ export default function ServerConnectionScreen({
     setResult(null);
     setError('');
     setBusy(false);
+    setConnecting('');
   }
 
   async function connect(target = url) {
     resetConnection();
-    const current = request.current;
     setUrl(target);
+    const address = normalizeStationInput(target);
+    if (!address.ok) {
+      setTouched(true);
+      return;
+    }
+    const current = request.current;
     setBusy(true);
-    const timer = setTimeout(() => current.controller.abort(), 10000);
+    setConnecting(address.url);
+    const timer = setTimeout(
+      () => current.controller.abort(),
+      CONNECT_TIMEOUT_MS,
+    );
+    let saved: RecentServer | undefined;
     try {
-      const client = new SignalDockClient(target);
-      const saved = (await store.list()).find(
+      const client = new SignalDockClient(address.url);
+      saved = (await store.list()).find(
         (server) => server.baseUrl === client.baseUrl,
       );
       const info = await client.discover({
@@ -94,6 +128,7 @@ export default function ServerConnectionScreen({
       if (request.current.generation !== current.generation) return;
       setResult(info);
       setRecent(await store.list());
+      markOnline(client.baseUrl, info);
       if (
         request.current.generation === current.generation &&
         onServerSelected &&
@@ -111,10 +146,15 @@ export default function ServerConnectionScreen({
                 ? failure.message
                 : 'The server could not be reached.',
         );
+        // Keep the saved card's status in step with what just happened.
+        if (saved) refresh(saved.baseUrl);
       }
     } finally {
       clearTimeout(timer);
-      if (request.current.generation === current.generation) setBusy(false);
+      if (request.current.generation === current.generation) {
+        setBusy(false);
+        setConnecting('');
+      }
     }
   }
 
@@ -139,6 +179,13 @@ export default function ServerConnectionScreen({
       setError('The saved server could not be removed.');
     }
   }
+
+  /** Only worth saying when a scheme was added for the person. */
+  const preview =
+    check.ok && check.schemeAdded ? `Connects to ${check.url}` : '';
+  const resultStatus = result
+    ? healthPresentation(healthFromInfo(result))
+    : undefined;
 
   return (
     <FormLayout>
@@ -202,41 +249,112 @@ export default function ServerConnectionScreen({
             ]}
           >
             <View style={styles.formHeader}>
-              <Heading>Connect to a server</Heading>
+              <Heading>Connect to a station</Heading>
               <Text style={styles.muted}>
                 Use the address provided by your station administrator.
               </Text>
             </View>
-            <Text style={styles.label}>Server address</Text>
-            <TextInput
-              accessibilityLabel="Server URL"
-              value={url}
-              onChangeText={(value) => {
-                resetConnection();
-                setUrl(value);
-              }}
-              autoCapitalize="none"
-              autoCorrect={false}
-              keyboardType="url"
-              placeholder="https://radio.example.com"
-              returnKeyType="go"
-              onSubmitEditing={() => {
-                if (!busy) void connect();
-              }}
-            />
-            <Button
-              label="Connect to station"
-              loading={busy}
-              variant="primary"
-              onPress={() => {
-                void connect();
-              }}
-            />
-            <Text style={styles.hint}>
-              Include the full address and any deployment prefix.
-            </Text>
+            {stations.length > 0 && (
+              <View style={styles.section}>
+                <View style={styles.sectionHeader}>
+                  <View style={styles.grow}>
+                    <Text accessibilityRole="header" style={styles.label}>
+                      Recent stations
+                    </Text>
+                    <Text style={styles.hint}>Saved on this device</Text>
+                  </View>
+                  <Button
+                    label="Check again"
+                    variant="quiet"
+                    onPress={() => refresh()}
+                  />
+                </View>
+                {stations.map((server) => (
+                  <RecentStationCard
+                    key={server.baseUrl}
+                    server={server}
+                    health={health[server.baseUrl]}
+                    now={now}
+                    connecting={connecting === server.baseUrl}
+                    disabled={busy}
+                    onConnect={() => {
+                      setScanned(false);
+                      setTouched(false);
+                      void connect(server.baseUrl);
+                    }}
+                    onForget={() => setRemoving(server)}
+                  />
+                ))}
+              </View>
+            )}
+            <View
+              style={[styles.section, stations.length > 0 && styles.divided]}
+            >
+              <Text style={styles.label}>
+                {stations.length ? 'Another station' : 'Station address'}
+              </Text>
+              <TextInput
+                accessibilityLabel="Server URL"
+                accessibilityHint="For example radio.example.com. https:// is added when missing."
+                value={url}
+                onChangeText={(value) => {
+                  resetConnection();
+                  setScanned(false);
+                  setTouched(false);
+                  setUrl(value);
+                }}
+                onBlur={() => {
+                  if (url.trim()) setTouched(true);
+                }}
+                autoCapitalize="none"
+                autoCorrect={false}
+                keyboardType="url"
+                textContentType="URL"
+                placeholder="radio.example.com"
+                returnKeyType="go"
+                onSubmitEditing={() => {
+                  if (!busy) void connect();
+                }}
+                style={inputError ? { borderColor: colors.error } : undefined}
+              />
+              {inputError ? (
+                <Text accessibilityRole="alert" style={styles.inlineError}>
+                  {inputError}
+                </Text>
+              ) : scanned ? (
+                <Text accessibilityLiveRegion="polite" style={styles.hint}>
+                  Address read from a QR code. Check it, then connect.
+                </Text>
+              ) : preview ? (
+                <Text style={styles.hint}>{preview}</Text>
+              ) : (
+                <Text style={styles.hint}>
+                  Include any deployment prefix. https:// is added when missing.
+                </Text>
+              )}
+              <View style={styles.actions}>
+                <Button
+                  label="Connect"
+                  loading={busy && connecting === (check.ok ? check.url : '')}
+                  disabled={busy}
+                  variant="primary"
+                  onPress={() => {
+                    void connect();
+                  }}
+                />
+                <QrScanButton
+                  disabled={busy}
+                  onScanned={(scannedUrl) => {
+                    resetConnection();
+                    setTouched(false);
+                    setUrl(scannedUrl);
+                    setScanned(true);
+                  }}
+                />
+              </View>
+            </View>
             {!!error && (
-              <View style={styles.feedback}>
+              <View style={[styles.feedback, { borderColor: colors.error }]}>
                 <Text accessibilityRole="alert" style={styles.error}>
                   {error}
                 </Text>
@@ -245,13 +363,13 @@ export default function ServerConnectionScreen({
                 </Text>
               </View>
             )}
-            {result && (
+            {result && resultStatus && (
               <View style={styles.feedback}>
                 <Heading>{result.displayName}</Heading>
-                <Text style={styles.muted}>
-                  Version {result.version} · Protocol {result.protocol.min}–
-                  {result.protocol.max}
-                </Text>
+                <StatusIndicator
+                  tone={resultStatus.tone}
+                  label={`${resultStatus.label} · Protocol ${result.protocol.min}–${result.protocol.max}`}
+                />
                 <Text selectable style={styles.hint}>
                   {result.identity.keyId}
                 </Text>
@@ -262,39 +380,19 @@ export default function ServerConnectionScreen({
                 </Text>
               </View>
             )}
-            <View style={styles.recentHeader}>
-              <Heading>Recent stations</Heading>
-              <Text style={styles.hint}>Saved on this device</Text>
-            </View>
-            {!recent.length ? (
-              <EmptyState
-                title="Your next connection starts here"
-                message="Connected stations will appear here for quick access."
-              />
-            ) : (
-              recent.map((server) => (
-                <View key={server.baseUrl} style={styles.recent}>
-                  <Pressable
-                    accessibilityRole="button"
-                    disabled={busy}
-                    accessibilityLabel={`Connect to ${server.alias}`}
-                    onPress={() => {
-                      void connect(server.baseUrl);
-                    }}
-                    style={styles.recentMain}
-                  >
-                    <Text style={styles.label}>{server.alias}</Text>
-                    <Text numberOfLines={2} style={styles.hint}>
-                      {server.baseUrl}
-                    </Text>
-                  </Pressable>
-                  <Button
-                    label="Forget"
-                    variant="quiet"
-                    onPress={() => setRemoving(server)}
-                  />
+            {!stations.length && (
+              <View style={[styles.empty, styles.divided]}>
+                <Icon name="clock" color={colors.textSecondary} />
+                <View style={styles.grow}>
+                  <Text style={styles.label}>
+                    Your next connection starts here
+                  </Text>
+                  <Text style={styles.hint}>
+                    Stations you connect to appear here with their live status
+                    for one-tap access.
+                  </Text>
                 </View>
-              ))
+              </View>
             )}
           </View>
         </View>
@@ -371,12 +469,31 @@ const useConnectionStyles = createStyles((c) => ({
     flexBasis: 360,
     flexGrow: 1,
     maxWidth: layout.form,
-    gap: space.md,
+    gap: space.lg,
     backgroundColor: c.surface,
     borderRadius: uiRadius.lg,
     padding: space.xl,
   },
-  formHeader: { gap: space.sm, marginBottom: space.md },
+  formHeader: { gap: space.sm },
+  section: { gap: space.sm },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+  },
+  divided: {
+    paddingTop: space.lg,
+    borderTopWidth: 1,
+    borderColor: c.border,
+  },
+  grow: { flex: 1, minWidth: 0, gap: space.xs },
+  actions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: space.md,
+    marginTop: space.xs,
+  },
   label: {
     color: c.textPrimary,
     fontSize: uiType.label.fontSize,
@@ -392,28 +509,18 @@ const useConnectionStyles = createStyles((c) => ({
     fontSize: uiType.caption.fontSize,
     lineHeight: 18,
   },
-  recentHeader: {
-    gap: space.xs,
-    paddingTop: space.xl,
-    marginTop: space.md,
-    borderTopWidth: 1,
-    borderColor: c.border,
+  inlineError: {
+    color: c.error,
+    fontSize: uiType.caption.fontSize,
+    lineHeight: 18,
   },
-  recent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.sm,
-    borderBottomWidth: 1,
-    borderColor: c.border,
-    paddingVertical: space.sm,
-  },
-  recentMain: { flex: 1, minWidth: 0, gap: space.xs },
   feedback: {
     borderLeftWidth: 2,
     borderColor: c.primary,
     paddingLeft: space.lg,
     gap: space.sm,
   },
+  empty: { flexDirection: 'row', alignItems: 'flex-start', gap: space.md },
   error: { color: c.error },
   footer: {
     fontSize: uiType.caption.fontSize,

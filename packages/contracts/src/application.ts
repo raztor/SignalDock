@@ -548,6 +548,30 @@ export const CoverageIntervalSchema = z.strictObject({
   reason: z.string().max(200).optional(),
 });
 export type CoverageInterval = z.infer<typeof CoverageIntervalSchema>;
+const calendarDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+/** One local hour of the history activity heatmap. */
+export const HistoryActivityBucketSchema = z.strictObject({
+  day: calendarDay,
+  hour: z.number().int().min(0).max(23),
+  count: z.number().int().nonnegative(),
+});
+export type HistoryActivityBucket = z.infer<typeof HistoryActivityBucketSchema>;
+/** `GET history/activity`: complete days × 24 grid, oldest day first. */
+export const HistoryActivitySchema = z.strictObject({
+  timeZone: z.string().min(1).max(100),
+  days: z.array(calendarDay),
+  buckets: z.array(HistoryActivityBucketSchema),
+});
+export type HistoryActivity = z.infer<typeof HistoryActivitySchema>;
+/** `GET communications/:id/waveform`: empty peaks when no decodable audio. */
+export const CommunicationWaveformSchema = z.strictObject({
+  communicationId: id,
+  recordingId: id.optional(),
+  points: z.number().int().positive(),
+  peaks: z.array(z.number().min(0).max(1)),
+  durationMs: z.number().int().nonnegative(),
+});
+export type CommunicationWaveform = z.infer<typeof CommunicationWaveformSchema>;
 export interface HistoryQuery {
   conversationId?: string;
   radioId?: string;
@@ -561,6 +585,9 @@ export interface HistoryQuery {
 export const applicationSchemas = {
   DomainEvent: DomainEventSchema,
   CoverageInterval: CoverageIntervalSchema,
+  HistoryActivityBucket: HistoryActivityBucketSchema,
+  HistoryActivity: HistoryActivitySchema,
+  CommunicationWaveform: CommunicationWaveformSchema,
   SessionSummary: SessionSummarySchema,
   PacketRecord: PacketRecordSchema,
   PositionRecord: PositionRecordSchema,

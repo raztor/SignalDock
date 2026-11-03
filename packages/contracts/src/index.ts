@@ -190,6 +190,33 @@ export const RadioViewSchema = z.strictObject({
   }),
 });
 export type RadioView = z.infer<typeof RadioViewSchema>;
+/**
+ * A driver installed in this station, as offered to administrators when they
+ * configure a radio. `configSchema` is a restricted JSON Schema (an object
+ * schema) describing `RadioConfiguration.config`; it never carries secret
+ * values. `secretFields` names config keys whose values must be masked.
+ */
+export const InstalledDriverSchema = z.strictObject({
+  driverId: z.string().min(1).max(100),
+  displayName: z.string().min(1).max(100),
+  description: z.string().max(500),
+  transport: z.enum(['simulator', 'grpc', 'other']),
+  requiresEndpoint: z.boolean(),
+  verification: z.enum(['simulated', 'experimental', 'hardware_verified']),
+  capabilitiesSummary: z.strictObject({
+    rxAudio: z.boolean(),
+    txAudio: z.boolean(),
+    memories: z.boolean(),
+    tuningWritable: z.boolean(),
+    modes: z.array(z.enum(['FM', 'AM', 'USB', 'LSB', 'CW', 'DIGITAL'])),
+  }),
+  configSchema: z.looseObject({
+    type: z.literal('object'),
+    properties: z.record(z.string(), z.unknown()).optional(),
+  }),
+  secretFields: z.array(z.string().min(1).max(100)).max(50).optional(),
+});
+export type InstalledDriver = z.infer<typeof InstalledDriverSchema>;
 export const OperationContextSchema = z.strictObject({
   fencing: z.number().int().nonnegative().optional(),
   ownerId: IdSchema.optional(),
@@ -346,6 +373,7 @@ export const contractSchemas = {
   RadioSnapshot: RadioSnapshotSchema,
   RadioDescriptor: RadioDescriptorSchema,
   RadioView: RadioViewSchema,
+  InstalledDriver: InstalledDriverSchema,
   TuningCommand: TuningCommandSchema,
   RadioSnapshotEvent: RadioSnapshotEventSchema,
   ConnectorManifest: ConnectorManifestSchema,

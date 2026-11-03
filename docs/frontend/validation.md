@@ -22,7 +22,34 @@ The repository has no dedicated lint command; strict TypeScript and the configur
 
 The gRPC fixture needs a working Python environment. The existing `.venv-codegen` contained iCloud placeholders that timed out during import, so the successful full suite used `SIGNALDOCK_CODEGEN_PYTHON` pointing to a temporary local environment with the same installed `grpcio` 1.85.0 and `protobuf` 7.36.2 versions. The isolated gRPC suite passed all nine tests there. The default environment still times out; that environment issue has not been represented as a passing default command. The skipped suites require database/integration configuration that was not supplied during this review.
 
-`expo install --check` reports an existing SDK patch alignment warning: the repository has Expo 58.0.19 and the checker recommends ~58.0.21. The redesign retains the existing SDK patch rather than changing the native runtime during the presentation migration. New dependencies fit the SDK 58 version family. A separate SDK patch update and native regression pass remain appropriate before release.
+The original review found an SDK patch alignment warning. The November 3 PR follow-up resolves it with Expo 58.0.22, `@expo/ui` 58.0.26, `expo-audio` 58.0.11 and React Native 0.88.1, including the shared UI package's React Native peer requirement. `npm run check:dependencies` now passes. Native runtime regression remains a release gate.
+
+## PR compatibility follow-up — 2026-11-03
+
+The follow-up uses an isolated checkout, Node 24.22.1, disposable PostgreSQL 18 and a separate Python environment for the synthetic driver fixtures. `npm run check` passes with **947 tests and 32 operations tests, none skipped**. All 38 Python driver tests, generated driver bindings and the web production export pass. No physical radio is involved.
+
+The password-estimator samples and its common-password dictionary are not authentication credentials. Narrow inline `ggignore` annotations document the false positives without excluding files or disabling the generic-password detector. Sample values and estimator behaviour are preserved.
+
+## Redesign stages 1–3 — 2026-11-03
+
+The visual-controls redesign (radio operation, review, configuration; see [design system](design-system.md#feature-patterns)) was re-checked with Node 24 against a disposable local PostgreSQL (`TEST_DATABASE_URL` and `SIGNALDOCK_TEST_DATABASE_URL`), so the database-backed suites ran instead of skipping.
+
+| Check                                                          | Observed result                                                                         |
+| -------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `npm run build`                                                | Passed                                                                                  |
+| `npm run typecheck:client`                                     | Passed                                                                                  |
+| Client TypeScript with `--noUnusedLocals --noUnusedParameters` | Passed                                                                                  |
+| `npm run typecheck:tests`                                      | Passed                                                                                  |
+| `npx vitest run`                                               | **889 passed; 6 skipped** (81 files passed, 1 skipped: gRPC fixture without Python env) |
+| `npm run test:ops`                                             | **32 passed**                                                                           |
+| `npm run format:check`                                         | Passed                                                                                  |
+| `npm run check:generated`                                      | Passed; includes the additive `InstalledDriver` contract and `GET /radios/drivers`      |
+| `expo export`, web and Android                                 | Both bundles generated                                                                  |
+| `expo install --check`                                         | `expo-camera` aligned; the existing Expo / React Native patch warnings remain           |
+
+New pure models have node tests next to their features: station state, station strip, tuning, memory grid, PTT and level meter (Stage 1); history, incidents and command palette (Stage 2); permission model, password strength, setup checklist, radio setup, processing, notifications, server and QR models (Stage 3). The new radio drivers route has in-memory and PostgreSQL route tests for permissions, shape and secret redaction.
+
+Stage 3 web review covered the permission matrix (wide table and compact cards, staged save, administrator demotion dialog), the setup checklist and the password meter in a throwaway local station, and the server cards at desktop and phone width. Not yet reviewed by eye: the radio setup wizard, the notification preferences (quiet-hours bar, time-zone sheet), the processing wizards and speech flow, the Share station overlay and native QR scanning. Those have type, bundle and model-test coverage only and need a browser pass in both themes at compact width, plus a native device pass for the camera.
 
 ## Web visual and interaction review
 
@@ -61,7 +88,7 @@ Native automation could not bind the Simulator application for interactive navig
 
 - Complete authenticated iOS interaction, keyboard, dynamic text and assistive-technology review on a supported native automation setup or device.
 - Run the Android application on an emulator/device. No Android target was connected; only its production bundle was validated.
-- Execute the database-backed suites with the repository's disposable-database configuration.
+- Review the Stage 3 screens listed above in a browser (light and dark, compact and wide) and the QR scanner on a native device.
 - Resolve the existing Expo patch alignment warning and repeat native regression checks before release.
 - Retain the existing acceptance gates for physical radio RX/PTT, native audio, interruptions, maps, push enrollment and live external providers. This redesign does not establish those physical/service integrations as newly accepted.
 

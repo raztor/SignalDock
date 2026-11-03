@@ -40,6 +40,7 @@ import {
 import {
   createSimulatorRegistry,
   createGrpcDriverFactory,
+  GRPC_DRIVER_CONFIG_SCHEMA,
 } from '../modules/radios/driver-factory.js';
 import { registerMediaRoutes } from '../modules/media/media.routes.js';
 import { registerHistoryRoutes } from '../modules/history/index.js';
@@ -173,12 +174,30 @@ export async function createStation(options: StationOptions) {
           return value;
         },
       }),
+      {
+        displayName: 'VGC / benlink',
+        description:
+          'VGC VR-N7500 over Bluetooth through the private vgc-benlink driver service. Tuning needs a reserved working memory; TX needs explicit opt-in in the driver service.',
+        transport: 'grpc',
+        requiresEndpoint: true,
+        verification: 'experimental',
+        // Conservative: tuning and TX depend on the driver service's own settings.
+        capabilitiesSummary: {
+          rxAudio: true,
+          txAudio: false,
+          memories: true,
+          tuningWritable: false,
+          modes: ['FM'],
+        },
+        configSchema: GRPC_DRIVER_CONFIG_SCHEMA,
+      },
     );
     radios = new RadioApplicationService({
       instanceId,
       database,
       auth,
       driverFactory: registry.create,
+      installedDrivers: () => registry.list(),
       events,
     });
     const runtime = radios.runtime;

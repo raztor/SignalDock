@@ -5,5 +5,11 @@ export {
   InstalledDriverRegistry,
   createSimulatorRegistry,
   createGrpcDriverFactory,
+  capabilitiesSummary,
+  simulatorMetadata,
+  GRPC_DRIVER_CONFIG_SCHEMA,
+  OPEN_CONFIG_SCHEMA,
+  SIMULATOR_CONFIG_SCHEMA,
+  type InstalledDriverMetadata,
   type RadioDriverFactory,
 } from './driver-factory.js';

@@ -1,4 +1,10 @@
-import { useState, type ComponentProps, type PropsWithChildren } from 'react';
+import {
+  useState,
+  type ComponentProps,
+  type ComponentRef,
+  type PropsWithChildren,
+  type Ref,
+} from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -17,7 +23,11 @@ import {
 import { useTheme } from './theme';
 import { layout, radius, space, type } from './tokens';
 
-export function Text({ style, ...props }: TextProps) {
+/** Text props plus a ref to the host text (React 19 passes `ref` as a prop). */
+export type TextElementProps = TextProps & {
+  ref?: Ref<ComponentRef<typeof NativeText>>;
+};
+export function Text({ style, ...props }: TextElementProps) {
   const { colors } = useTheme();
   return (
     <NativeText
@@ -26,7 +36,7 @@ export function Text({ style, ...props }: TextProps) {
     />
   );
 }
-export function Heading(props: TextProps) {
+export function Heading(props: TextElementProps) {
   return (
     <Text
       accessibilityRole="header"
@@ -79,13 +89,22 @@ export function TextInput({
     />
   );
 }
+export type PressableProps = ComponentProps<typeof NativePressable> & {
+  /**
+   * `opacity` (default) dims the control while pressed or disabled. `none`
+   * keeps full opacity so the caller can show state through its own colours,
+   * borders and text (e.g. a hold-to-talk button that stays pressed).
+   */
+  feedback?: 'opacity' | 'none';
+};
 /** Keeps feedback consistent for existing feature actions as well as navigation. */
 export function Pressable({
   style,
   disabled,
   accessibilityState,
+  feedback = 'opacity',
   ...props
-}: ComponentProps<typeof NativePressable>) {
+}: PressableProps) {
   const { colors } = useTheme();
   const [focused, setFocused] = useState(false);
   return (
@@ -120,8 +139,8 @@ export function Pressable({
           borderRadius: radius.md,
         },
         typeof style === 'function' ? style(state) : style,
-        state.pressed && { opacity: 0.75 },
-        disabled && { opacity: 0.45 },
+        feedback === 'opacity' && state.pressed && { opacity: 0.75 },
+        feedback === 'opacity' && disabled && { opacity: 0.45 },
         focused && {
           outlineColor: colors.focus,
           outlineWidth: 2,
@@ -139,8 +158,11 @@ export interface ButtonProps {
   disabled?: boolean;
   loading?: boolean;
   variant?: 'primary' | 'secondary' | 'quiet' | 'danger';
+  /** Host view, e.g. to return focus to the button that opened a view. */
+  ref?: Ref<ComponentRef<typeof View>>;
 }
 export function Button({
+  ref,
   label,
   title,
   onPress,
@@ -158,6 +180,7 @@ export function Button({
       : colors.primary;
   return (
     <Pressable
+      ref={ref}
       accessibilityRole="button"
       accessibilityLabel={label ?? title}
       accessibilityState={{ selected: active, busy: loading }}
@@ -211,10 +234,16 @@ export function Panel({
     </View>
   );
 }
-export function ScrollView(props: ScrollViewProps) {
+export function ScrollView({
+  ref,
+  ...props
+}: ScrollViewProps & {
+  ref?: Ref<ComponentRef<typeof NativeScrollView>>;
+}) {
   const { colors } = useTheme();
   return (
     <NativeScrollView
+      ref={ref}
       keyboardShouldPersistTaps="handled"
       keyboardDismissMode="on-drag"
       automaticallyAdjustKeyboardInsets
@@ -296,8 +325,21 @@ export function Disclosure({
   title,
   children,
   initialOpen = false,
-}: PropsWithChildren<{ title: string; initialOpen?: boolean }>) {
-  const [open, setOpen] = useState(initialOpen);
+  open: controlledOpen,
+  onOpenChange,
+}: PropsWithChildren<{
+  title: string;
+  initialOpen?: boolean;
+  /** Controlled open state; pair with `onOpenChange`. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+}>) {
+  const [localOpen, setLocalOpen] = useState(initialOpen);
+  const open = controlledOpen ?? localOpen;
+  const setOpen = (next: boolean) => {
+    setLocalOpen(next);
+    onOpenChange?.(next);
+  };
   const { colors } = useTheme();
   return (
     <View
