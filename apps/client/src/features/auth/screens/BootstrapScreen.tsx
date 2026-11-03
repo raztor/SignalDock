@@ -8,6 +8,8 @@ import {
 import { useEffect, useState } from 'react';
 import { View } from 'react-native';
 
+import { PasswordStrength } from '../../admin/PasswordStrength';
+import { passwordStrength } from '../../admin/password-strength';
 import type { SessionController } from '../session-controller';
 import { useAuthSession } from '../use-auth-session';
 
@@ -31,7 +33,12 @@ export function BootstrapScreen({
     setRepeated('');
     setError('');
   }, [snapshot.server?.baseUrl, snapshot.server?.info.instanceId]);
+  const strength = passwordStrength(password, [username]);
   const submit = async () => {
+    if (!strength.acceptable) {
+      setError(strength.hint);
+      return;
+    }
     if (password !== repeated) {
       setError('Passwords do not match.');
       return;
@@ -94,8 +101,10 @@ export function BootstrapScreen({
           onChangeText={setPassword}
           secureTextEntry
           textContentType="newPassword"
+          autoComplete="new-password"
           style={styles.input}
         />
+        <PasswordStrength password={password} context={[username]} />
         <Text style={styles.label}>Repeat password</Text>
         <TextInput
           accessibilityLabel="Repeat administrator password"
@@ -103,8 +112,16 @@ export function BootstrapScreen({
           onChangeText={setRepeated}
           secureTextEntry
           textContentType="newPassword"
+          autoComplete="new-password"
           style={styles.input}
         />
+        {repeated ? (
+          <Text style={password === repeated ? styles.muted : styles.warning}>
+            {password === repeated
+              ? 'Passwords match.'
+              : 'Passwords do not match yet.'}
+          </Text>
+        ) : null}
         <Text style={styles.muted}>
           Use at least 12 characters. After setup, explicitly assign radio
           permissions in Users to operate a radio.

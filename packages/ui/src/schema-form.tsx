@@ -198,7 +198,9 @@ export function SchemaForm({
                     : {})}
                   {...(field.variant === 'secret'
                     ? {
-                        autoComplete: 'off' as const,
+                        // 'off' is ignored for password inputs; 'new-password'
+                        // stops browsers filling the user's own credentials.
+                        autoComplete: 'new-password' as const,
                         textContentType: 'none' as const,
                       }
                     : {})}

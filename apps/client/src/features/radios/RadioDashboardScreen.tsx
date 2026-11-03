@@ -13,15 +13,21 @@ import {
   space,
   type,
   useTheme,
+  useReducedMotion,
   useToast,
   type IconName,
 } from '@signaldock/ui';
-import { useState } from 'react';
-import { View, useWindowDimensions } from 'react-native';
+import { useRef, useState, type ComponentRef } from 'react';
+import {
+  View,
+  useWindowDimensions,
+  type ScrollView as NativeScrollView,
+} from 'react-native';
 import { useRadioMedia } from '../media/MediaProvider';
 import { LivePanel } from '../media/components/LivePanel';
+import { SetupChecklist } from '../admin/SetupChecklist';
 import { useStation, type ControlState } from '../station';
-import { RadioConfigurationPanel } from './RadioConfigurationPanel';
+import { RadioConfigurationList } from './RadioConfigurationList';
 import { MemoryGrid } from './components/MemoryGrid';
 import { RadioFaceplate } from './components/RadioFaceplate';
 import { TuningPanel } from './components/TuningPanel';
@@ -29,13 +35,25 @@ import { TuningPanel } from './components/TuningPanel';
 /** Narrowest list faceplate before the grid drops a column. */
 const FACEPLATE_MIN_WIDTH = 280;
 
+export interface RadioDashboardScreenProps {
+  /**
+   * Opens Users & access. Used by the administrator setup checklist and the
+   * radio setup wizard's Access step; without it they explain where to go.
+   */
+  onOpenAccess?: () => void;
+}
+
 /**
  * Radio operation for the workspace's selected radio: a grid of radio
  * faceplates (selecting never retunes), then the selected radio's hero
  * faceplate, control ownership, tuning, channel memories and live audio. All
  * state and writes come from `StationProvider` / `MediaProvider`.
+ * Administrators also get the setup checklist and the radio configuration
+ * list with its setup wizard.
  */
-export function RadioDashboardScreen() {
+export function RadioDashboardScreen({
+  onOpenAccess,
+}: RadioDashboardScreenProps = {}) {
   const styles = useStyles();
   const station = useStation();
   const media = useRadioMedia();
@@ -43,10 +61,33 @@ export function RadioDashboardScreen() {
   const { session, radios, loaded, error, selected, radioId } = station;
   // Wide layouts keep live audio in a right-hand rail next to the controls.
   const rail = Boolean(selected && media.available && width >= layout.wide);
+  const administrator = session.user.role === 'administrator';
+  const reducedMotion = useReducedMotion();
+  const scroll = useRef<ComponentRef<typeof NativeScrollView>>(null);
+  const configurationY = useRef(0);
+  const [configurationOpen, setConfigurationOpen] = useState(false);
+  const [createRequest, setCreateRequest] = useState(0);
+  const [configurationRevision, setConfigurationRevision] = useState(0);
+  /** Setup checklist: open the configuration section with a new-radio wizard. */
+  const configureRadio = () => {
+    setConfigurationOpen(true);
+    setCreateRequest((request) => request + 1);
+    // Wait for the expanded section to lay out before scrolling to it.
+    setTimeout(() => {
+      scroll.current?.scrollTo({
+        y: Math.max(0, configurationY.current - space.lg),
+        animated: !reducedMotion,
+      });
+    }, 0);
+  };
 
   return (
     <View style={[styles.layout, { flexDirection: rail ? 'row' : 'column' }]}>
-      <ScrollView style={styles.main} contentContainerStyle={styles.page}>
+      <ScrollView
+        ref={scroll}
+        style={styles.main}
+        contentContainerStyle={styles.page}
+      >
         <View style={styles.titleRow}>
           <Text accessibilityRole="header" style={styles.title}>
             Radios
@@ -63,6 +104,13 @@ export function RadioDashboardScreen() {
           Select a radio to view its confirmed state. Selection never changes
           its frequency.
         </Text>
+        {administrator ? (
+          <SetupChecklist
+            onConfigureRadio={configureRadio}
+            refreshKey={configurationRevision}
+            {...(onOpenAccess ? { onAssignAccess: onOpenAccess } : {})}
+          />
+        ) : null}
         {error ? (
           <Text accessibilityRole="alert" style={styles.error}>
             {error}
@@ -92,10 +140,27 @@ export function RadioDashboardScreen() {
           </View>
         ) : null}
 
-        {session.user.role === 'administrator' ? (
-          <Disclosure title="Station radio configuration">
-            <RadioConfigurationPanel session={session} />
-          </Disclosure>
+        {administrator ? (
+          <View
+            onLayout={(event) => {
+              configurationY.current = event.nativeEvent.layout.y;
+            }}
+          >
+            <Disclosure
+              title="Station radio configuration"
+              open={configurationOpen}
+              onOpenChange={setConfigurationOpen}
+            >
+              <RadioConfigurationList
+                session={session}
+                createRequest={createRequest}
+                onChanged={() =>
+                  setConfigurationRevision((revision) => revision + 1)
+                }
+                {...(onOpenAccess ? { onOpenAccess } : {})}
+              />
+            </Disclosure>
+          </View>
         ) : null}
       </ScrollView>
       {rail && (

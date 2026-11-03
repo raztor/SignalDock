@@ -17,6 +17,13 @@
         {
           "microphonePermission": "Allow SignalDock to transmit your voice to the selected radio."
         }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow SignalDock to use the camera to scan a station QR code.",
+          "recordAudioAndroid": false
+        }
       ]
     ],
     "ios": {

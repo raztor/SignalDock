@@ -1,6 +1,12 @@
 # Notifications
 
-`NotificationsScreen` accepts the shared `FeatureScreenProps`. It displays durable history, read state, pagination, delivery status, and notification preferences. API requests use the current instance session through the shared client SDK. Session changes abort outstanding requests and discard the previous instance's list.
+`NotificationsScreen` accepts the shared `FeatureScreenProps` and must be rendered inside `StationProvider` (it reads radio names, the selected radio's channel memories and radios' current frequencies). `ToastProvider` is optional. It displays durable history, read state, pagination, delivery status, and notification preferences. API requests use the current instance session through the shared client SDK. Session changes abort outstanding requests and discard the previous instance's list.
+
+Layout: inbox and preferences sit side by side when the screen is at least 960 px wide; otherwise a segmented control switches between them.
+
+- Inbox (`NotificationInbox`): grouped by day in the device time zone, category icon, unread dot plus an "Unread" badge (never colour alone), and explicit "Mark read" / "Open <radio>" buttons. "Open" marks the row read, then asks the workspace to select the radio (it never retunes). "Mark all read" marks the loaded unread rows one by one.
+- Preferences (`NotificationPreferences`) edit a local draft; "Save preferences" sends `PUT notification-preferences` with fields the screen does not edit (such as `radioIds`) kept as stored. Category cards with switches; frequency filter chips (`FrequencyFilterPicker`: Any frequency, memories, radios' current frequencies, recent `GET communications?limit=50` frequencies, Custom via `parseFrequencyInput`); `QuietHoursPicker` (24-hour bar: tap the first then the last quiet hour, wrapping past midnight; ±30 min steppers; output `HH:MM`); `TimeZonePicker` (defaults to the device zone; searchable `Intl.supportedValuesOf('timeZone')` list, validated text field fallback); cooldown presets with a custom number field (0–3600 s).
+- Pure logic lives in `notification-model.ts` (tested in `notification-model.test.ts`) and is re-exported from `index.ts` with the components.
 
 Push identifies saved resources; it must not introduce a new backend credential destination.
 

@@ -56,7 +56,10 @@ import {
 import { NotificationsScreen } from '../features/notifications/NotificationsScreen';
 import { ProcessingScreen } from '../features/processing/ProcessingScreen';
 import { RadioDashboardScreen } from '../features/radios/RadioDashboardScreen';
-import ServerConnectionScreen from '../features/servers/screens/ServerConnectionScreen';
+import {
+  ServerConnectionScreen,
+  ShareStationButton,
+} from '../features/servers';
 import { StationProvider, useStation } from '../features/station';
 import { StationStrip } from '../features/station/components/StationStrip';
 import PlatformAccessibility from './PlatformAccessibility';
@@ -373,6 +376,10 @@ function Workspace({
               <View style={styles.sidebarFooter}>
                 <Text style={styles.account}>{session.user.username}</Text>
                 <Text style={styles.muted}>{session.user.role}</Text>
+                <ShareStationButton
+                  session={session}
+                  displayName={displayName}
+                />
                 <Action
                   label="Change server"
                   variant="quiet"
@@ -445,6 +452,10 @@ function Workspace({
                   ))}
                 </View>
                 <Text style={styles.muted}>{session.baseUrl}</Text>
+                <ShareStationButton
+                  session={session}
+                  displayName={displayName}
+                />
                 <Action label="Change server" onPress={onServers} />
                 <Action label="Sign out" onPress={onSignOut} />
               </ScrollView>
@@ -452,7 +463,15 @@ function Workspace({
             <View style={[styles.content, more && styles.hidden]}>
               {radiosVisible && (
                 <View style={styles.radioContent}>
-                  <RadioDashboardScreen />
+                  <RadioDashboardScreen
+                    {...(sections.includes('Administration')
+                      ? {
+                          onOpenAccess: () => {
+                            void navigate('Administration');
+                          },
+                        }
+                      : {})}
+                  />
                 </View>
               )}
               {visited.has('History') && (

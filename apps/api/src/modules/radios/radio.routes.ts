@@ -26,6 +26,9 @@ export function registerRadioRoutes(
   app.get(`${prefix}/radios/configurations`, async (request) =>
     service.listConfigurations(await requirePrincipal(request, auth)),
   );
+  app.get(`${prefix}/radios/drivers`, async (request) =>
+    service.listDrivers(await requirePrincipal(request, auth)),
+  );
   app.post(`${prefix}/radios`, async (request, reply) => {
     const result = await service.configure(
       await requirePrincipal(request, auth),

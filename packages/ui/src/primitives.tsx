@@ -158,8 +158,11 @@ export interface ButtonProps {
   disabled?: boolean;
   loading?: boolean;
   variant?: 'primary' | 'secondary' | 'quiet' | 'danger';
+  /** Host view, e.g. to return focus to the button that opened a view. */
+  ref?: Ref<ComponentRef<typeof View>>;
 }
 export function Button({
+  ref,
   label,
   title,
   onPress,
@@ -177,6 +180,7 @@ export function Button({
       : colors.primary;
   return (
     <Pressable
+      ref={ref}
       accessibilityRole="button"
       accessibilityLabel={label ?? title}
       accessibilityState={{ selected: active, busy: loading }}
@@ -230,10 +234,16 @@ export function Panel({
     </View>
   );
 }
-export function ScrollView(props: ScrollViewProps) {
+export function ScrollView({
+  ref,
+  ...props
+}: ScrollViewProps & {
+  ref?: Ref<ComponentRef<typeof NativeScrollView>>;
+}) {
   const { colors } = useTheme();
   return (
     <NativeScrollView
+      ref={ref}
       keyboardShouldPersistTaps="handled"
       keyboardDismissMode="on-drag"
       automaticallyAdjustKeyboardInsets
@@ -315,8 +325,21 @@ export function Disclosure({
   title,
   children,
   initialOpen = false,
-}: PropsWithChildren<{ title: string; initialOpen?: boolean }>) {
-  const [open, setOpen] = useState(initialOpen);
+  open: controlledOpen,
+  onOpenChange,
+}: PropsWithChildren<{
+  title: string;
+  initialOpen?: boolean;
+  /** Controlled open state; pair with `onOpenChange`. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+}>) {
+  const [localOpen, setLocalOpen] = useState(initialOpen);
+  const open = controlledOpen ?? localOpen;
+  const setOpen = (next: boolean) => {
+    setLocalOpen(next);
+    onOpenChange?.(next);
+  };
   const { colors } = useTheme();
   return (
     <View

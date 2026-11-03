@@ -1,63 +1,109 @@
 import { apiRequest } from '@signaldock/client-sdk';
 import type {
   FeatureScreenProps,
-  NotificationCategory,
   NotificationPreference,
   NotificationRecord,
 } from '@signaldock/contracts';
 import {
-  Disclosure,
-  Pressable,
-  SettingToggle,
+  Badge,
+  Button,
+  EmptyState,
+  Heading,
+  LoadingState,
+  SegmentedControl,
   Text,
-  TextInput,
-  useFeatureStyles,
+  createStyles,
+  layout,
+  radius,
+  space,
+  type,
+  useToast,
 } from '@signaldock/ui';
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, FlatList, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ScrollView, View } from 'react-native';
+import { deviceTimeZone } from '../history/history-model';
+import { memoryDisplayName } from '../radios/components/memory-grid-model';
+import { useStation } from '../station';
 import { BrowserNotificationAdapter } from './browser-notifications';
+import { NotificationInbox } from './NotificationInbox';
+import { NotificationPreferences } from './NotificationPreferences';
+import {
+  appendOlderPage,
+  buildFrequencyOptions,
+  mergeRecentPage,
+  preferenceBody,
+  preferenceChanged,
+  preferenceDraft,
+  recentFrequencies,
+  replaceNotification,
+  unreadCount,
+  type PreferenceDraft,
+} from './notification-model';
 
-const categories: NotificationCategory[] = [
-  'communication',
-  'transcript',
-  'incident',
-  'control',
-  'radio',
-  'storage',
-  'processing',
-];
 interface NotificationPage {
   items: NotificationRecord[];
   nextCursor: string | null;
 }
+type ScreenView = 'inbox' | 'preferences';
+
+/** Width of the screen's own area from which inbox and preferences sit side by side. */
+const TWO_COLUMN_WIDTH = 960;
+const RECENT_FREQUENCY_PAGE = 'communications?limit=50';
+
+const message = (failure: unknown, fallback: string) =>
+  failure instanceof Error ? failure.message : fallback;
+
+/**
+ * Notification inbox and preferences. Must be inside StationProvider (it reads
+ * radio names, memories and current frequencies for the frequency filter);
+ * ToastProvider is optional.
+ */
 export function NotificationsScreen({
   session,
   onSelectRadio,
 }: FeatureScreenProps) {
-  const styles = useFeatureStyles('notifications');
+  const styles = useStyles();
+  const toast = useToast();
+  const station = useStation();
+  const deviceZone = useMemo(() => deviceTimeZone(), []);
   const [items, setItems] = useState<NotificationRecord[]>([]);
+  const [loaded, setLoaded] = useState(false);
   const [preference, setPreference] = useState<NotificationPreference | null>(
     null,
   );
+  const [draft, setDraft] = useState<PreferenceDraft | null>(null);
   const [error, setError] = useState('');
+  const [saveError, setSaveError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [busyIds, setBusyIds] = useState<ReadonlySet<string>>(new Set());
+  const [markingAll, setMarkingAll] = useState(false);
   const [cursor, setCursor] = useState<string | null>(null);
+  const [loadingOlder, setLoadingOlder] = useState(false);
   const [relay, setRelay] = useState(false);
   const [browserEnabled, setBrowserEnabled] = useState(false);
   const [browserStatus, setBrowserStatus] = useState('');
-  const [frequency, setFrequency] = useState('');
-  const [quietStart, setQuietStart] = useState('');
-  const [quietEnd, setQuietEnd] = useState('');
-  const [timeZone, setTimeZone] = useState('UTC');
+  const [recent, setRecent] = useState<number[]>([]);
+  const [view, setView] = useState<ScreenView>('inbox');
+  const [width, setWidth] = useState(0);
   const browser = useRef(new BrowserNotificationAdapter());
+  const browserOn = useRef(false);
+  browserOn.current = browserEnabled;
   const seen = useRef(new Set<string>());
   const generation = useRef(0);
   const loadedOlder = useRef(false);
   const selectRadio = useRef(onSelectRadio);
   selectRadio.current = onSelectRadio;
 
-  const open = useCallback(
-    async (record: NotificationRecord) => {
+  const setRowBusy = (id: string, value: boolean) =>
+    setBusyIds((current) => {
+      const next = new Set(current);
+      if (value) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+
+  const markRead = useCallback(
+    async (record: NotificationRecord): Promise<boolean> => {
       const current = generation.current;
       try {
         const updated = await apiRequest<NotificationRecord>(
@@ -65,22 +111,34 @@ export function NotificationsScreen({
           `notifications/${encodeURIComponent(record.id)}/read`,
           { method: 'POST' },
         );
-        if (generation.current !== current) return;
-        setItems((values) =>
-          values.map((item) => (item.id === updated.id ? updated : item)),
-        );
-        if (record.radioId) selectRadio.current?.(record.radioId);
+        if (generation.current !== current) return false;
+        setItems((values) => replaceNotification(values, updated));
+        return true;
       } catch (failure) {
         if (current === generation.current)
-          setError(
-            failure instanceof Error
-              ? failure.message
-              : 'The notification could not be opened.',
-          );
+          setError(message(failure, 'The notification could not be updated.'));
+        return false;
       }
     },
     [session],
   );
+
+  /** Marks the record read, then opens its radio (also used by browser alerts). */
+  const open = useCallback(
+    async (record: NotificationRecord) => {
+      const current = generation.current;
+      const marked = record.readAt ? true : await markRead(record);
+      if (!marked || generation.current !== current) return;
+      if (record.radioId) selectRadio.current?.(record.radioId);
+    },
+    [markRead],
+  );
+  const openRef = useRef(open);
+  openRef.current = open;
+  // Read the latest session inside the effect so a token refresh does not
+  // reload the inbox or reset an unsaved preference draft.
+  const sessionRef = useRef(session);
+  sessionRef.current = session;
 
   useEffect(() => {
     const current = ++generation.current;
@@ -89,37 +147,44 @@ export function NotificationsScreen({
     seen.current = new Set();
     loadedOlder.current = false;
     setItems([]);
+    setLoaded(false);
     setPreference(null);
+    setDraft(null);
     setError('');
+    setSaveError('');
     setCursor(null);
     setBusy(false);
+    setBusyIds(new Set());
+    setRecent([]);
     async function load() {
       try {
         const page = await apiRequest<NotificationPage>(
-          session,
+          sessionRef.current,
           'notifications',
           { signal: controller.signal },
         );
         if (current !== generation.current) return;
         for (const item of page.items) {
-          if (!initial && browserEnabled && !seen.current.has(item.id)) {
+          // Only rows first seen after the initial load may raise a browser
+          // alert, and only after the station admits them (quiet hours,
+          // cooldown, listening and permissions are server decisions).
+          if (!initial && browserOn.current && !seen.current.has(item.id)) {
             try {
               const admitted = await apiRequest<NotificationRecord | null>(
-                session,
+                sessionRef.current,
                 `notifications/${encodeURIComponent(item.id)}/foreground`,
                 { method: 'POST', signal: controller.signal },
               );
               if (current !== generation.current) return;
               if (admitted)
                 browser.current.show(admitted, () => {
-                  if (current === generation.current) void open(admitted);
+                  if (current === generation.current)
+                    void openRef.current(admitted);
                 });
             } catch (failure) {
               if (controller.signal.aborted) return;
               setError(
-                failure instanceof Error
-                  ? failure.message
-                  : 'Browser alert admission is unavailable.',
+                message(failure, 'Browser alert admission is unavailable.'),
               );
             }
           }
@@ -132,119 +197,108 @@ export function NotificationsScreen({
         }
         initial = false;
         setItems((values) =>
-          loadedOlder.current
-            ? [
-                ...page.items,
-                ...values.filter(
-                  (item) => !page.items.some((recent) => recent.id === item.id),
-                ),
-              ]
-            : page.items,
+          mergeRecentPage(values, page.items, loadedOlder.current),
         );
         if (!loadedOlder.current) setCursor(page.nextCursor);
+        setLoaded(true);
       } catch (failure) {
-        if (!controller.signal.aborted && current === generation.current)
-          setError(
-            failure instanceof Error
-              ? failure.message
-              : 'Notifications could not be loaded.',
-          );
+        if (!controller.signal.aborted && current === generation.current) {
+          setError(message(failure, 'Notifications could not be loaded.'));
+          setLoaded(true);
+        }
       }
     }
     void load();
     void Promise.all([
-      apiRequest<NotificationPreference>(session, 'notification-preferences', {
-        signal: controller.signal,
-      }),
-      apiRequest<{ relayConfigured: boolean }>(session, 'push/configuration', {
-        signal: controller.signal,
-      }),
+      apiRequest<NotificationPreference>(
+        sessionRef.current,
+        'notification-preferences',
+        {
+          signal: controller.signal,
+        },
+      ),
+      apiRequest<{ relayConfigured: boolean }>(
+        sessionRef.current,
+        'push/configuration',
+        {
+          signal: controller.signal,
+        },
+      ),
     ])
       .then(([value, configuration]) => {
         if (current !== generation.current) return;
         setPreference(value);
+        setDraft(preferenceDraft(value, deviceZone));
         setRelay(configuration.relayConfigured);
-        setFrequency(
-          value.frequencyHz === undefined ? '' : String(value.frequencyHz),
-        );
-        setQuietStart(value.quietHours?.start ?? '');
-        setQuietEnd(value.quietHours?.end ?? '');
-        setTimeZone(value.quietHours?.timeZone ?? 'UTC');
       })
       .catch((failure) => {
         if (!controller.signal.aborted && current === generation.current)
-          setError(
-            failure instanceof Error
-              ? failure.message
-              : 'Preferences could not be loaded.',
-          );
+          setError(message(failure, 'Preferences could not be loaded.'));
       });
+    // Recent frequencies only feed the filter chips; accounts without
+    // history access simply get no recent chips.
+    void apiRequest<unknown>(sessionRef.current, RECENT_FREQUENCY_PAGE, {
+      signal: controller.signal,
+    })
+      .then((page) => {
+        if (current === generation.current) setRecent(recentFrequencies(page));
+      })
+      .catch(() => undefined);
     const timer = setInterval(() => {
       void load();
     }, 15000);
+    const adapter = browser.current;
     return () => {
       controller.abort();
       clearInterval(timer);
       generation.current++;
-      browser.current.dispose();
+      adapter.dispose();
     };
-  }, [
-    session.instanceId,
-    session.baseUrl,
-    session.accessToken,
-    session.user.id,
-    browserEnabled,
-    open,
-  ]);
+  }, [session.instanceId, session.baseUrl, session.user.id, deviceZone]);
+
+  const changed = Boolean(
+    preference && draft && preferenceChanged(preference, draft, deviceZone),
+  );
 
   async function save() {
-    if (!preference) return;
+    if (!preference || !draft) return;
+    const body = preferenceBody(preference, draft);
+    if (!body.ok) {
+      setSaveError(body.error);
+      return;
+    }
     setBusy(true);
-    setError('');
+    setSaveError('');
     const current = generation.current;
     try {
-      const parsedFrequency = frequency.trim() ? Number(frequency) : undefined;
-      if (
-        parsedFrequency !== undefined &&
-        (!Number.isSafeInteger(parsedFrequency) || parsedFrequency <= 0)
-      )
-        throw new Error('Frequency must be a positive integer in Hz.');
-      if ((quietStart && !quietEnd) || (!quietStart && quietEnd))
-        throw new Error('Provide both quiet-hour times, or leave both empty.');
-      const {
-        frequencyHz: _oldFrequency,
-        quietHours: _oldQuiet,
-        ...rest
-      } = preference;
-      const value = {
-        ...rest,
-        ...(parsedFrequency === undefined
-          ? {}
-          : { frequencyHz: parsedFrequency }),
-        ...(quietStart && quietEnd
-          ? { quietHours: { start: quietStart, end: quietEnd, timeZone } }
-          : {}),
-      };
       const updated = await apiRequest<NotificationPreference>(
         session,
         'notification-preferences',
-        { method: 'PUT', body: JSON.stringify(value) },
+        { method: 'PUT', body: JSON.stringify(body.value) },
       );
-      if (current === generation.current) setPreference(updated);
+      if (current !== generation.current) return;
+      setPreference(updated);
+      setDraft(preferenceDraft(updated, deviceZone));
+      toast.show({
+        message: 'Notification preferences saved.',
+        tone: 'success',
+      });
     } catch (failure) {
       if (current === generation.current)
-        setError(
-          failure instanceof Error
-            ? failure.message
-            : 'Preferences could not be saved.',
-        );
+        setSaveError(message(failure, 'Preferences could not be saved.'));
     } finally {
       if (current === generation.current) setBusy(false);
     }
   }
+  function revert() {
+    if (!preference) return;
+    setDraft(preferenceDraft(preference, deviceZone));
+    setSaveError('');
+  }
   async function more() {
     if (!cursor) return;
     const current = generation.current;
+    setLoadingOlder(true);
     try {
       const page = await apiRequest<NotificationPage>(
         session,
@@ -252,21 +306,14 @@ export function NotificationsScreen({
       );
       if (current === generation.current) {
         loadedOlder.current = true;
-        setItems((values) => [
-          ...values,
-          ...page.items.filter(
-            (item) => !values.some((existing) => existing.id === item.id),
-          ),
-        ]);
+        setItems((values) => appendOlderPage(values, page.items));
         setCursor(page.nextCursor);
       }
     } catch (failure) {
       if (current === generation.current)
-        setError(
-          failure instanceof Error
-            ? failure.message
-            : 'Older notifications could not be loaded.',
-        );
+        setError(message(failure, 'Older notifications could not be loaded.'));
+    } finally {
+      if (current === generation.current) setLoadingOlder(false);
     }
   }
   async function enableBrowser() {
@@ -280,41 +327,209 @@ export function NotificationsScreen({
     );
     setBrowserEnabled(result === 'granted');
   }
-  return (
-    <FlatList
-      data={items}
-      keyExtractor={(item) => item.id}
-      renderItem={({ item }) => (
-        <Pressable
-          accessibilityRole="button"
-          key={item.id}
-          style={styles.card}
-          onPress={() => {
-            void open(item);
+  async function markOne(record: NotificationRecord) {
+    setRowBusy(record.id, true);
+    try {
+      await markRead(record);
+    } finally {
+      setRowBusy(record.id, false);
+    }
+  }
+  async function openRadio(record: NotificationRecord) {
+    setRowBusy(record.id, true);
+    try {
+      await open(record);
+    } finally {
+      setRowBusy(record.id, false);
+    }
+  }
+  async function markAll() {
+    const current = generation.current;
+    setMarkingAll(true);
+    try {
+      for (const record of items.filter((item) => !item.readAt)) {
+        if (generation.current !== current) return;
+        if (!(await markRead(record))) break;
+      }
+    } finally {
+      if (generation.current === current) setMarkingAll(false);
+    }
+  }
+
+  const radioNames = useMemo(
+    () =>
+      new Map(
+        station.radios.map((radio) => [radio.radioId, radio.displayName]),
+      ),
+    [station.radios],
+  );
+  const radioName = useCallback(
+    (radioId: string) => radioNames.get(radioId),
+    [radioNames],
+  );
+  const frequencyOptions = useMemo(
+    () =>
+      buildFrequencyOptions({
+        memories: station.memories.map((memory) => ({
+          name: memoryDisplayName(memory),
+          hz: memory.tuning.rxHz,
+        })),
+        radios: station.radios.flatMap((radio) => {
+          const tuning = radio.snapshot?.observedTuning;
+          return tuning && radio.snapshot?.tuningConfidence !== 'unknown'
+            ? [{ name: radio.displayName, hz: tuning.rxHz }]
+            : [];
+        }),
+        recent,
+        selectedHz: draft?.frequencyHz,
+      }),
+    [station.memories, station.radios, recent, draft?.frequencyHz],
+  );
+
+  const unread = unreadCount(items);
+  const twoColumns = width >= TWO_COLUMN_WIDTH;
+  const showInbox = twoColumns || view === 'inbox';
+  const showPreferences = twoColumns || view === 'preferences';
+
+  const inbox = (
+    <View style={styles.column}>
+      <View style={styles.columnHeader}>
+        <Heading>Inbox</Heading>
+        {unread > 0 ? (
+          <View style={styles.headerActions}>
+            <Badge label={`${unread} unread`} tone="primary" />
+            <Button
+              label="Mark all read"
+              variant="quiet"
+              loading={markingAll}
+              onPress={() => {
+                void markAll();
+              }}
+            />
+          </View>
+        ) : (
+          items.length > 0 && <Text style={styles.caption}>All read</Text>
+        )}
+      </View>
+      {!loaded ? (
+        <LoadingState label="Loading notifications…" />
+      ) : !items.length ? (
+        <EmptyState
+          title="No notifications yet"
+          message="Updates from this station appear here. Radio content is fetched only after you open an item."
+        />
+      ) : (
+        <NotificationInbox
+          items={items}
+          timeZone={deviceZone}
+          now={Date.now()}
+          relayConfigured={relay}
+          radioName={radioName}
+          busyIds={busyIds}
+          onMarkRead={(record) => {
+            void markOne(record);
           }}
-        >
-          <Text accessibilityRole="header" style={styles.heading}>
-            {item.category}
-            {item.readAt ? '' : ' · unread'}
-          </Text>
-          <Text style={styles.muted}>
-            {new Date(item.createdAt).toLocaleString()}
-          </Text>
-          <Text style={styles.muted}>
-            {!relay && item.deliveryState === 'queued'
-              ? 'Stored in station history'
-              : item.deliveryState.replaceAll('_', ' ')}
-          </Text>
-          {item.radioId && (
-            <Text style={styles.muted}>Radio {item.radioId}</Text>
-          )}
-        </Pressable>
+          {...(onSelectRadio
+            ? {
+                onOpenRadio: (record: NotificationRecord) => {
+                  void openRadio(record);
+                },
+              }
+            : {})}
+        />
       )}
+      {!!cursor && (
+        <Button
+          label="Load older updates"
+          loading={loadingOlder}
+          onPress={() => {
+            void more();
+          }}
+        />
+      )}
+    </View>
+  );
+
+  const preferences = (
+    <View style={styles.column}>
+      <View style={styles.columnHeader}>
+        <Heading>Preferences</Heading>
+        {changed && <Badge label="Unsaved changes" tone="warning" />}
+      </View>
+      <View style={styles.card}>
+        <Text style={styles.label}>Delivery</Text>
+        <Text style={styles.caption}>
+          {relay
+            ? 'A relay is configured for enrolled devices.'
+            : 'In-app history is available. Mobile delivery has no configured relay.'}{' '}
+          Browser alerts appear while this app is open.
+        </Text>
+        <Button
+          label={browserEnabled ? 'Browser alerts on' : 'Enable browser alerts'}
+          active={browserEnabled}
+          onPress={() => {
+            void enableBrowser();
+          }}
+        />
+        {!!browserStatus && <Text style={styles.caption}>{browserStatus}</Text>}
+      </View>
+      {draft ? (
+        <>
+          <NotificationPreferences
+            draft={draft}
+            onChange={(next) => {
+              setDraft(next);
+              setSaveError('');
+            }}
+            deviceZone={deviceZone}
+            frequencyOptions={frequencyOptions}
+            disabled={busy}
+          />
+          <View style={[styles.saveBar, changed && styles.saveBarChanged]}>
+            <Text style={styles.caption}>
+              {changed ? 'You have unsaved changes.' : 'All changes saved.'}
+            </Text>
+            {!!saveError && (
+              <Text accessibilityRole="alert" style={styles.error}>
+                {saveError}
+              </Text>
+            )}
+            <View style={styles.headerActions}>
+              <Button
+                label="Revert"
+                variant="quiet"
+                disabled={!changed || busy}
+                onPress={revert}
+              />
+              <Button
+                label="Save preferences"
+                variant="primary"
+                disabled={!changed}
+                loading={busy}
+                onPress={() => {
+                  void save();
+                }}
+              />
+            </View>
+          </View>
+        </>
+      ) : (
+        !error && <LoadingState label="Loading preferences…" />
+      )}
+    </View>
+  );
+
+  return (
+    <ScrollView
       style={styles.screen}
       contentContainerStyle={styles.page}
       keyboardShouldPersistTaps="handled"
-      ListHeaderComponent={
-        <View style={styles.section}>
+    >
+      <View
+        style={styles.content}
+        onLayout={(event) => setWidth(event.nativeEvent.layout.width)}
+      >
+        <View style={styles.intro}>
           <Text accessibilityRole="header" style={styles.title}>
             Notifications
           </Text>
@@ -322,165 +537,98 @@ export function NotificationsScreen({
             Updates from this station. Radio content is fetched only after you
             open an item.
           </Text>
-          {!!error && (
-            <Text accessibilityRole="alert" style={styles.error}>
-              {error}
-            </Text>
-          )}
-          <Text accessibilityRole="header" style={styles.heading}>
-            Station history
+        </View>
+        {!!error && (
+          <Text accessibilityRole="alert" style={styles.error}>
+            {error}
           </Text>
-          {!items.length && (
-            <Text style={styles.muted}>No notifications yet.</Text>
+        )}
+        {!twoColumns && (
+          <SegmentedControl
+            accessibilityLabel="Notifications view"
+            value={view}
+            onChange={setView}
+            options={[
+              {
+                value: 'inbox',
+                label: unread ? `Inbox · ${unread}` : 'Inbox',
+                accessibilityLabel: unread
+                  ? `Inbox, ${unread} unread`
+                  : 'Inbox',
+              },
+              {
+                value: 'preferences',
+                label: changed ? 'Preferences · unsaved' : 'Preferences',
+                accessibilityLabel: changed
+                  ? 'Preferences, unsaved changes'
+                  : 'Preferences',
+              },
+            ]}
+          />
+        )}
+        <View style={twoColumns ? styles.columns : styles.stack}>
+          {showInbox && (
+            <View style={twoColumns && styles.inboxColumn}>{inbox}</View>
           )}
-        </View>
-      }
-      ListFooterComponent={
-        <View style={styles.section}>
-          {!!cursor && (
-            <Pressable
-              accessibilityRole="button"
-              style={styles.button}
-              onPress={() => {
-                void more();
-              }}
-            >
-              <Text style={styles.buttonText}>Load older updates</Text>
-            </Pressable>
-          )}
-          <Disclosure title="Delivery & notification preferences">
-            <View style={styles.card}>
-              <Text accessibilityRole="header" style={styles.heading}>
-                Delivery
-              </Text>
-              <Text style={styles.muted}>
-                {relay
-                  ? 'A relay is configured for enrolled devices.'
-                  : 'In-app history is available. Mobile delivery has no configured relay.'}
-              </Text>
-              <Text style={styles.muted}>
-                Browser alerts appear while this app is open. Device
-                notifications depend on your station’s delivery settings.
-              </Text>
-              <Pressable
-                accessibilityRole="button"
-                style={styles.button}
-                onPress={() => {
-                  void enableBrowser();
-                }}
-              >
-                <Text style={styles.buttonText}>Enable browser alerts</Text>
-              </Pressable>
-              {!!browserStatus && (
-                <Text style={styles.muted}>{browserStatus}</Text>
-              )}
+          {showPreferences && (
+            <View style={twoColumns && styles.preferencesColumn}>
+              {preferences}
             </View>
-            {preference ? (
-              <View style={styles.card}>
-                <Text accessibilityRole="header" style={styles.heading}>
-                  Preferences
-                </Text>
-                <SettingToggle
-                  label="Notifications enabled"
-                  value={preference.enabled}
-                  onValueChange={(enabled) =>
-                    setPreference({ ...preference, enabled })
-                  }
-                />
-                {categories.map((category) => (
-                  <SettingToggle
-                    key={category}
-                    label={`${category} notifications`}
-                    value={preference.categories.includes(category)}
-                    onValueChange={(enabled) =>
-                      setPreference({
-                        ...preference,
-                        categories: enabled
-                          ? [...preference.categories, category]
-                          : preference.categories.filter(
-                              (value) => value !== category,
-                            ),
-                      })
-                    }
-                  />
-                ))}
-                <SettingToggle
-                  label="Suppress ordinary pushes while listening"
-                  value={preference.suppressWhileListening}
-                  onValueChange={(suppressWhileListening) =>
-                    setPreference({ ...preference, suppressWhileListening })
-                  }
-                />
-                <Text style={styles.label}>
-                  Frequency filter (Hz, optional)
-                </Text>
-                <TextInput
-                  accessibilityLabel="Frequency filter in Hz"
-                  style={styles.input}
-                  value={frequency}
-                  onChangeText={setFrequency}
-                  keyboardType="numeric"
-                />
-                <Text style={styles.label}>Cooldown (seconds)</Text>
-                <TextInput
-                  accessibilityLabel="Cooldown seconds"
-                  style={styles.input}
-                  value={String(preference.cooldownSeconds)}
-                  onChangeText={(text) => {
-                    if (/^\d*$/.test(text))
-                      setPreference({
-                        ...preference,
-                        cooldownSeconds: Number(text),
-                      });
-                  }}
-                  keyboardType="numeric"
-                />
-                <Text style={styles.label}>Quiet hours (HH:MM, optional)</Text>
-                <View style={styles.row}>
-                  <TextInput
-                    accessibilityLabel="Quiet hours start"
-                    style={[styles.input, styles.grow]}
-                    value={quietStart}
-                    onChangeText={setQuietStart}
-                    placeholder="22:00"
-                  />
-                  <TextInput
-                    accessibilityLabel="Quiet hours end"
-                    style={[styles.input, styles.grow]}
-                    value={quietEnd}
-                    onChangeText={setQuietEnd}
-                    placeholder="07:00"
-                  />
-                </View>
-                <TextInput
-                  accessibilityLabel="Quiet hours time zone"
-                  style={styles.input}
-                  value={timeZone}
-                  onChangeText={setTimeZone}
-                  autoCapitalize="none"
-                />
-                <Pressable
-                  accessibilityRole="button"
-                  disabled={busy}
-                  style={styles.button}
-                  onPress={() => {
-                    void save();
-                  }}
-                >
-                  {busy ? (
-                    <ActivityIndicator />
-                  ) : (
-                    <Text style={styles.buttonText}>Save preferences</Text>
-                  )}
-                </Pressable>
-              </View>
-            ) : (
-              <ActivityIndicator />
-            )}
-          </Disclosure>
+          )}
         </View>
-      }
-    />
+      </View>
+    </ScrollView>
   );
 }
 export default NotificationsScreen;
+
+const useStyles = createStyles((c) => ({
+  screen: { flex: 1, backgroundColor: c.background },
+  page: { paddingBottom: space.xxxl },
+  content: {
+    width: '100%',
+    maxWidth: layout.content,
+    alignSelf: 'center',
+    padding: space.lg,
+    gap: space.lg,
+  },
+  intro: { gap: space.xs },
+  title: { ...type.title, color: c.textPrimary },
+  muted: { ...type.body, color: c.textSecondary },
+  caption: { ...type.caption, color: c.textSecondary },
+  label: { ...type.label, color: c.textPrimary },
+  error: { ...type.body, color: c.error },
+  stack: { gap: space.xl },
+  columns: { flexDirection: 'row', alignItems: 'flex-start', gap: space.xl },
+  inboxColumn: { flex: 3, minWidth: 0 },
+  preferencesColumn: { flex: 2, minWidth: 0 },
+  column: { gap: space.lg },
+  columnHeader: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: space.sm,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: space.sm,
+  },
+  card: {
+    gap: space.sm,
+    padding: space.lg,
+    borderRadius: radius.md,
+    backgroundColor: c.surface,
+  },
+  saveBar: {
+    gap: space.sm,
+    padding: space.lg,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: c.border,
+    backgroundColor: c.surface,
+  },
+  saveBarChanged: { borderColor: c.warning },
+}));

@@ -1,4 +1,5 @@
 import {
+  InstalledDriverSchema,
   RadioConfigurationSchema,
   RadioViewSchema,
   SignalDockError,
@@ -7,6 +8,7 @@ import {
   type DatabasePort,
   type ErrorCode,
   type EventPublisherPort,
+  type InstalledDriver,
   type OperationContext,
   type Principal,
   type RadioConfiguration,
@@ -34,6 +36,7 @@ export class RadioApplicationService {
   private readonly attachments: RadioAttachmentSupervisor;
   private closed = false;
   private readonly unlisten: () => void;
+  private readonly installedDrivers: () => readonly InstalledDriver[];
   constructor(
     private readonly options: {
       instanceId: string;
@@ -41,6 +44,8 @@ export class RadioApplicationService {
       auth: AuthenticationPort;
       runtime?: RadioRuntime;
       driverFactory?: RadioDriverFactory;
+      /** Drivers offered to administrators (defaults to the simulator registry's). */
+      installedDrivers?: () => readonly InstalledDriver[];
       events?: EventPublisherPort;
       attachmentRetryMs?: number;
       attachmentTimeoutMs?: number;
@@ -50,8 +55,14 @@ export class RadioApplicationService {
     this.runtime = options.runtime ?? new RadioRuntime();
     this.repository = new RadioRepository(options.database, options.instanceId);
     this.supervisor = new DriverSupervisor(this.runtime);
+    const defaultRegistry = options.driverFactory
+      ? undefined
+      : createSimulatorRegistry();
+    this.installedDrivers =
+      options.installedDrivers ??
+      (defaultRegistry ? () => defaultRegistry.list() : () => []);
     this.attachments = new RadioAttachmentSupervisor({
-      factory: options.driverFactory ?? createSimulatorRegistry().create,
+      factory: options.driverFactory ?? defaultRegistry!.create,
       current: (configuration) =>
         !this.closed &&
         !this.changing.has(configuration.radioId) &&
@@ -156,6 +167,13 @@ export class RadioApplicationService {
       );
     return [...this.configurations.values()].map((configuration) =>
       structuredClone(configuration),
+    );
+  }
+  /** Installed drivers and their settings schemas; same permission as configurations. */
+  async listDrivers(principal: Principal): Promise<InstalledDriver[]> {
+    await this.authorize(principal, 'instance.admin');
+    return this.installedDrivers().map((driver) =>
+      InstalledDriverSchema.parse(structuredClone(driver)),
     );
   }
   async configure(

@@ -973,6 +973,33 @@ export interface RadioView {
   };
 }
 
+export interface InstalledDriver {
+  driverId: string;
+  displayName: string;
+  description: string;
+  transport: "simulator" | "grpc" | "other";
+  requiresEndpoint: boolean;
+  verification: "simulated" | "experimental" | "hardware_verified";
+  capabilitiesSummary: {
+    rxAudio: boolean;
+    txAudio: boolean;
+    memories: boolean;
+    tuningWritable: boolean;
+    modes: ("FM" | "AM" | "USB" | "LSB" | "CW" | "DIGITAL")[];
+  };
+  configSchema: {
+    type: "object";
+    properties?: {
+      [k: string]: unknown;
+    };
+    [k: string]: unknown;
+  };
+  /**
+   * @maxItems 50
+   */
+  secretFields?: string[];
+}
+
 export interface TuningCommand {
   context: {
     fencing?: number;
