@@ -1,6 +1,6 @@
 # UI
 
-Theme-aware presentation primitives for the Expo client. `tokens.ts` owns the visual foundations; `theme.tsx` binds them to system/light/dark preference; `primitives.tsx` supplies text, native fields, actions, layout and feedback. `screen-styles.ts` supplies common feature recipes. `SettingToggle` and `Checkbox` use Expo UI's universal native controls. `FeatureView` preserves destination state and lets media suspend while hidden.
+Theme-aware presentation primitives for the Expo client. `tokens.ts` owns the visual foundations; `theme.tsx` binds them to system/light/dark preference; `primitives.tsx` supplies text, native fields, actions, layout and feedback. `screen-styles.ts` supplies common feature recipes. `SettingToggle` and `Checkbox` use Expo UI's universal native controls. `FeatureView` preserves destination state and lets media suspend while hidden. `controls.tsx` adds `SegmentedControl`, `Chip`/`ChipGroup`/`ChipInput`, `StatusIndicator`, `Badge`, `Stepper`, `NumberField` and `Overlay`; `toast.tsx` adds `ToastProvider`/`useToast`; `schema-form.tsx` renders driver settings from the restricted JSON Schema subset validated by the pure `schema-form-model.ts`.
 
 Import from `@signaldock/ui`. Keep permission checks, radio control, provider operations and session ownership inside their existing feature modules. Use semantic tokens rather than screen-level color literals, and use `Button`/`Action` instead of creating another local action component.
 

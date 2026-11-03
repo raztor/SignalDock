@@ -79,13 +79,22 @@ export function TextInput({
     />
   );
 }
+export type PressableProps = ComponentProps<typeof NativePressable> & {
+  /**
+   * `opacity` (default) dims the control while pressed or disabled. `none`
+   * keeps full opacity so the caller can show state through its own colours,
+   * borders and text (e.g. a hold-to-talk button that stays pressed).
+   */
+  feedback?: 'opacity' | 'none';
+};
 /** Keeps feedback consistent for existing feature actions as well as navigation. */
 export function Pressable({
   style,
   disabled,
   accessibilityState,
+  feedback = 'opacity',
   ...props
-}: ComponentProps<typeof NativePressable>) {
+}: PressableProps) {
   const { colors } = useTheme();
   const [focused, setFocused] = useState(false);
   return (
@@ -120,8 +129,8 @@ export function Pressable({
           borderRadius: radius.md,
         },
         typeof style === 'function' ? style(state) : style,
-        state.pressed && { opacity: 0.75 },
-        disabled && { opacity: 0.45 },
+        feedback === 'opacity' && state.pressed && { opacity: 0.75 },
+        feedback === 'opacity' && disabled && { opacity: 0.45 },
         focused && {
           outlineColor: colors.focus,
           outlineWidth: 2,

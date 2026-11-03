@@ -29,6 +29,7 @@ export async function buildServer(options: {
   await app.register(cors, {
     origin: options.allowedOrigins ?? [],
     credentials: Boolean(options.cookieOrigin),
+    methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE'],
   });
   configureHttp(app);
   registerInstanceRoutes(app, prefix, {

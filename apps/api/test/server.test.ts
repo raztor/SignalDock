@@ -114,6 +114,18 @@ describe('discovery-only API', () => {
       );
       expect(denied.headers['access-control-allow-origin']).toBeUndefined();
       expect(allowed.headers['cache-control']).toBe('no-store');
+      const preflight = await app.inject({
+        method: 'OPTIONS',
+        url: '/api/v1/radios/radio-1/control',
+        headers: {
+          origin: 'https://client.example',
+          'access-control-request-method': 'DELETE',
+        },
+      });
+      expect(preflight.statusCode).toBe(204);
+      expect(preflight.headers['access-control-allow-methods']).toContain(
+        'DELETE',
+      );
       const missing = await app.inject('/missing');
       expect(missing.statusCode).toBe(404);
       expect(missing.json()).toMatchObject({

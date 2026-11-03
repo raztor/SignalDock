@@ -5,11 +5,23 @@ import {
 } from '@signaldock/contracts';
 import { apiFetch } from './index.js';
 
+/** Optional liveness callbacks for `subscribeStationEvents`. */
+export interface StationEventStreamHooks {
+  /** The server answered with a readable event stream. */
+  onOpen?(): void;
+  /**
+   * Called for every complete frame, including comment frames such as the
+   * server's `: connected` and `: heartbeat`, before it is parsed.
+   */
+  onFrame?(): void;
+}
+
 /** Fetch-based SSE supports bearer authentication on configurable server origins. */
 export async function subscribeStationEvents(
   session: ClientSession,
   onEvent: (event: DomainEvent) => void,
   signal: AbortSignal,
+  hooks: StationEventStreamHooks = {},
 ): Promise<void> {
   const response = await apiFetch(session, 'events', {
     signal,
@@ -17,6 +29,7 @@ export async function subscribeStationEvents(
   });
   if (!response.body)
     throw new Error('This client cannot stream station events.');
+  hooks.onOpen?.();
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let pending = '';
@@ -32,6 +45,7 @@ export async function subscribeStationEvents(
       while ((end = pending.indexOf('\n\n')) >= 0) {
         const frame = pending.slice(0, end);
         pending = pending.slice(end + 2);
+        hooks.onFrame?.();
         const line = frame
           .split('\n')
           .find((item) => item.startsWith('data: '));
