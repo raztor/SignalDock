@@ -8,6 +8,12 @@ import {
   passwordStrengthLabel,
 } from './password-strength';
 
+// Fixed samples exercise the estimator; none are authentication credentials.
+const LOWERCASE_SAMPLE = 'kdjfmgzpqnwl'; // ggignore: Strength-estimator test fixture.
+const CONTEXT_SAMPLE = 'operador1-Xk9#q'; // ggignore: Strength-estimator test fixture.
+const SHORT_CONTEXT_SAMPLE = 'zq-Tm4#kLp!r'; // ggignore: Strength-estimator test fixture.
+const SEQUENCE_SAMPLE = 'abcdefghijkl'; // ggignore: Alphabet-sequence test fixture.
+
 describe('passwordStrength', () => {
   it('rejects passwords below the backend minimum', () => {
     const empty = passwordStrength('');
@@ -24,8 +30,10 @@ describe('passwordStrength', () => {
   });
 
   it('accepts exactly 12 characters', () => {
-    expect(passwordStrength('kdjfmgzpqnwl').acceptable).toBe(true); // ggignore: Password-estimator fixture or dictionary entry, not a credential.
-    expect(passwordStrength('kdjfmgzpqnw').acceptable).toBe(false); // ggignore: Password-estimator fixture or dictionary entry, not a credential.
+    expect(passwordStrength(LOWERCASE_SAMPLE).acceptable).toBe(true);
+    expect(passwordStrength(LOWERCASE_SAMPLE.slice(0, -1)).acceptable).toBe(
+      false,
+    );
   });
 
   it('rejects passwords above the backend maximum', () => {
@@ -43,9 +51,9 @@ describe('passwordStrength', () => {
 
   it('rates repeated characters and sequences as weak', () => {
     expect(passwordStrength('aaaaaaaaaaaa').level).toBe('weak');
-    expect(passwordStrength('abcdefghijkl').level).toBe('weak'); // ggignore: Password-estimator fixture or dictionary entry, not a credential.
+    expect(passwordStrength(SEQUENCE_SAMPLE).level).toBe('weak');
     expect(passwordStrength('123456789012').level).toBe('weak');
-    expect(passwordStrength('abcdefghijkl').hint).toContain('sequences'); // ggignore: Password-estimator fixture or dictionary entry, not a credential.
+    expect(passwordStrength(SEQUENCE_SAMPLE).hint).toContain('sequences');
   });
 
   it('rates common passwords as weak even when long enough', () => {
@@ -56,20 +64,20 @@ describe('passwordStrength', () => {
   });
 
   it('penalises the username', () => {
-    const plain = passwordStrength('operador1-Xk9#q'); // ggignore: Password-estimator fixture or dictionary entry, not a credential.
-    const personal = passwordStrength('operador1-Xk9#q', ['operador1']); // ggignore: Password-estimator fixture or dictionary entry, not a credential.
+    const plain = passwordStrength(CONTEXT_SAMPLE);
+    const personal = passwordStrength(CONTEXT_SAMPLE, ['operador1']);
     expect(personal.bits).toBeLessThan(plain.bits);
     expect(personal.hint).toContain('username');
   });
 
   it('ignores very short context words', () => {
-    expect(passwordStrength('zq-Tm4#kLp!r', ['ab']).hint).not.toContain( // ggignore: Password-estimator fixture or dictionary entry, not a credential.
+    expect(passwordStrength(SHORT_CONTEXT_SAMPLE, ['ab']).hint).not.toContain(
       'username',
     );
   });
 
   it('rates random 12 lowercase letters as fair', () => {
-    expect(passwordStrength('kdjfmgzpqnwl').level).toBe('fair'); // ggignore: Password-estimator fixture or dictionary entry, not a credential.
+    expect(passwordStrength(LOWERCASE_SAMPLE).level).toBe('fair');
   });
 
   it('rates mixed-class 12 characters as good', () => {
@@ -86,14 +94,14 @@ describe('passwordStrength', () => {
 
   it('maps scores to tones', () => {
     expect(passwordStrength('aaaaaaaaaaaa').tone).toBe('error');
-    expect(passwordStrength('kdjfmgzpqnwl').tone).toBe('warning'); // ggignore: Password-estimator fixture or dictionary entry, not a credential.
+    expect(passwordStrength(LOWERCASE_SAMPLE).tone).toBe('warning');
   });
 
   it('always offers a hint', () => {
     for (const value of [
       '',
       'aaaaaaaaaaaa',
-      'kdjfmgzpqnwl', // ggignore: Password-estimator fixture or dictionary entry, not a credential.
+      LOWERCASE_SAMPLE,
       'Tr0ub4dor&3x',
       'correct horse battery staple',
     ])

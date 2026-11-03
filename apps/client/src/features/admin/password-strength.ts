@@ -38,7 +38,7 @@ export const PASSWORD_LEVEL_LABELS: Record<PasswordLevel, string> = {
 /** Fragments that make a password predictable regardless of length. */
 const COMMON_FRAGMENTS = [
   'password',
-  'passw0rd', // ggignore: Password-estimator fixture or dictionary entry, not a credential.
+  'passw0rd', // ggignore: Predictable-password dictionary entry, not a credential.
   'qwerty',
   'azerty',
   'letmein',

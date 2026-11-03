@@ -2,7 +2,7 @@
 
 ## Scope and audit
 
-The client is a self-hosted radio workspace, built with Expo 58.0.19, React 19.3, React Native 0.88 and strict TypeScript. One application entry point composes independent feature modules. Authentication, server identity checks, control leases, media supervision, provider integration and radio permissions belong to their existing controllers and services.
+The client is a self-hosted radio workspace, built with Expo 58.0.22, React 19.3, React Native 0.88 and strict TypeScript. One application entry point composes independent feature modules. Authentication, server identity checks, control leases, media supervision, provider integration and radio permissions belong to their existing controllers and services.
 
 The audit covered server discovery, sign-in, first-administrator setup, radios and memories, live audio/PTT, communication history and playback, incidents, APRS/decoding, notifications, processing, session management and user administration. There is no existing logo/image asset library. A small line-based radio mark and a consistent set of functional icons establish identity without decorative imagery.
 
