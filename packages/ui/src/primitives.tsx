@@ -1,4 +1,10 @@
-import { useState, type ComponentProps, type PropsWithChildren } from 'react';
+import {
+  useState,
+  type ComponentProps,
+  type ComponentRef,
+  type PropsWithChildren,
+  type Ref,
+} from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -17,7 +23,11 @@ import {
 import { useTheme } from './theme';
 import { layout, radius, space, type } from './tokens';
 
-export function Text({ style, ...props }: TextProps) {
+/** Text props plus a ref to the host text (React 19 passes `ref` as a prop). */
+export type TextElementProps = TextProps & {
+  ref?: Ref<ComponentRef<typeof NativeText>>;
+};
+export function Text({ style, ...props }: TextElementProps) {
   const { colors } = useTheme();
   return (
     <NativeText
@@ -26,7 +36,7 @@ export function Text({ style, ...props }: TextProps) {
     />
   );
 }
-export function Heading(props: TextProps) {
+export function Heading(props: TextElementProps) {
   return (
     <Text
       accessibilityRole="header"

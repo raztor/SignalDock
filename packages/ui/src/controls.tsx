@@ -2,14 +2,17 @@ import {
   useEffect,
   useRef,
   useState,
+  type ComponentRef,
   type PropsWithChildren,
   type ReactNode,
 } from 'react';
 import {
   AccessibilityInfo,
   Animated,
+  KeyboardAvoidingView,
   Modal,
   Platform,
+  ScrollView,
   TextInput as NativeTextInput,
   View,
   type StyleProp,
@@ -34,6 +37,21 @@ import { useTheme } from './theme';
 import { layout, radius, space, type, type Colors } from './tokens';
 
 export type ControlTone = 'neutral' | 'primary' | 'warning' | 'error';
+
+/**
+ * Hides content visually while keeping it for screen readers (web live
+ * regions and explanations that have no visible text).
+ */
+export const visuallyHidden: ViewStyle = {
+  position: 'absolute',
+  width: 1,
+  height: 1,
+  margin: -1,
+  padding: 0,
+  overflow: 'hidden',
+  opacity: 0,
+  borderWidth: 0,
+};
 
 /** Dense controls (chips, compact segments) keep a 48 pt hit area with slop. */
 const denseHitSlop = { top: 6, bottom: 6, left: 4, right: 4 } as const;
@@ -416,7 +434,20 @@ export function ChipInput({
   const [draft, setDraft] = useState('');
   const [error, setError] = useState<string>();
   const [focused, setFocused] = useState(false);
+  const [removed, setRemoved] = useState('');
+  const input = useRef<ComponentRef<typeof NativeTextInput>>(null);
   const full = maxItems !== undefined && values.length >= maxItems;
+  const remove = (index?: number) => {
+    const value = index === undefined ? values.at(-1) : values[index];
+    if (value === undefined) return;
+    onChange(removeChip(values, index));
+    // The removed chip's button unmounts: keep focus in the field and say
+    // what was removed.
+    input.current?.focus();
+    setRemoved(`Removed ${value}.`);
+    if (Platform.OS !== 'web')
+      AccessibilityInfo.announceForAccessibility(`Removed ${value}`);
+  };
   const commit = (text: string) => {
     const result = commitChipText(values, text, {
       ...(validate ? { validate } : {}),
@@ -428,7 +459,7 @@ export function ChipInput({
   };
   const onKeyPress = (event: TextInputKeyPressEvent) => {
     if (event.nativeEvent.key === 'Backspace' && draft === '' && values.length)
-      onChange(removeChip(values));
+      remove();
   };
   return (
     <View style={{ gap: space.xs }}>
@@ -458,10 +489,11 @@ export function ChipInput({
             key={`${value}-${index}`}
             label={value}
             disabled={disabled}
-            onRemove={() => onChange(removeChip(values, index))}
+            onRemove={() => remove(index)}
           />
         ))}
         <NativeTextInput
+          ref={input}
           value={draft}
           editable={!disabled && !full}
           placeholder={full ? `Limit of ${maxItems} reached` : placeholder}
@@ -472,8 +504,14 @@ export function ChipInput({
           autoCapitalize="none"
           autoCorrect={false}
           submitBehavior="submit"
+          // react-native-web ignores submitBehavior and blurs single-line
+          // inputs on Enter unless blurOnSubmit is false.
+          {...(Platform.OS === 'web'
+            ? ({ blurOnSubmit: false } as object)
+            : {})}
           returnKeyType="done"
           onChangeText={(text) => {
+            if (removed) setRemoved('');
             if (hasChipSeparator(text)) commit(text);
             else {
               setDraft(text);
@@ -509,6 +547,11 @@ export function ChipInput({
           style={[type.caption, { color: colors.error }]}
         >
           {error}
+        </Text>
+      )}
+      {Platform.OS === 'web' && (
+        <Text role="status" aria-live="polite" style={visuallyHidden}>
+          {removed}
         </Text>
       )}
     </View>
@@ -964,6 +1007,11 @@ export interface OverlayProps {
   accessibilityLabel: string;
   placement?: 'center' | 'top';
   maxWidth?: number;
+  /**
+   * Scroll the content and keep it above the software keyboard (sheets with
+   * text fields whose buttons must stay reachable on phones).
+   */
+  scroll?: boolean;
   children?: ReactNode;
 }
 
@@ -977,9 +1025,11 @@ export function Overlay({
   accessibilityLabel,
   placement = 'center',
   maxWidth = 560,
+  scroll = false,
   children,
 }: OverlayProps) {
   const { colors } = useTheme();
+  const Frame = scroll ? KeyboardAvoidingView : View;
   return (
     <Modal
       visible={visible}
@@ -987,7 +1037,10 @@ export function Overlay({
       animationType="none"
       onRequestClose={onClose}
     >
-      <View
+      <Frame
+        {...(scroll && Platform.OS === 'ios'
+          ? { behavior: 'padding' as const }
+          : {})}
         style={{
           flex: 1,
           alignItems: 'center',
@@ -1026,13 +1079,23 @@ export function Overlay({
             borderWidth: 1,
             borderColor: colors.border,
             borderRadius: radius.lg,
-            padding: space.lg,
-            gap: space.md,
+            ...(scroll ? {} : { padding: space.lg, gap: space.md }),
           }}
         >
-          {children}
+          {scroll ? (
+            <ScrollView
+              style={{ flexGrow: 0, flexShrink: 1 }}
+              keyboardShouldPersistTaps="handled"
+              automaticallyAdjustKeyboardInsets
+              contentContainerStyle={{ padding: space.lg, gap: space.md }}
+            >
+              {children}
+            </ScrollView>
+          ) : (
+            children
+          )}
         </View>
-      </View>
+      </Frame>
     </Modal>
   );
 }

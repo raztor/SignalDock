@@ -25,7 +25,10 @@ export interface ToastOptions {
   message: string;
   tone?: ToastTone;
   action?: { label: string; onPress: () => void };
-  /** Overrides the default 4 s (7 s for errors). */
+  /**
+   * Overrides the default 4 s (7 s for errors; 15 s with an action). The
+   * timer pauses while the pointer or focus is on the toast's buttons.
+   */
   durationMs?: number;
 }
 
@@ -45,6 +48,8 @@ export interface ToastInsets {
 export const TOAST_LIMIT = 3;
 export const TOAST_DURATION_MS = 4000;
 export const TOAST_ERROR_DURATION_MS = 7000;
+/** Toasts with an action stay longer so keyboard users can reach it. */
+export const TOAST_ACTION_DURATION_MS = 15000;
 
 const noop: ToastApi = { show: () => '', dismiss: () => {} };
 const ToastContext = createContext<ToastApi>(noop);
@@ -55,6 +60,7 @@ export const useToast = () => useContext(ToastContext);
 interface ToastEntry extends ToastOptions {
   id: string;
   tone: ToastTone;
+  durationMs: number;
 }
 
 const toneIcon: Record<ToastTone, IconName | undefined> = {
@@ -96,7 +102,14 @@ export function ToastProvider({
       counter.current += 1;
       const id = `toast-${counter.current}`;
       const tone = options.tone ?? 'neutral';
-      const entry: ToastEntry = { ...options, id, tone };
+      const durationMs =
+        options.durationMs ??
+        (options.action
+          ? TOAST_ACTION_DURATION_MS
+          : tone === 'error'
+            ? TOAST_ERROR_DURATION_MS
+            : TOAST_DURATION_MS);
+      const entry: ToastEntry = { ...options, id, tone, durationMs };
       setToasts((current) => {
         const next = [...current, entry];
         for (const dropped of next.slice(
@@ -111,11 +124,7 @@ export function ToastProvider({
       });
       timers.current.set(
         id,
-        setTimeout(
-          () => dismiss(id),
-          options.durationMs ??
-            (tone === 'error' ? TOAST_ERROR_DURATION_MS : TOAST_DURATION_MS),
-        ),
+        setTimeout(() => dismiss(id), durationMs),
       );
       if (Platform.OS === 'ios')
         AccessibilityInfo.announceForAccessibility(
@@ -132,6 +141,20 @@ export function ToastProvider({
       pending.clear();
     };
   }, []);
+  /** Stop the timer while the operator is on the toast; restart after. */
+  const hold = useCallback(
+    (toast: ToastEntry, held: boolean) => {
+      const timer = timers.current.get(toast.id);
+      if (timer) clearTimeout(timer);
+      timers.current.delete(toast.id);
+      if (!held)
+        timers.current.set(
+          toast.id,
+          setTimeout(() => dismiss(toast.id), toast.durationMs),
+        );
+    },
+    [dismiss],
+  );
   const api = useMemo(() => ({ show, dismiss }), [show, dismiss]);
   const wide = width >= layout.compact;
   return (
@@ -194,6 +217,10 @@ export function ToastProvider({
                   <Pressable
                     accessibilityRole="button"
                     accessibilityLabel={toast.action.label}
+                    onFocus={() => hold(toast, true)}
+                    onBlur={() => hold(toast, false)}
+                    onHoverIn={() => hold(toast, true)}
+                    onHoverOut={() => hold(toast, false)}
                     onPress={() => {
                       toast.action?.onPress();
                       dismiss(toast.id);
@@ -208,6 +235,10 @@ export function ToastProvider({
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel="Dismiss notification"
+                  onFocus={() => hold(toast, true)}
+                  onBlur={() => hold(toast, false)}
+                  onHoverIn={() => hold(toast, true)}
+                  onHoverOut={() => hold(toast, false)}
                   onPress={() => dismiss(toast.id)}
                   style={{ width: layout.touch, alignItems: 'center' }}
                 >

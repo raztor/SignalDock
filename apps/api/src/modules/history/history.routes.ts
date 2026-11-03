@@ -2,15 +2,35 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { FastifyInstance } from 'fastify';
 import {
+  CommunicationWaveformSchema,
+  HistoryActivitySchema,
   IdSchema,
   SignalDockError,
+  type CommunicationWaveform,
   type AuthenticationPort,
   type HistoryQuery,
   type Permission,
   type Principal,
 } from '@signaldock/contracts';
-import { HistoryService } from '@signaldock/history';
+import {
+  ACTIVITY_SLOT_MINUTES,
+  DEFAULT_WAVEFORM_POINTS,
+  MAX_ACTIVITY_DAYS,
+  MAX_WAVEFORM_POINTS,
+  HistoryService,
+  activityWindow,
+  bucketActivity,
+  canonicalTimeZone,
+  waveformFromRecording,
+} from '@signaldock/history';
 import { requirePrincipal } from '../../shared/http/auth.js';
+import { LruCache } from './lru-cache.js';
+
+/** Waveform summaries kept in memory, keyed by instance + recording + points. */
+export const WAVEFORM_CACHE_ENTRIES = 500;
+/** Larger recordings are not decoded for previews; peaks are reported empty. */
+export const MAX_WAVEFORM_SOURCE_BYTES = 64 * 1024 * 1024;
+type WaveformSummary = Pick<CommunicationWaveform, 'peaks' | 'durationMs'>;
 
 const parameters = z.strictObject({ id: IdSchema });
 const querySchema = z.strictObject({
@@ -22,6 +42,16 @@ const querySchema = z.strictObject({
   beforeStartedAt: z.iso.datetime().optional(),
   beforeId: IdSchema.optional(),
   limit: z.coerce.number().int().min(1).max(100).optional(),
+});
+const activityQuerySchema = z.strictObject({
+  radioId: IdSchema.optional(),
+  frequencyHz: z.coerce.number().int().positive().safe().optional(),
+  direction: z.enum(['rx', 'tx', 'internal']).optional(),
+  days: z.coerce.number().int().min(1).max(MAX_ACTIVITY_DAYS).optional(),
+  tz: z.string().min(1).max(100).optional(),
+});
+const waveformQuerySchema = z.strictObject({
+  points: z.coerce.number().int().min(1).max(MAX_WAVEFORM_POINTS).optional(),
 });
 const patchSchema = z.strictObject({
   expectedRevision: z.number().int().positive(),
@@ -35,9 +65,20 @@ const patchSchema = z.strictObject({
 /** Register below the application's configured /api/v1 prefix. */
 export async function registerHistoryRoutes(
   app: FastifyInstance,
-  options: { auth: AuthenticationPort; history: HistoryService },
+  options: {
+    auth: AuthenticationPort;
+    history: HistoryService;
+    /** Clock override for tests. */
+    now?: () => Date;
+    /** Shared waveform cache; defaults to a private LRU of 500 entries. */
+    waveformCache?: LruCache<string, WaveformSummary>;
+  },
 ): Promise<void> {
   const { auth, history } = options;
+  const now = options.now ?? (() => new Date());
+  const waveforms =
+    options.waveformCache ??
+    new LruCache<string, WaveformSummary>(WAVEFORM_CACHE_ENTRIES);
   const radios = async (principal: Principal, permission: Permission) => {
     const allowed: string[] = [];
     for (const grant of principal.radioPermissions) {
@@ -100,6 +141,94 @@ export async function registerHistoryRoutes(
         await radios(principal, 'history.read'),
       ),
     };
+  });
+  app.get('/history/activity', async (request, reply) => {
+    const principal = await requirePrincipal(request, auth);
+    const query = activityQuerySchema.parse(request.query);
+    // Only canonical IANA names reach the formatter cache and the response.
+    const timeZone = canonicalTimeZone(query.tz ?? 'UTC');
+    if (!timeZone)
+      throw new SignalDockError('INVALID_ARGUMENT', 'Unknown time zone.');
+    if (query.radioId)
+      await auth.authorize(principal, 'history.read', query.radioId);
+    const window = activityWindow(now(), query.days ?? 7, timeZone);
+    const slots = await history.activitySlots(
+      principal.instanceId,
+      {
+        from: window.from.toISOString(),
+        to: window.to.toISOString(),
+        slotMinutes: ACTIVITY_SLOT_MINUTES,
+        ...(query.radioId ? { radioId: query.radioId } : {}),
+        ...(query.frequencyHz === undefined
+          ? {}
+          : { frequencyHz: query.frequencyHz }),
+        ...(query.direction ? { direction: query.direction } : {}),
+      },
+      await radios(principal, 'history.read'),
+    );
+    reply.header('Cache-Control', 'no-store');
+    return HistoryActivitySchema.parse({
+      timeZone,
+      days: window.days,
+      buckets: bucketActivity(slots, timeZone, window.days),
+    });
+  });
+  app.get('/communications/:id/waveform', async (request, reply) => {
+    const principal = await requirePrincipal(request, auth);
+    const { id } = parameters.parse(request.params);
+    const points =
+      waveformQuerySchema.parse(request.query).points ??
+      DEFAULT_WAVEFORM_POINTS;
+    // Same authorization as playback: history.read on the source radio.
+    const communication = await source(principal, id, 'history.read');
+    const recording = communication.recording;
+    const fallback: WaveformSummary = {
+      peaks: [],
+      durationMs: Math.max(
+        0,
+        Date.parse(communication.endedAt) - Date.parse(communication.startedAt),
+      ),
+    };
+    let summary = fallback;
+    if (recording?.state === 'available') {
+      const key = `${principal.instanceId}:${recording.id}:${points}`;
+      const cached = waveforms.get(key);
+      if (cached) summary = cached;
+      else {
+        if (recording.sizeBytes <= MAX_WAVEFORM_SOURCE_BYTES) {
+          try {
+            const file = await history.readRecording(
+              principal.instanceId,
+              recording.id,
+            );
+            summary =
+              waveformFromRecording(
+                file.bytes,
+                file.metadata.contentType,
+                points,
+              ) ?? fallback;
+          } catch (error) {
+            // A missing artifact or one that fails its integrity check is
+            // reported as empty peaks, like an undecodable recording.
+            if (
+              !(error instanceof SignalDockError) ||
+              !['NOT_FOUND', 'INTERNAL_ERROR'].includes(error.code)
+            )
+              throw error;
+            summary = fallback;
+          }
+        }
+        waveforms.set(key, summary);
+      }
+    }
+    reply.header('Cache-Control', 'no-store');
+    return CommunicationWaveformSchema.parse({
+      communicationId: communication.id,
+      ...(recording ? { recordingId: recording.id } : {}),
+      points,
+      peaks: summary.peaks,
+      durationMs: summary.durationMs,
+    });
   });
   app.get('/communications/:id', async (request, reply) => {
     const principal = await requirePrincipal(request, auth);

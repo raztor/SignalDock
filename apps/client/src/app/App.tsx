@@ -38,8 +38,16 @@ import {
   createPlatformAuthOptions,
   useAuthSession,
 } from '../features/auth';
+import {
+  CommandPalette,
+  paletteShortcutLabel,
+  usePaletteShortcut,
+} from '../features/command-palette';
 import { HistoryScreen } from '../features/history/HistoryScreen';
-import { IncidentsScreen } from '../features/incidents/IncidentsScreen';
+import {
+  IncidentsScreen,
+  type IncidentFocusRequest,
+} from '../features/incidents/IncidentsScreen';
 import {
   MediaProvider,
   stopActiveMedia,
@@ -216,8 +224,9 @@ function Workspace({
   const [radioId, setRadioId] = useState<string>();
   const [busy, setBusy] = useState(false);
   const { width } = useWindowDimensions();
-  const navigate = async (next: Section) => {
-    if (busy) return;
+  /** Resolves false when navigation was skipped because another is running. */
+  const navigate = async (next: Section): Promise<boolean> => {
+    if (busy) return false;
     if (next === section) {
       // Closing More is navigation too: the station strip PTT stays mounted.
       setBusy(true);
@@ -227,7 +236,7 @@ function Workspace({
       } finally {
         setBusy(false);
       }
-      return;
+      return true;
     }
     setBusy(true);
     try {
@@ -239,7 +248,21 @@ function Workspace({
     } finally {
       setBusy(false);
     }
+    return true;
   };
+  const [palette, setPalette] = useState(false);
+  const [incidentFocus, setIncidentFocus] = useState<IncidentFocusRequest>();
+  /** Palette: open the Incidents section with that incident's detail. */
+  const openIncident = async (incidentId: string) => {
+    if (!(await navigate('Incidents'))) return false;
+    setIncidentFocus((previous) => ({
+      incidentId,
+      requestId: (previous?.requestId ?? 0) + 1,
+    }));
+    return true;
+  };
+  usePaletteShortcut(palette, setPalette);
+  const shortcut = paletteShortcutLabel();
   const selectRadio = async (id: string) => {
     if (id === radioId || busy) return;
     setBusy(true);
@@ -374,6 +397,24 @@ function Workspace({
               </View>
               <Pressable
                 accessibilityRole="button"
+                accessibilityLabel="Open command palette"
+                accessibilityHint={
+                  shortcut
+                    ? `Search commands or type a frequency. Shortcut ${shortcut}.`
+                    : 'Search commands or type a frequency.'
+                }
+                onPress={() => setPalette(true)}
+                style={wide ? styles.searchButton : styles.iconButton}
+              >
+                <Icon name="search" color={colors.textSecondary} />
+                {wide && (
+                  <Text style={styles.searchLabel}>
+                    Search{shortcut ? ` · ${shortcut}` : ''}
+                  </Text>
+                )}
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
                 accessibilityLabel="Switch color theme"
                 onPress={() =>
                   setPreference(mode === 'dark' ? 'light' : 'dark')
@@ -421,7 +462,7 @@ function Workspace({
               )}
               {visited.has('Incidents') && (
                 <FeatureView active={section === 'Incidents' && !more}>
-                  <IncidentsScreen {...props} />
+                  <IncidentsScreen {...props} focusIncident={incidentFocus} />
                 </FeatureView>
               )}
               {visited.has('APRS') && (
@@ -501,6 +542,18 @@ function Workspace({
             </View>
           </View>
         </View>
+        <CommandPalette
+          visible={palette}
+          onClose={() => setPalette(false)}
+          sections={sections.map((name) => ({
+            key: name,
+            label: sectionLabels[name],
+            icon: sectionIcons[name],
+          }))}
+          currentSection={more ? undefined : section}
+          onNavigate={navigate}
+          onOpenIncident={openIncident}
+        />
       </MediaProvider>
     </StationProvider>
   );
@@ -571,6 +624,17 @@ const useShellStyles = createStyles((c) => ({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  searchButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: s.sm,
+    minHeight: layout.touch,
+    paddingHorizontal: s.md,
+    borderWidth: 1,
+    borderColor: c.border,
+    backgroundColor: c.background,
+  },
+  searchLabel: { ...type.caption, color: c.textSecondary },
   authHeader: {
     padding: s.lg,
     flexDirection: 'row',

@@ -1,27 +1,72 @@
 import { apiRequest } from '@signaldock/client-sdk';
 import type {
-  Communication,
   Conversation,
+  CoverageInterval,
   FeatureScreenProps,
 } from '@signaldock/contracts';
 import {
   Button,
   Disclosure,
-  ScrollView,
   Text,
   TextInput,
   space as uiSpace,
   useFeatureStyles,
+  useReducedMotion,
   useTheme,
+  useToast,
+  visuallyHidden,
 } from '@signaldock/ui';
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, FlatList, View } from 'react-native';
-import RecordingPlayer from './RecordingPlayer';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  AccessibilityInfo,
+  ActivityIndicator,
+  FlatList,
+  Platform,
+  View,
+} from 'react-native';
+import { useStation } from '../station';
+import { ActivityHeatmap } from './ActivityHeatmap';
+import { CommunicationRow, type HistoryMutation } from './CommunicationRow';
+import { CoverageGapRow } from './CoverageGapRow';
+import { HistoryFilterBar } from './HistoryFilterBar';
+import {
+  WaveformLoader,
+  fetchActivity,
+  fetchCommunications,
+  fetchConversations,
+  fetchCoverage,
+  type CommunicationPage,
+  type OptionalResult,
+} from './history-api';
+import {
+  ACTIVITY_DAYS,
+  DEFAULT_HISTORY_FILTERS,
+  SEARCH_DEBOUNCE_MS,
+  activityPath,
+  buildHeatmap,
+  buildTimeline,
+  communicationCount,
+  communicationsPath,
+  coverageGaps,
+  createDebouncer,
+  deviceTimeZone,
+  errorMessage,
+  matchesFilters,
+  mergePage,
+  normalizeSearch,
+  rangeForBefore,
+  reachedRangeStart,
+  showCoverageGaps,
+  type ActivityData,
+  type DateRangeFilter,
+  type DirectionFilter,
+  type HeatmapCell,
+  type HistoryFilters,
+  type TimelineEntry,
+} from './history-model';
 
-type Page = {
-  items: Communication[];
-  nextCursor?: { id: string; startedAt: string };
-};
+type ActivityState = OptionalResult<ActivityData> | { status: 'loading' };
+
 export function HistoryScreen(props: FeatureScreenProps) {
   return (
     <HistoryWorkspace
@@ -30,20 +75,92 @@ export function HistoryScreen(props: FeatureScreenProps) {
     />
   );
 }
+
+/**
+ * Stays mounted while other sections are visited (the shell keeps visited
+ * screens), so filters, search text, loaded pages and scroll position survive
+ * navigation. Only a new session remounts it.
+ */
 function HistoryWorkspace({ session, radioId }: FeatureScreenProps) {
   const { colors } = useTheme();
   const styles = useFeatureStyles('history');
-  const [page, setPage] = useState<Page>({ items: [] }),
+  const toast = useToast();
+  const station = useStation();
+  const reducedMotion = useReducedMotion();
+  const timeZone = useMemo(deviceTimeZone, []);
+
+  const [page, setPage] = useState<CommunicationPage>({ items: [] }),
     [conversations, setConversations] = useState<Conversation[]>([]),
     [conversation, setConversation] = useState<Conversation | null>(null);
-  const [search, setSearch] = useState(''),
-    [appliedSearch, setAppliedSearch] = useState(''),
-    [busy, setBusy] = useState(false),
+  const [direction, setDirection] = useState<DirectionFilter>(
+      DEFAULT_HISTORY_FILTERS.direction,
+    ),
+    [range, setRange] = useState<DateRangeFilter>(
+      DEFAULT_HISTORY_FILTERS.range,
+    ),
+    [before, setBefore] = useState<string>(),
+    [searchText, setSearchText] = useState(''),
+    [search, setSearch] = useState('');
+  const [busy, setBusy] = useState(false),
+    [appending, setAppending] = useState(false),
     [error, setError] = useState(''),
-    [newNote, setNewNote] = useState('');
+    [newNote, setNewNote] = useState(''),
+    [now, setNow] = useState(() => Date.now()),
+    [reloadKey, setReloadKey] = useState(0),
+    [activity, setActivity] = useState<ActivityState>({ status: 'loading' }),
+    [coverage, setCoverage] = useState<CoverageInterval[]>([]),
+    /** First-page request the loaded `page` answers (set on success). */
+    [pageQuery, setPageQuery] = useState<string>();
+
+  const filters = useMemo<HistoryFilters>(
+    () => ({ direction, range, search, ...(before ? { before } : {}) }),
+    [direction, range, search, before],
+  );
+  const scopedRadio = conversation?.radioId ?? radioId;
+  const scope = useMemo(
+    () => ({
+      ...(radioId ? { radioId } : {}),
+      ...(conversation ? { conversation } : {}),
+      timeZone,
+      now,
+    }),
+    [radioId, conversation, timeZone, now],
+  );
+
+  // Latest query inputs for load(), which must not change identity per keystroke.
+  const query = useRef({ filters, scope });
+  query.current = { filters, scope };
+  const pageRef = useRef(page);
+  pageRef.current = page;
+  const toastRef = useRef(toast);
+  toastRef.current = toast;
+
+  const waveforms = useMemo(() => new WaveformLoader(session), [session]);
+  useEffect(() => () => waveforms.dispose(), [waveforms]);
+
+  const debouncer = useMemo(
+    () =>
+      createDebouncer(
+        (value: string) => setSearch(normalizeSearch(value)),
+        SEARCH_DEBOUNCE_MS,
+      ),
+    [],
+  );
+  useEffect(() => () => debouncer.cancel(), [debouncer]);
+  const changeSearch = useCallback(
+    (text: string) => {
+      setSearchText(text);
+      debouncer.schedule(text);
+      if (!text) debouncer.flush();
+    },
+    [debouncer],
+  );
+
   const request = useRef({ generation: 0, controller: new AbortController() });
   const load = useCallback(
     async (append = false) => {
+      const cursor = append ? pageRef.current.nextCursor : undefined;
+      if (append && !cursor) return;
       request.current.controller.abort();
       const current = {
         generation: request.current.generation + 1,
@@ -51,76 +168,94 @@ function HistoryWorkspace({ session, radioId }: FeatureScreenProps) {
       };
       request.current = current;
       setBusy(true);
+      setAppending(append);
       setError('');
-      const params = new URLSearchParams({ limit: '30' });
-      if (conversation) params.set('conversationId', conversation.id);
-      const selectedRadio = conversation?.radioId ?? radioId;
-      if (selectedRadio) params.set('radioId', selectedRadio);
-      if (conversation?.frequencyHz)
-        params.set('frequencyHz', String(conversation.frequencyHz));
-      if (appliedSearch) params.set('search', appliedSearch);
-      if (append && page.nextCursor) {
-        params.set('beforeId', page.nextCursor.id);
-        params.set('beforeStartedAt', page.nextCursor.startedAt);
-      }
+      setNow(Date.now());
+      const { filters: activeFilters, scope: activeScope } = query.current;
       try {
         const [data, groups] = await Promise.all([
-          apiRequest<Page>(
+          fetchCommunications(
             session,
-            `communications?${params.toString().replace(/\+/g, '%20')}`,
-            {
-              signal: current.controller.signal,
-            },
+            communicationsPath(activeFilters, activeScope, cursor),
+            current.controller.signal,
           ),
-          apiRequest<{ items: Conversation[] }>(session, 'conversations', {
-            signal: current.controller.signal,
-          }),
+          fetchConversations(session, current.controller.signal),
         ]);
         if (request.current.generation !== current.generation) return;
-        const filtered = data.items;
         setPage((prior) => ({
-          ...data,
-          items: append
-            ? [
-                ...prior.items,
-                ...filtered.filter(
-                  (item) =>
-                    !prior.items.some((existing) => existing.id === item.id),
-                ),
-              ]
-            : filtered,
+          items: mergePage(prior.items, data.items, append),
+          ...(data.nextCursor ? { nextCursor: data.nextCursor } : {}),
         }));
-        setConversations(groups.items);
+        if (!append)
+          setPageQuery(communicationsPath(activeFilters, activeScope));
+        setConversations(groups);
       } catch (failure) {
         if (!current.controller.signal.aborted)
-          setError(
-            failure instanceof Error
-              ? failure.message
-              : 'History could not be loaded.',
-          );
+          setError(errorMessage(failure, 'History could not be loaded.'));
       } finally {
-        if (request.current.generation === current.generation) setBusy(false);
+        if (request.current.generation === current.generation) {
+          setBusy(false);
+          setAppending(false);
+        }
       }
     },
-    [session, radioId, conversation, appliedSearch, page.nextCursor],
+    [session],
   );
-  // Page cursors never restart first-page loading; only source/filter changes do.
+
+  // Page cursors never restart first-page loading; only source/filter
+  // changes that alter the request do (Digital and date ranges filter
+  // loaded pages on the client).
+  const firstPage = communicationsPath(filters, scope);
   useEffect(() => {
-    setPage({ items: [] });
-    setConversations([]);
+    setPage((prior) => ({ items: prior.items }));
     void load();
     return () => {
       request.current.controller.abort();
       request.current.generation++;
     };
-  }, [
-    session.baseUrl,
-    session.instanceId,
-    session.accessToken,
-    radioId,
-    conversation?.id,
-    appliedSearch,
-  ]);
+  }, [load, firstPage]);
+
+  // A frequency group from another radio no longer applies once the
+  // workspace radio changes.
+  useEffect(() => {
+    if (radioId && conversation && conversation.radioId !== radioId)
+      setConversation(null);
+  }, [radioId, conversation]);
+
+  const activityRequest = activityPath({ direction }, scope);
+  useEffect(() => {
+    const controller = new AbortController();
+    setActivity((prior) =>
+      prior.status === 'ready' ? prior : { status: 'loading' },
+    );
+    fetchActivity(session, activityRequest, controller.signal)
+      .then((result) => {
+        if (!controller.signal.aborted) setActivity(result);
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, [session, activityRequest, reloadKey]);
+
+  useEffect(() => {
+    if (!scopedRadio) {
+      setCoverage([]);
+      return;
+    }
+    const controller = new AbortController();
+    fetchCoverage(session, scopedRadio, controller.signal)
+      .then((result) => {
+        if (!controller.signal.aborted)
+          setCoverage(result.status === 'ready' ? result.data : []);
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, [session, scopedRadio, reloadKey]);
+
+  const refresh = useCallback(() => {
+    void load();
+    setReloadKey((key) => key + 1);
+  }, [load]);
+
   function canWrite(radio: string) {
     return (
       session.user.role === 'administrator' ||
@@ -131,53 +266,193 @@ function HistoryWorkspace({ session, radioId }: FeatureScreenProps) {
       )
     );
   }
-  async function mutate(path: string, method: string, body?: unknown) {
-    setError('');
-    try {
-      await apiRequest(session, path, {
-        method,
-        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-      });
-      await load();
-    } catch (failure) {
-      setError(
-        failure instanceof Error
-          ? failure.message
-          : 'The change could not be saved.',
-      );
-    }
-  }
+  const isAdministrator = session.user.role === 'administrator';
+
+  const mutate = useCallback<HistoryMutation>(
+    async (path, method, body, success) => {
+      setError('');
+      try {
+        await apiRequest(session, path, {
+          method,
+          ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+        });
+        if (success)
+          toastRef.current.show({ message: success, tone: 'success' });
+        await load();
+        return true;
+      } catch (failure) {
+        const message = errorMessage(failure, 'The change could not be saved.');
+        setError(message);
+        toastRef.current.show({ message, tone: 'error' });
+        return false;
+      }
+    },
+    [session, load],
+  );
+
   async function saveNote() {
     const selected = conversation?.radioId ?? radioId;
     if (!selected || !newNote.trim()) return;
-    await mutate('communications/notes', 'POST', {
-      radioId: selected,
-      text: newNote.trim(),
-      ...(conversation?.frequencyHz
-        ? { frequencyHz: conversation.frequencyHz }
-        : {}),
-    });
-    setNewNote('');
+    const saved = await mutate(
+      'communications/notes',
+      'POST',
+      {
+        radioId: selected,
+        text: newNote.trim(),
+        ...(conversation?.frequencyHz
+          ? { frequencyHz: conversation.frequencyHz }
+          : {}),
+      },
+      'Note added.',
+    );
+    if (saved) setNewNote('');
   }
+
+  // Heatmap jump: show what happened up to the end of that hour.
+  const list = useRef<FlatList<TimelineEntry>>(null);
+  const timelineOffset = useRef(0);
+  const selectHour = useCallback(
+    (cell: HeatmapCell) => {
+      if (before === cell.endsAt) {
+        setBefore(undefined);
+        return;
+      }
+      setBefore(cell.endsAt);
+      setRange((current) =>
+        rangeForBefore(current, cell.endsAt, { now: Date.now(), timeZone }),
+      );
+      list.current?.scrollToOffset({
+        offset: timelineOffset.current,
+        animated: !reducedMotion,
+      });
+    },
+    [before, timeZone, reducedMotion],
+  );
+
+  const heatmap = useMemo(
+    () =>
+      activity.status === 'ready'
+        ? buildHeatmap(activity.data, { timeZone, now, days: ACTIVITY_DAYS })
+        : undefined,
+    [activity, timeZone, now],
+  );
+  const gaps = useMemo(() => coverageGaps(coverage), [coverage]);
+  const visibleConversations = conversations.filter(
+    (group) => !radioId || group.radioId === radioId,
+  );
+  const radioName = useCallback(
+    (id: string) =>
+      station.radios.find((radio) => radio.radioId === id)?.displayName ??
+      `Radio ${id.slice(0, 6)}`,
+    [station.radios],
+  );
+  const singleRadio =
+    Boolean(scopedRadio) ||
+    new Set(visibleConversations.map((group) => group.radioId)).size <= 1;
+
+  const visibleItems = useMemo(
+    () => page.items.filter((item) => matchesFilters(item, filters, scope)),
+    [page.items, filters, scope],
+  );
+  const stale = busy && !appending;
+  // While a new first page loads (or after it failed) the rows on screen
+  // answer an older query: never treat them as complete, so coverage gaps
+  // are not extended past what was actually loaded.
+  const complete =
+    !stale &&
+    pageQuery === firstPage &&
+    (!page.nextCursor || reachedRangeStart(page.items, filters, scope));
+  const timeline = useMemo(
+    () =>
+      buildTimeline({
+        items: visibleItems,
+        gaps: showCoverageGaps(filters) ? gaps : [],
+        complete,
+        filters,
+        scope,
+        ...(page.items.length
+          ? { oldestLoaded: page.items.at(-1)!.startedAt }
+          : {}),
+      }),
+    [visibleItems, gaps, complete, filters, scope, page.items],
+  );
+  const filtered =
+    direction !== 'all' ||
+    range !== 'all' ||
+    Boolean(before) ||
+    Boolean(search) ||
+    Boolean(conversation);
+
+  // Search runs as the operator types: tell screen readers what it found.
+  const resultStatus =
+    busy || pageQuery !== firstPage
+      ? ''
+      : visibleItems.length === 0
+        ? filtered
+          ? 'No matching communications'
+          : 'No communications'
+        : `${communicationCount(visibleItems.length)}${complete ? '' : ' loaded'}`;
+  useEffect(() => {
+    if (resultStatus && Platform.OS === 'ios')
+      AccessibilityInfo.announceForAccessibility(resultStatus);
+  }, [resultStatus]);
+
+  function clearFilters() {
+    setDirection('all');
+    setRange('all');
+    setBefore(undefined);
+    setConversation(null);
+    changeSearch('');
+  }
+
+  const renderItem = ({ item }: { item: TimelineEntry }) => (
+    // Rows from the previous query stay visible, dimmed, while a new one loads.
+    <View style={stale ? { opacity: 0.6 } : undefined}>
+      {renderEntry(item)}
+    </View>
+  );
+  const renderEntry = (item: TimelineEntry) => {
+    switch (item.type) {
+      case 'day':
+        return (
+          <Text accessibilityRole="header" style={dayStyle(colors)}>
+            {item.label}
+          </Text>
+        );
+      case 'gap':
+        return <CoverageGapRow gap={item.gap} timeZone={timeZone} />;
+      default:
+        return (
+          <CommunicationRow
+            item={item.communication}
+            session={session}
+            timeZone={timeZone}
+            canWrite={canWrite(item.communication.radioId)}
+            isAdministrator={isAdministrator}
+            waveforms={waveforms}
+            onMutate={mutate}
+            {...(singleRadio
+              ? {}
+              : { radioLabel: radioName(item.communication.radioId) })}
+          />
+        );
+    }
+  };
+
   return (
     <FlatList
-      data={page.items}
-      keyExtractor={(item) => `${session.instanceId}:${item.id}`}
-      renderItem={({ item }) => (
-        <CommunicationCard
-          item={item}
-          session={session}
-          canWrite={canWrite(item.radioId)}
-          onMutate={mutate}
-        />
-      )}
+      ref={list}
+      data={timeline}
+      keyExtractor={(entry) => `${session.instanceId}:${entry.key}`}
+      renderItem={renderItem}
       style={styles.screen}
       contentContainerStyle={styles.page}
       keyboardShouldPersistTaps="handled"
+      onScrollToIndexFailed={() => {}}
       ListHeaderComponent={
         <View style={styles.section}>
           <View style={styles.row}>
-            <View style={{ flex: 1, gap: uiSpace.sm }}>
+            <View style={{ flex: 1, gap: uiSpace.sm, minWidth: 200 }}>
               <Text style={styles.eyebrow}>Station archive</Text>
               <Text accessibilityRole="header" style={styles.title}>
                 Communications
@@ -186,89 +461,122 @@ function HistoryWorkspace({ session, radioId }: FeatureScreenProps) {
                 Audio, transcripts, and notes grouped by their recorded source.
               </Text>
             </View>
-            <Button
-              label="Refresh"
-              onPress={() => void load()}
-              disabled={busy}
-            />
+            <Button label="Refresh" onPress={refresh} disabled={busy} />
           </View>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.filters}
+
+          <ActivitySection
+            activity={activity}
+            heatmap={heatmap}
+            selectedEndsAt={before}
+            onSelect={selectHour}
+          />
+
+          <HistoryFilterBar
+            searchText={searchText}
+            onSearchText={changeSearch}
+            onSearchSubmit={() => debouncer.flush()}
+            direction={direction}
+            onDirection={setDirection}
+            range={range}
+            onRange={setRange}
+            {...(before ? { before } : {})}
+            onClearBefore={() => setBefore(undefined)}
+            timeZone={timeZone}
+            conversations={visibleConversations}
+            {...(conversation ? { conversationId: conversation.id } : {})}
+            onConversation={setConversation}
+            radioName={radioName}
+            singleRadio={singleRadio}
+          />
+          <Text
+            role="status"
+            aria-live="polite"
+            accessibilityLiveRegion="polite"
+            style={visuallyHidden}
           >
-            <Button
-              label="All frequencies"
-              onPress={() => setConversation(null)}
-              active={!conversation}
-            />
-            {conversations
-              .filter((group) => !radioId || group.radioId === radioId)
-              .map((group) => (
-                <Button
-                  key={group.id}
-                  label={`${frequency(group.frequencyHz)} · ${group.radioId.slice(0, 6)}`}
-                  onPress={() => setConversation(group)}
-                  active={conversation?.id === group.id}
-                />
-              ))}
-          </ScrollView>
-          <View style={styles.row}>
-            <TextInput
-              accessibilityLabel="Search transcripts and notes"
-              placeholder="Search transcripts, tags, or notes"
-              value={search}
-              onChangeText={setSearch}
-              onSubmitEditing={() => setAppliedSearch(search)}
-              style={[styles.input, { flex: 1 }]}
-            />
-            <Button label="Search" onPress={() => setAppliedSearch(search)} />
-          </View>
+            {resultStatus}
+          </Text>
+
           {!!error && (
             <Text accessibilityRole="alert" style={styles.error}>
               {error}
             </Text>
           )}
-          {busy && <ActivityIndicator color={colors.primary} />}
-          {(conversation?.radioId ?? radioId) &&
-            canWrite((conversation?.radioId ?? radioId)!) && (
-              <Disclosure title="Add station note">
-                <TextInput
-                  accessibilityLabel="New station note"
-                  placeholder="Add a note for this radio and frequency"
-                  multiline
-                  value={newNote}
-                  onChangeText={setNewNote}
-                  style={styles.input}
-                />
-                <Button
-                  label="Add note"
-                  onPress={() => void saveNote()}
-                  disabled={!newNote.trim()}
-                />
-              </Disclosure>
-            )}
-          {!busy && !page.items.length && (
+          {busy && (
+            <ActivityIndicator
+              accessibilityLabel="Loading communications"
+              color={colors.primary}
+            />
+          )}
+          {scopedRadio && canWrite(scopedRadio) && (
+            <Disclosure title="Add station note">
+              <TextInput
+                accessibilityLabel="New station note"
+                placeholder="Add a note for this radio and frequency"
+                multiline
+                value={newNote}
+                onChangeText={setNewNote}
+                style={styles.input}
+              />
+              <Text style={styles.small}>
+                Notes are stored in the archive only; they are never
+                transmitted.
+              </Text>
+              <Button
+                label="Add note"
+                onPress={() => void saveNote()}
+                disabled={!newNote.trim()}
+              />
+            </Disclosure>
+          )}
+          {!busy && !visibleItems.length && (
             <View style={styles.empty}>
-              <Text accessibilityRole="header" style={styles.heading}>
-                No communications yet
-              </Text>
-              <Text style={styles.muted}>
-                Recordings appear when the connected radio receives or
-                transmits. Only the tuned frequency is monitored.
-              </Text>
+              {filtered ? (
+                <>
+                  <Text accessibilityRole="header" style={styles.heading}>
+                    No matching communications
+                  </Text>
+                  <Text style={styles.muted}>
+                    {page.nextCursor && !complete
+                      ? 'Nothing matches in the loaded communications. Load earlier ones or change the filters.'
+                      : 'Nothing matches these filters.'}
+                  </Text>
+                  <Button label="Clear filters" onPress={clearFilters} />
+                </>
+              ) : (
+                <>
+                  <Text accessibilityRole="header" style={styles.heading}>
+                    No communications yet
+                  </Text>
+                  <Text style={styles.muted}>
+                    Recordings appear when the connected radio receives or
+                    transmits. Only the tuned frequency is monitored.
+                  </Text>
+                </>
+              )}
             </View>
           )}
+          <View
+            onLayout={(event) => {
+              timelineOffset.current = Math.max(
+                0,
+                event.nativeEvent.layout.y + uiSpace.lg,
+              );
+            }}
+          />
         </View>
       }
       ListFooterComponent={
         <>
-          {!!page.nextCursor && (
-            <Button
-              label="Load earlier communications"
-              onPress={() => void load(true)}
-              disabled={busy}
-            />
+          {!!page.nextCursor && !complete && (
+            <View style={{ paddingTop: uiSpace.lg }}>
+              <Button
+                label="Load earlier communications"
+                onPress={() => void load(true)}
+                loading={busy && appending}
+                disabled={busy}
+              />
+            </View>
           )}
         </>
       }
@@ -277,156 +585,49 @@ function HistoryWorkspace({ session, radioId }: FeatureScreenProps) {
 }
 export default HistoryScreen;
 
-function CommunicationCard({
-  item,
-  session,
-  canWrite,
-  onMutate,
+function ActivitySection({
+  activity,
+  heatmap,
+  selectedEndsAt,
+  onSelect,
 }: {
-  item: Communication;
-  session: FeatureScreenProps['session'];
-  canWrite: boolean;
-  onMutate: (path: string, method: string, body?: unknown) => Promise<void>;
+  activity: ActivityState;
+  heatmap: ReturnType<typeof buildHeatmap> | undefined;
+  selectedEndsAt: string | undefined;
+  onSelect(cell: HeatmapCell): void;
 }) {
   const styles = useFeatureStyles('history');
-  const [editing, setEditing] = useState(false),
-    [text, setText] = useState(''),
-    [confirmDelete, setConfirmDelete] = useState(false),
-    [revisions, setRevisions] = useState(false);
-  const latest = item.transcripts.at(-1);
   return (
-    <View style={styles.card}>
-      <View style={styles.row}>
-        <Text accessibilityRole="header" style={styles.heading}>
-          {item.direction.toUpperCase()} · {frequency(item.frequencyHz)}
-        </Text>
-        <Text
-          style={[
-            styles.badge,
-            item.frequencyAttribution !== 'confirmed' && styles.uncertain,
-          ]}
-        >
-          {item.frequencyAttribution} source
-        </Text>
-      </View>
-      <Text style={styles.muted}>
-        {new Date(item.startedAt).toLocaleString()} ·{' '}
-        {Math.max(
-          0,
-          (Date.parse(item.endedAt) - Date.parse(item.startedAt)) / 1000,
-        ).toFixed(1)}{' '}
-        s · Radio {item.radioId.slice(0, 8)}
+    <View style={{ gap: uiSpace.sm }}>
+      <Text accessibilityRole="header" style={styles.label}>
+        Activity · last {ACTIVITY_DAYS} days
       </Text>
-      {item.recording && (
-        <RecordingPlayer
-          key={`${session.instanceId}:${session.accessToken}:${item.recording.id}`}
-          session={session}
-          recording={item.recording}
+      {activity.status === 'ready' && heatmap ? (
+        <ActivityHeatmap
+          heatmap={heatmap}
+          {...(selectedEndsAt ? { selectedEndsAt } : {})}
+          onSelect={onSelect}
         />
-      )}
-      {latest ? (
-        <View style={styles.transcript}>
-          <Text selectable style={styles.body}>
-            {latest.text || '(Empty transcript)'}
-          </Text>
-          <Text style={styles.muted}>
-            Transcript v{latest.revision} · {latest.source}
-            {latest.language ? ` · ${latest.language}` : ''}
-          </Text>
-          <Button
-            label={revisions ? 'Hide revisions' : 'Transcript provenance'}
-            onPress={() => setRevisions(!revisions)}
-          />
-          {revisions &&
-            item.transcripts.map((revision) => (
-              <View key={revision.id} style={{ gap: uiSpace.sm }}>
-                <Text style={styles.body}>
-                  v{revision.revision}: {revision.text}
-                </Text>
-                <Text selectable style={styles.muted}>
-                  {new Date(revision.createdAt).toLocaleString()} ·{' '}
-                  {JSON.stringify(revision.provenance)}
-                </Text>
-              </View>
-            ))}
-        </View>
+      ) : activity.status === 'unsupported' ? (
+        <Text style={styles.small}>
+          The activity overview is not available on this server.
+        </Text>
+      ) : activity.status === 'error' ? (
+        <Text style={styles.small}>{activity.message}</Text>
       ) : (
-        item.kind !== 'note' && (
-          <Text style={styles.muted}>No transcript available.</Text>
-        )
-      )}
-      {item.notes.map((note, index) => (
-        <Text selectable key={index} style={styles.body}>
-          {note}
-        </Text>
-      ))}
-      {!!item.tags.length && (
-        <Text style={styles.muted}>
-          {item.tags.map((tag) => `#${tag}`).join('  ')}
-        </Text>
-      )}
-      {item.retentionHold && (
-        <Text style={styles.uncertain}>Retention hold active</Text>
-      )}
-      {canWrite && (
-        <Button
-          label={editing ? 'Cancel edit' : 'Add / correct transcript'}
-          onPress={() => {
-            setText(latest?.text ?? '');
-            setEditing(!editing);
-          }}
-        />
-      )}
-      {editing && (
-        <View style={{ gap: uiSpace.md }}>
-          <TextInput
-            accessibilityLabel="Transcript correction"
-            multiline
-            value={text}
-            onChangeText={setText}
-            style={styles.input}
-          />
-          <Button
-            label="Save new revision"
-            onPress={() => {
-              void onMutate(`communications/${item.id}/transcripts`, 'POST', {
-                expectedRevision: item.revision,
-                text,
-              }).then(() => setEditing(false));
-            }}
-          />
-        </View>
-      )}
-      {session.user.role === 'administrator' && (
-        <View style={styles.row}>
-          <Button
-            label={item.retentionHold ? 'Release hold' : 'Hold retention'}
-            onPress={() =>
-              void onMutate(`communications/${item.id}`, 'PATCH', {
-                expectedRevision: item.revision,
-                retentionHold: !item.retentionHold,
-              })
-            }
-          />
-          <Button
-            label={confirmDelete ? 'Confirm permanent deletion' : 'Delete'}
-            onPress={() => {
-              if (confirmDelete)
-                void onMutate(`communications/${item.id}`, 'DELETE');
-              else setConfirmDelete(true);
-            }}
-            disabled={item.retentionHold}
-          />
-          {confirmDelete && (
-            <Button label="Cancel" onPress={() => setConfirmDelete(false)} />
-          )}
-        </View>
+        <Text style={styles.small}>Loading activity…</Text>
       )}
     </View>
   );
 }
-function frequency(hz?: number) {
-  return hz === undefined
-    ? 'Unknown frequency'
-    : `${(hz / 1e6).toFixed(4)} MHz`;
+
+function dayStyle(colors: ReturnType<typeof useTheme>['colors']) {
+  return {
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: '700' as const,
+    color: colors.textSecondary,
+    paddingTop: uiSpace.lg,
+    paddingBottom: uiSpace.xs,
+  };
 }

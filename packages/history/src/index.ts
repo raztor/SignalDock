@@ -7,3 +7,5 @@ export {
   type HistoryOptions,
   type RecordingContext,
 } from './service.js';
+export * from './activity.js';
+export * from './waveform.js';

@@ -24,6 +24,30 @@ export interface CoverageInterval {
   reason?: string;
 }
 
+export interface HistoryActivityBucket {
+  day: string;
+  hour: number;
+  count: number;
+}
+
+export interface HistoryActivity {
+  timeZone: string;
+  days: string[];
+  buckets: {
+    day: string;
+    hour: number;
+    count: number;
+  }[];
+}
+
+export interface CommunicationWaveform {
+  communicationId: string;
+  recordingId?: string;
+  points: number;
+  peaks: number[];
+  durationMs: number;
+}
+
 export interface SessionSummary {
   id: string;
   createdAt: string;

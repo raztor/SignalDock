@@ -2,10 +2,12 @@ import { apiRequest } from '@signaldock/client-sdk';
 import {
   IdSchema,
   IncidentRecordSchema,
+  RecordingRecordSchema,
   SignalDockError,
   type ClientSession,
   type IncidentRecord,
   type IncidentState,
+  type RecordingRecord,
 } from '@signaldock/contracts';
 
 export interface IncidentDetailView {
@@ -31,6 +33,20 @@ export interface RuleSummary {
   phrases: string[];
   enabled: boolean;
   priority: string;
+  radioIds?: string[];
+  minHz?: number;
+  maxHz?: number;
+}
+/** The parts of a source communication the incident evidence view needs. */
+export interface EvidenceSource {
+  communicationId: string;
+  radioId: string;
+  startedAt: string;
+  frequencyHz?: number;
+  frequencyAttribution: 'confirmed' | 'inferred' | 'unknown';
+  /** Present only when it parses as a recording record. */
+  recording?: RecordingRecord;
+  transcripts: { id: string; text: string }[];
 }
 
 function object(value: unknown): Record<string, unknown> {
@@ -42,6 +58,11 @@ function text(value: unknown): string {
   if (typeof value !== 'string')
     throw new Error('The server returned an invalid incident field.');
   return value;
+}
+function positiveInteger(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0
+    ? value
+    : undefined;
 }
 function items(value: unknown): unknown[] {
   if (!Array.isArray(value) || value.length > 1000)
@@ -154,8 +175,65 @@ export class IncidentClient {
         phrases: items(rule['phrases']).map(text),
         enabled: rule['enabled'] === true,
         priority: text(rule['priority']),
+        ...(Array.isArray(rule['radioIds'])
+          ? {
+              radioIds: items(rule['radioIds']).map((id) => IdSchema.parse(id)),
+            }
+          : {}),
+        ...(positiveInteger(rule['minHz']) !== undefined
+          ? { minHz: positiveInteger(rule['minHz'])! }
+          : {}),
+        ...(positiveInteger(rule['maxHz']) !== undefined
+          ? { maxHz: positiveInteger(rule['maxHz'])! }
+          : {}),
       };
     });
+  }
+  /**
+   * Source communication for one evidence entry (`GET communications/:id`,
+   * authorised with history.read like the incident list itself). Parsed
+   * leniently: only the fields the evidence view shows are read.
+   */
+  async source(
+    communicationId: string,
+    signal?: AbortSignal,
+  ): Promise<EvidenceSource> {
+    const data = object(
+      await apiRequest<unknown>(
+        this.session,
+        `communications/${IdSchema.parse(communicationId)}`,
+        signal ? { signal } : {},
+      ),
+    );
+    if (data['instanceId'] !== this.session.instanceId)
+      throw new SignalDockError(
+        'FORBIDDEN',
+        'The response belongs to another instance.',
+      );
+    const attribution = data['frequencyAttribution'];
+    const recording = RecordingRecordSchema.safeParse(data['recording']);
+    const frequencyHz = positiveInteger(data['frequencyHz']);
+    return {
+      communicationId: IdSchema.parse(data['id']),
+      radioId: IdSchema.parse(data['radioId']),
+      startedAt: text(data['startedAt']),
+      ...(frequencyHz !== undefined ? { frequencyHz } : {}),
+      frequencyAttribution:
+        attribution === 'confirmed' || attribution === 'inferred'
+          ? attribution
+          : 'unknown',
+      ...(recording.success ? { recording: recording.data } : {}),
+      transcripts: Array.isArray(data['transcripts'])
+        ? items(data['transcripts']).flatMap((item) => {
+            if (typeof item !== 'object' || item === null) return [];
+            const entry = item as Record<string, unknown>;
+            return typeof entry['id'] === 'string' &&
+              typeof entry['text'] === 'string'
+              ? [{ id: entry['id'], text: entry['text'] }]
+              : [];
+          })
+        : [],
+    };
   }
   async saveRule(
     input: Record<string, unknown>,
