@@ -39,6 +39,7 @@ import {
   type FrequencyRangeDraft,
   type RangeHandle,
 } from './incident-model';
+import { rangeBarLabels } from './range-bar-labels';
 
 export interface FrequencyRangePickerProps {
   /** `{ any: true }` matches every frequency; otherwise both bounds in Hz. */
@@ -60,11 +61,16 @@ const decorative =
         importantForAccessibility: 'no-hide-descendants',
       } as const);
 
-const HEIGHT = 56;
-const BAR_Y = 14;
+const HEIGHT = 62;
+/** Leaves a row above the bar for the handle labels. */
+const BAR_Y = 20;
 const BAR_HEIGHT = 14;
 const HANDLE_R = 9;
-const LABEL_Y = 50;
+const HANDLE_LABEL_Y = 12;
+const LABEL_Y = 56;
+const LABEL_FONT = 11;
+/** Monospace digit advance at LABEL_FONT, used to keep labels in bounds. */
+const LABEL_CHAR_WIDTH = LABEL_FONT * 0.62;
 const HANDLE_HIT = 44;
 const STEPPER_MHZ = 0.1;
 
@@ -383,7 +389,20 @@ function RangeBar({
   };
 
   const edgeLabel = (hz: number) => formatMegahertzShort(hz);
-  const labelsOverlap = maxX - minX < 64;
+  const minText = edgeLabel(range.minHz);
+  const maxText = edgeLabel(range.maxHz);
+  // Values already shown by the scale labels below are not repeated.
+  const handleLabels = rangeBarLabels({
+    minX,
+    maxX,
+    width,
+    minText,
+    maxText,
+    joinedText: `${minText}–${maxText}`,
+    showMin: minText !== edgeLabel(domain.minHz),
+    showMax: maxText !== edgeLabel(domain.maxHz),
+    charWidth: LABEL_CHAR_WIDTH,
+  });
 
   return (
     <View
@@ -430,7 +449,7 @@ function RangeBar({
           <SvgText
             x={2}
             y={LABEL_Y}
-            fontSize={11}
+            fontSize={LABEL_FONT}
             fontFamily={type.frequency.fontFamily}
             fill={colors.textSecondary}
           >
@@ -439,41 +458,26 @@ function RangeBar({
           <SvgText
             x={width - 2}
             y={LABEL_Y}
-            fontSize={11}
+            fontSize={LABEL_FONT}
             fontFamily={type.frequency.fontFamily}
             fill={colors.textSecondary}
             textAnchor="end"
           >
             {`${edgeLabel(domain.maxHz)} MHz`}
           </SvgText>
-          {labelsOverlap ? (
+          {handleLabels.map((item) => (
             <SvgText
-              x={(minX + maxX) / 2}
-              y={BAR_Y - 3}
-              fontSize={11}
+              key={`label-${item.key}`}
+              x={item.x}
+              y={HANDLE_LABEL_Y}
+              fontSize={LABEL_FONT}
               fontFamily={type.frequency.fontFamily}
               fill={colors.textPrimary}
               textAnchor="middle"
             >
-              {range.minHz === range.maxHz
-                ? edgeLabel(range.minHz)
-                : `${edgeLabel(range.minHz)}–${edgeLabel(range.maxHz)}`}
+              {item.text}
             </SvgText>
-          ) : (
-            (['min', 'max'] as const).map((which) => (
-              <SvgText
-                key={`label-${which}`}
-                x={which === 'min' ? minX : maxX}
-                y={BAR_Y - 3}
-                fontSize={11}
-                fontFamily={type.frequency.fontFamily}
-                fill={colors.textPrimary}
-                textAnchor="middle"
-              >
-                {edgeLabel(which === 'min' ? range.minHz : range.maxHz)}
-              </SvgText>
-            ))
-          )}
+          ))}
         </Svg>
       )}
       {width > 0 && handle('min')}

@@ -169,7 +169,10 @@ export class RadioMediaController {
       signal: init?.signal ?? AbortSignal.timeout(5000),
     });
   }
+  /** Applies a state patch; emits only when a field actually changes. */
   private update(patch: Partial<MediaUiState>): void {
+    const keys = Object.keys(patch) as (keyof MediaUiState)[];
+    if (keys.every((key) => patch[key] === this.state[key])) return;
     this.state = { ...this.state, ...patch };
     this.options.onState(this.state);
   }

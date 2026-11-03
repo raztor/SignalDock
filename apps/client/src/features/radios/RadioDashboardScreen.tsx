@@ -15,7 +15,6 @@ import {
   useTheme,
   useReducedMotion,
   useToast,
-  type IconName,
 } from '@signaldock/ui';
 import { useRef, useState, type ComponentRef } from 'react';
 import {
@@ -66,6 +65,10 @@ export function RadioDashboardScreen({
   const scroll = useRef<ComponentRef<typeof NativeScrollView>>(null);
   const configurationY = useRef(0);
   const [configurationOpen, setConfigurationOpen] = useState(false);
+  // The configuration list loads drivers and configurations: mount it on the
+  // first open only (a closed Disclosure keeps its children mounted).
+  const [configurationUsed, setConfigurationUsed] = useState(false);
+  if (configurationOpen && !configurationUsed) setConfigurationUsed(true);
   const [createRequest, setCreateRequest] = useState(0);
   const [configurationRevision, setConfigurationRevision] = useState(0);
   /** Setup checklist: open the configuration section with a new-radio wizard. */
@@ -151,14 +154,16 @@ export function RadioDashboardScreen({
               open={configurationOpen}
               onOpenChange={setConfigurationOpen}
             >
-              <RadioConfigurationList
-                session={session}
-                createRequest={createRequest}
-                onChanged={() =>
-                  setConfigurationRevision((revision) => revision + 1)
-                }
-                {...(onOpenAccess ? { onOpenAccess } : {})}
-              />
+              {configurationUsed || configurationOpen ? (
+                <RadioConfigurationList
+                  session={session}
+                  createRequest={createRequest}
+                  onChanged={() =>
+                    setConfigurationRevision((revision) => revision + 1)
+                  }
+                  {...(onOpenAccess ? { onOpenAccess } : {})}
+                />
+              ) : null}
             </Disclosure>
           </View>
         ) : null}
@@ -212,7 +217,7 @@ function RadioGrid({
             variant="list"
             radio={radio}
             selected={radio.radioId === selectedId}
-            onPress={() => station.selectRadio(radio.radioId)}
+            onPress={() => void station.selectRadio(radio.radioId)}
           />
         </View>
       ))}
@@ -262,26 +267,19 @@ function SelectedRadio({
   );
 }
 
-const controlCopy: Record<
-  ControlState,
-  { icon: IconName; title?: string; detail: string }
-> = {
+const controlCopy: Record<ControlState, { title?: string; detail: string }> = {
   mine: {
-    icon: 'lock',
     detail:
       'Other operators can listen. Release control when you are done; it stays with you while you use other sections.',
   },
   other: {
-    icon: 'lock',
     detail:
       'You can follow the radio, but tuning and memories stay locked until control is released.',
   },
   available: {
-    icon: 'user',
     detail: 'Take control to tune the radio and use its memories.',
   },
   unavailable: {
-    icon: 'user',
     title: 'Control unavailable',
     detail: '',
   },
@@ -294,7 +292,9 @@ function ControlOwnership() {
   const toast = useToast();
   const station = useStation();
   const [working, setWorking] = useState(false);
-  const { controlState, controlOwnerLabel, canControl, busy } = station;
+  const { control, canControl, busy } = station;
+  const controlState = control.state;
+  const controlOwnerLabel = control.label;
   const copy = controlCopy[controlState];
   const mine = controlState === 'mine';
   const title = copy.title ?? controlOwnerLabel;
@@ -319,7 +319,7 @@ function ControlOwnership() {
     <View style={[styles.owner, mine && styles.ownerMine]}>
       <View style={[styles.ownerIcon, mine && styles.ownerIconMine]}>
         <Icon
-          name={copy.icon}
+          name={control.icon}
           size={16}
           color={
             mine

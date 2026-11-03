@@ -51,6 +51,7 @@ import {
   createDebouncer,
   deviceTimeZone,
   errorMessage,
+  historyRowsState,
   matchesFilters,
   mergePage,
   normalizeSearch,
@@ -66,6 +67,7 @@ import {
 } from './history-model';
 
 type ActivityState = OptionalResult<ActivityData> | { status: 'loading' };
+const NO_ITEMS: CommunicationPage['items'] = [];
 
 export function HistoryScreen(props: FeatureScreenProps) {
   return (
@@ -110,7 +112,9 @@ function HistoryWorkspace({ session, radioId }: FeatureScreenProps) {
     [activity, setActivity] = useState<ActivityState>({ status: 'loading' }),
     [coverage, setCoverage] = useState<CoverageInterval[]>([]),
     /** First-page request the loaded `page` answers (set on success). */
-    [pageQuery, setPageQuery] = useState<string>();
+    [pageQuery, setPageQuery] = useState<string>(),
+    /** First-page request whose latest load failed. */
+    [failedQuery, setFailedQuery] = useState<string>();
 
   const filters = useMemo<HistoryFilters>(
     () => ({ direction, range, search, ...(before ? { before } : {}) }),
@@ -132,6 +136,8 @@ function HistoryWorkspace({ session, radioId }: FeatureScreenProps) {
   query.current = { filters, scope };
   const pageRef = useRef(page);
   pageRef.current = page;
+  const pageQueryRef = useRef(pageQuery);
+  pageQueryRef.current = pageQuery;
   const toastRef = useRef(toast);
   toastRef.current = toast;
 
@@ -186,12 +192,26 @@ function HistoryWorkspace({ session, radioId }: FeatureScreenProps) {
           items: mergePage(prior.items, data.items, append),
           ...(data.nextCursor ? { nextCursor: data.nextCursor } : {}),
         }));
-        if (!append)
+        if (!append) {
           setPageQuery(communicationsPath(activeFilters, activeScope));
+          setFailedQuery(undefined);
+        }
         setConversations(groups);
       } catch (failure) {
-        if (!current.controller.signal.aborted)
+        if (!current.controller.signal.aborted) {
           setError(errorMessage(failure, 'History could not be loaded.'));
+          if (!append) {
+            const failed = communicationsPath(activeFilters, activeScope);
+            setFailedQuery(failed);
+            // Rows answering another radio, conversation, or search are
+            // dropped (as before the redesign) so they never resurface,
+            // dimmed, under this scope while it is retried or changed.
+            if (pageQueryRef.current !== failed) {
+              setPage({ items: [] });
+              setPageQuery(undefined);
+            }
+          }
+        }
       } finally {
         if (request.current.generation === current.generation) {
           setBusy(false);
@@ -350,17 +370,26 @@ function HistoryWorkspace({ session, radioId }: FeatureScreenProps) {
     Boolean(scopedRadio) ||
     new Set(visibleConversations.map((group) => group.radioId)).size <= 1;
 
+  const rows = historyRowsState({
+    pageQuery,
+    failedQuery,
+    currentQuery: firstPage,
+    busy,
+    appending,
+  });
+  // Rows from another radio, conversation, or search are never shown as the
+  // answer to a query that failed to load: `matchesFilters` cannot tell.
+  const loadedItems = rows === 'failed' ? NO_ITEMS : page.items;
   const visibleItems = useMemo(
-    () => page.items.filter((item) => matchesFilters(item, filters, scope)),
-    [page.items, filters, scope],
+    () => loadedItems.filter((item) => matchesFilters(item, filters, scope)),
+    [loadedItems, filters, scope],
   );
-  const stale = busy && !appending;
-  // While a new first page loads (or after it failed) the rows on screen
-  // answer an older query: never treat them as complete, so coverage gaps
-  // are not extended past what was actually loaded.
+  const stale = rows !== 'current';
+  // While a new first page loads the rows on screen answer an older query:
+  // never treat them as complete, so coverage gaps are not extended past
+  // what was actually loaded.
   const complete =
-    !stale &&
-    pageQuery === firstPage &&
+    rows === 'current' &&
     (!page.nextCursor || reachedRangeStart(page.items, filters, scope));
   const timeline = useMemo(
     () =>
@@ -370,11 +399,11 @@ function HistoryWorkspace({ session, radioId }: FeatureScreenProps) {
         complete,
         filters,
         scope,
-        ...(page.items.length
-          ? { oldestLoaded: page.items.at(-1)!.startedAt }
+        ...(loadedItems.length
+          ? { oldestLoaded: loadedItems.at(-1)!.startedAt }
           : {}),
       }),
-    [visibleItems, gaps, complete, filters, scope, page.items],
+    [visibleItems, gaps, complete, filters, scope, loadedItems],
   );
   const filtered =
     direction !== 'all' ||
@@ -385,7 +414,7 @@ function HistoryWorkspace({ session, radioId }: FeatureScreenProps) {
 
   // Search runs as the operator types: tell screen readers what it found.
   const resultStatus =
-    busy || pageQuery !== firstPage
+    rows !== 'current'
       ? ''
       : visibleItems.length === 0
         ? filtered
@@ -529,7 +558,7 @@ function HistoryWorkspace({ session, radioId }: FeatureScreenProps) {
               />
             </Disclosure>
           )}
-          {!busy && !visibleItems.length && (
+          {rows === 'current' && !visibleItems.length && (
             <View style={styles.empty}>
               {filtered ? (
                 <>
@@ -568,7 +597,7 @@ function HistoryWorkspace({ session, radioId }: FeatureScreenProps) {
       }
       ListFooterComponent={
         <>
-          {!!page.nextCursor && !complete && (
+          {rows !== 'failed' && !!page.nextCursor && !complete && (
             <View style={{ paddingTop: uiSpace.lg }}>
               <Button
                 label="Load earlier communications"

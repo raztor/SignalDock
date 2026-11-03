@@ -9,20 +9,19 @@ import {
   Text,
   type,
   useTheme,
-  type Colors,
 } from '@signaldock/ui';
 import { useEffect, useRef, useState } from 'react';
 import { View, useWindowDimensions } from 'react-native';
 import { useRadioMedia } from '../../media/MediaProvider';
 import { PttButton } from '../../media/components/PttButton';
 import { useStation } from '../StationProvider';
-import type { TxPresentation } from '../station-model';
 import {
   showStripPtt,
   stationStripPresentation,
   TX_STOP_NOTICE_MS,
   txStopNotice,
 } from './station-strip-model';
+import { TxPill } from './TxPill';
 
 export interface StationStripProps {
   /** Navigates to the Radios section. Never changes the radio or its tuning. */
@@ -38,7 +37,7 @@ export function StationStrip({ onOpenRadio }: StationStripProps) {
   const { colors } = useTheme();
   const { width } = useWindowDimensions();
   const compact = width < layout.compact;
-  const { radioId, selected, loaded, controlState } = useStation();
+  const { radioId, selected, loaded, control } = useStation();
   const media = useRadioMedia();
   const notice = useTxStopNotice(
     media.state.pending || media.state.transmitting,
@@ -148,10 +147,14 @@ export function StationStrip({ onOpenRadio }: StationStripProps) {
           size="compact"
         />
         <View accessibilityLiveRegion="polite">
-          {tx && <TxPill presentation={tx} colors={colors} />}
+          {tx && <TxPill presentation={tx} />}
         </View>
-        {controlState === 'mine' && !compact && (
-          <Badge label="You have control" tone="primary" icon="lock" />
+        {control.state === 'mine' && !compact && (
+          <Badge
+            label={control.label}
+            tone={control.tone}
+            icon={control.icon}
+          />
         )}
       </View>
 
@@ -275,47 +278,4 @@ function useTxStopNotice(active: boolean, message: string): string | undefined {
     return () => clearTimeout(timer);
   }, [notice]);
   return notice;
-}
-
-/** Radio-reported TX state. On-air states use the error tone, filled. */
-function TxPill({
-  presentation,
-  colors,
-}: {
-  presentation: TxPresentation;
-  colors: Colors;
-}) {
-  const onAir = presentation.onAir;
-  const foreground = onAir
-    ? colors.surface
-    : presentation.tone === 'pending' || presentation.tone === 'warning'
-      ? colors.warning
-      : colors.textSecondary;
-  return (
-    <View
-      accessible
-      accessibilityRole="text"
-      accessibilityLabel={presentation.label}
-      style={{
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: space.xs,
-        paddingHorizontal: space.sm,
-        paddingVertical: 2,
-        borderRadius: 999,
-        borderWidth: 1,
-        borderStyle: presentation.uncertain && !onAir ? 'dashed' : 'solid',
-        borderColor: onAir ? colors.error : foreground,
-        backgroundColor: onAir ? colors.error : colors.surface,
-      }}
-    >
-      <Icon name="tx" size={12} color={foreground} />
-      <Text
-        numberOfLines={1}
-        style={[type.caption, { color: foreground, fontWeight: '700' }]}
-      >
-        {presentation.label}
-      </Text>
-    </View>
-  );
 }

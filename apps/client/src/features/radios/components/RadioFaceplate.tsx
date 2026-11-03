@@ -1,7 +1,6 @@
 import type { RadioView } from '@signaldock/contracts';
 import {
   Badge,
-  Icon,
   Pressable,
   StatusIndicator,
   Text,
@@ -18,17 +17,19 @@ import {
   activeMemory,
   confidencePresentation,
   connectionPresentation,
+  controlPresentation,
   formatFrequency,
   formatOffset,
   formatTuning,
   frequencyParts,
   offsetOf,
+  TxPill,
   txPresentation,
   useStation,
   verificationLabel,
   type Verification,
 } from '../../station';
-import { controlChip, pendingTuning } from './tuning-model';
+import { pendingTuning } from './tuning-model';
 
 /** Hidden from assistive technology (`aria-hidden` on web, where the native props would reach the DOM). */
 const decorative =
@@ -78,16 +79,24 @@ export function RadioFaceplate({
   const memory = isStationRadio
     ? activeMemory(station.memories, snapshot)
     : undefined;
-  const chip = controlChip(radio, {
-    userId: station.session.user.id,
-    ...(station.lease?.radioId === radio.radioId
-      ? { leaseGrantId: station.lease.grantId }
-      : {}),
-    ownGrantIds: station.ownControlGrants,
-    radioPermissions: station.session.user.radioPermissions,
-    // Compared at render time; the station refreshes the list every few seconds.
-    now: Date.now(),
-  });
+  // The selected radio uses the station's own result so the chip and the
+  // ownership row can never disagree; other radios use the same helper.
+  const control = isStationRadio
+    ? station.control
+    : controlPresentation(radio, {
+        userId: station.session.user.id,
+        userEnabled: station.session.user.enabled,
+        leaseGrantId:
+          station.lease?.radioId === radio.radioId
+            ? station.lease.grantId
+            : undefined,
+        ownGrantIds: station.ownControlGrants,
+        radioPermissions: station.session.user.radioPermissions,
+        // Compared at render time; the station refreshes the list every few seconds.
+        now: Date.now(),
+      });
+  // Nothing useful to say when control is impossible and nobody holds it.
+  const chip = control.state === 'unavailable' ? undefined : control;
   const offsetHz = tuning ? offsetOf(tuning) : undefined;
   const showOffset =
     offsetHz !== undefined && (capabilities?.txAudio || offsetHz !== 0);
@@ -149,12 +158,7 @@ export function RadioFaceplate({
       >
         {frequency}
         {tx && snapshot?.txState !== 'idle' && (
-          <TxPill
-            label={tx.label}
-            onAir={tx.onAir}
-            uncertain={tx.uncertain}
-            compact={!hero}
-          />
+          <TxPill presentation={tx} size={hero ? 'regular' : 'compact'} />
         )}
       </View>
 
@@ -176,58 +180,7 @@ export function RadioFaceplate({
         {meta.join(' · ')}
       </Text>
 
-      {chip && (
-        <View
-          accessible
-          accessibilityLabel={chip.label}
-          style={{
-            flexDirection: 'row',
-            alignItems: 'center',
-            alignSelf: 'flex-start',
-            gap: space.xs,
-            paddingHorizontal: space.sm,
-            paddingVertical: 3,
-            borderRadius: 999,
-            borderWidth: 1,
-            borderColor:
-              chip.tone === 'primary'
-                ? colors.selected
-                : chip.tone === 'warning'
-                  ? colors.warning
-                  : colors.border,
-            backgroundColor:
-              chip.tone === 'primary' ? colors.selected : colors.surface,
-          }}
-        >
-          <Icon
-            name={chip.tone === 'warning' ? 'lock' : 'user'}
-            size={13}
-            color={
-              chip.tone === 'primary'
-                ? colors.primary
-                : chip.tone === 'warning'
-                  ? colors.warning
-                  : colors.textSecondary
-            }
-          />
-          <Text
-            style={[
-              type.caption,
-              {
-                fontWeight: '600',
-                color:
-                  chip.tone === 'primary'
-                    ? colors.primary
-                    : chip.tone === 'warning'
-                      ? colors.warning
-                      : colors.textSecondary,
-              },
-            ]}
-          >
-            {chip.label}
-          </Text>
-        </View>
-      )}
+      {chip && <Badge label={chip.label} tone={chip.tone} icon={chip.icon} />}
     </View>
   );
 
@@ -455,52 +408,5 @@ function VerificationBadge({
           ? { icon: 'alert' as const }
           : {})}
     />
-  );
-}
-
-/** TX state pill. On air uses the error colour plus the TX icon and text. */
-function TxPill({
-  label,
-  onAir,
-  uncertain,
-  compact,
-}: {
-  label: string;
-  onAir: boolean;
-  uncertain: boolean;
-  compact: boolean;
-}) {
-  const { colors } = useTheme();
-  const foreground = onAir ? colors.surface : colors.warning;
-  return (
-    <View
-      accessible
-      accessibilityRole="text"
-      accessibilityLabel={label}
-      style={{
-        flexDirection: 'row',
-        alignItems: 'center',
-        alignSelf: 'center',
-        gap: space.xs,
-        paddingHorizontal: compact ? space.sm : space.md,
-        paddingVertical: compact ? 2 : space.xs,
-        borderRadius: 999,
-        borderWidth: 1.5,
-        borderStyle: uncertain ? 'dashed' : 'solid',
-        borderColor: onAir ? colors.error : colors.warning,
-        backgroundColor: onAir ? colors.error : colors.surface,
-      }}
-    >
-      <Icon name="tx" size={compact ? 12 : 14} color={foreground} />
-      <Text
-        numberOfLines={1}
-        style={[
-          type.caption,
-          { fontWeight: '700', color: foreground, letterSpacing: 0.3 },
-        ]}
-      >
-        {label}
-      </Text>
-    </View>
   );
 }

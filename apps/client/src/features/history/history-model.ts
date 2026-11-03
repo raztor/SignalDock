@@ -252,6 +252,33 @@ export function mergePage<T extends { id: string }>(
   return [...prior, ...next.filter((item) => !seen.has(item.id))];
 }
 
+/**
+ * How the loaded rows relate to the first-page query on screen:
+ * - `loading`: a new first page is loading; older rows may show, dimmed.
+ * - `pending`: the query changed and its load has not started yet; dimmed.
+ * - `current`: the rows answer the current query (a failed refresh or "load
+ *   earlier" of that same query keeps them; they are still its results).
+ * - `failed`: the current query failed and the rows answer an older one
+ *   (another radio, conversation, or search): they must not be shown.
+ */
+export type HistoryRowsState = 'loading' | 'pending' | 'current' | 'failed';
+
+export function historyRowsState(input: {
+  /** First-page path the loaded rows answer (set on success). */
+  pageQuery: string | undefined;
+  /** First-page path whose most recent load failed, if any. */
+  failedQuery: string | undefined;
+  /** First-page path of the filters and scope on screen now. */
+  currentQuery: string;
+  busy: boolean;
+  appending: boolean;
+}): HistoryRowsState {
+  if (input.busy && !input.appending) return 'loading';
+  if (input.pageQuery === input.currentQuery) return 'current';
+  if (input.failedQuery === input.currentQuery) return 'failed';
+  return 'pending';
+}
+
 /** Whether coverage gap rows belong in the current view. */
 export function showCoverageGaps(
   filters: Pick<HistoryFilters, 'search' | 'direction'>,

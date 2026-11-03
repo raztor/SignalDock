@@ -363,7 +363,10 @@ function ProgressBar({ resolved, total }: { resolved: number; total: number }) {
   );
 }
 
-/** Numbered circle; a check for done, a dash for skipped (shape, not colour). */
+/**
+ * Numbered circle matching `Stepper`: the current step is filled, done steps
+ * show a check on the selected tint, skipped steps a dash (shape, not colour).
+ */
 function StepMark({
   step,
   index,
@@ -378,7 +381,7 @@ function StepMark({
   if (step.status === 'done')
     return (
       <View style={[styles.mark, styles.markDone]}>
-        <Icon name="check" size={16} color={colors.onPrimary} />
+        <Icon name="check" size={16} color={colors.primary} />
       </View>
     );
   if (step.status === 'skipped')
@@ -460,9 +463,9 @@ const useStyles = createStyles((colors) => ({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  markCurrent: { borderColor: colors.primary },
-  markDone: { backgroundColor: colors.primary, borderColor: colors.primary },
+  markCurrent: { backgroundColor: colors.primary, borderColor: colors.primary },
+  markDone: { backgroundColor: colors.selected, borderColor: colors.primary },
   markSkipped: { borderStyle: 'dashed' },
   markText: { ...type.caption, fontWeight: '600', color: colors.textSecondary },
-  markTextCurrent: { color: colors.primary },
+  markTextCurrent: { color: colors.onPrimary },
 }));

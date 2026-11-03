@@ -70,8 +70,16 @@ export function MediaProvider({
   mediaAvailable,
   children,
 }: MediaProviderProps) {
-  const { session, radioId, selected, loaded, error, lease, noteControlGrant } =
-    useStation();
+  const {
+    session,
+    radioId,
+    selected,
+    loaded,
+    error,
+    listStale,
+    lease,
+    noteControlGrant,
+  } = useStation();
   const latest = useRef(session);
   latest.current = session;
   /** The station's lease, so TX never releases a lease the station holds. */
@@ -93,12 +101,16 @@ export function MediaProvider({
   const active = state.pending || state.transmitting;
   const radioError =
     error ||
-    (loaded && radioId && !selected
-      ? 'The selected radio is unavailable.'
-      : '');
+    (listStale
+      ? 'Radio details are unavailable.'
+      : loaded && radioId && !selected
+        ? 'The selected radio is unavailable.'
+        : '');
+  // A failed refresh leaves the last list in place; its txState, tuning and
+  // control may be stale, so live audio fails safe until a refresh succeeds.
   const access = mediaAccess({
     mediaAvailable,
-    radio: selected ?? null,
+    radio: listStale ? null : (selected ?? null),
     user: session.user,
     radioId: radioId ?? '',
     activeTx: active,

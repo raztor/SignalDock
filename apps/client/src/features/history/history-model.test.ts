@@ -20,6 +20,7 @@ import {
   frequencyChipLabel,
   gapLabel,
   heatmapCellLabel,
+  historyRowsState,
   intensityLevel,
   isMissingRoute,
   kindPresentation,
@@ -770,5 +771,56 @@ describe('debounce', () => {
     debounced.schedule(1);
     scheduled.at(-1)!();
     expect(calls).toEqual([1]);
+  });
+});
+
+describe('historyRowsState', () => {
+  const radioA = '/communications?radioId=a';
+  const radioB = '/communications?radioId=b';
+  const base = {
+    pageQuery: radioA,
+    failedQuery: undefined,
+    currentQuery: radioA,
+    busy: false,
+    appending: false,
+  };
+
+  it('keeps rows that answer the current query, even after a failed refresh', () => {
+    expect(historyRowsState(base)).toBe('current');
+    expect(historyRowsState({ ...base, failedQuery: radioA })).toBe('current');
+    expect(historyRowsState({ ...base, busy: true, appending: true })).toBe(
+      'current',
+    );
+  });
+
+  it('dims older rows while a new first page is loading or about to load', () => {
+    expect(
+      historyRowsState({ ...base, currentQuery: radioB, busy: true }),
+    ).toBe('loading');
+    expect(historyRowsState({ ...base, busy: true })).toBe('loading');
+    expect(historyRowsState({ ...base, currentQuery: radioB })).toBe('pending');
+    expect(
+      historyRowsState({ ...base, pageQuery: undefined, currentQuery: radioB }),
+    ).toBe('pending');
+  });
+
+  it("hides another radio's rows once the new query failed", () => {
+    expect(
+      historyRowsState({
+        ...base,
+        currentQuery: radioB,
+        failedQuery: radioB,
+      }),
+    ).toBe('failed');
+    expect(
+      historyRowsState({
+        ...base,
+        pageQuery: undefined,
+        currentQuery: radioB,
+        failedQuery: radioB,
+      }),
+    ).toBe('failed');
+    // A stale failure for another query does not hide current rows.
+    expect(historyRowsState({ ...base, failedQuery: radioB })).toBe('current');
   });
 });

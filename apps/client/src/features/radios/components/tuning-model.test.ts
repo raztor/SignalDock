@@ -1,12 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import type { RadioView } from '@signaldock/contracts';
 import type { TuningMode } from '../../station/station-model';
 import {
   applyState,
   bandAccessibilityLabel,
   bandEdgeLabels,
   confirmedTuning,
-  controlChip,
   createBandScale,
   dialAccessibilityValue,
   dialDigits,
@@ -461,95 +459,6 @@ describe('tuning panel model', () => {
       changed: true,
       reason: 'Already requested · waiting for radio confirmation.',
     });
-  });
-});
-
-describe('control chip', () => {
-  const radio: Pick<RadioView, 'radioId' | 'enabled' | 'control' | 'snapshot'> =
-    {
-      radioId: 'radio-1',
-      enabled: true,
-      control: null,
-      snapshot: {
-        radioId: 'radio-1',
-        generation: 'gen-1',
-        revision: 1,
-        connection: 'ready',
-        tuningConfidence: 'confirmed',
-        txState: 'idle',
-      },
-    };
-  const viewer = {
-    userId: 'user-1',
-    radioPermissions: [
-      { radioId: 'radio-1', permissions: ['radio.listen', 'radio.control'] },
-    ],
-    now: 1_000,
-  };
-  const lease = {
-    grantId: 'grant-1',
-    radioId: 'radio-1',
-    ownerId: 'user-1',
-    sessionId: 'session-1',
-    generation: 'gen-1',
-    fencing: 1,
-    expiresAt: 5_000,
-  };
-
-  it('reports who holds control', () => {
-    expect(controlChip(radio, viewer)).toEqual({
-      label: 'Control available',
-      tone: 'neutral',
-    });
-    expect(
-      controlChip(
-        { ...radio, control: lease },
-        {
-          ...viewer,
-          leaseGrantId: 'grant-1',
-        },
-      ),
-    ).toEqual({ label: 'You have control', tone: 'primary' });
-    expect(controlChip({ ...radio, control: lease }, viewer)).toEqual({
-      label: 'Controlled by another session',
-      tone: 'warning',
-    });
-    expect(
-      controlChip(
-        { ...radio, control: { ...lease, ownerId: 'user-2' } },
-        viewer,
-      ),
-    ).toEqual({ label: 'Controlled by another operator', tone: 'warning' });
-  });
-
-  it("shows this client's own orphaned lease as its own, not another session's", () => {
-    expect(
-      controlChip(
-        { ...radio, control: lease },
-        { ...viewer, ownGrantIds: ['grant-0', 'grant-1'] },
-      ),
-    ).toEqual({
-      label: 'Your previous lease is still active',
-      tone: 'neutral',
-    });
-    // Another tab on the same session holds a different grant.
-    expect(
-      controlChip(
-        { ...radio, control: { ...lease, grantId: 'grant-9' } },
-        { ...viewer, ownGrantIds: ['grant-1'] },
-      ),
-    ).toEqual({ label: 'Controlled by another session', tone: 'warning' });
-  });
-
-  it('ignores expired leases and hides the chip when control is impossible', () => {
-    expect(
-      controlChip({ ...radio, control: { ...lease, expiresAt: 500 } }, viewer),
-    ).toEqual({ label: 'Control available', tone: 'neutral' });
-    expect(
-      controlChip(radio, { ...viewer, radioPermissions: [] }),
-    ).toBeUndefined();
-    expect(controlChip({ ...radio, enabled: false }, viewer)).toBeUndefined();
-    expect(controlChip({ ...radio, snapshot: null }, viewer)).toBeUndefined();
   });
 });
 

@@ -145,8 +145,22 @@ export function decodePcmS16(
   return parseRawPcm(bytes, contentType);
 }
 
-/** Peak absolute amplitude (0..1) per point across all channels. */
-export function computePeaks(audio: PcmS16Audio, points: number): number[] {
+/**
+ * Sample bytes scanned between event-loop yields by the asynchronous decoder
+ * (128 Ki samples, well under a millisecond of work).
+ */
+export const WAVEFORM_SLICE_BYTES = 256 * 1024;
+
+/**
+ * Shared peak scan. It pauses (yields) after roughly every `sliceBytes`
+ * scanned bytes so callers can hand control back to the event loop; the
+ * synchronous form never pauses.
+ */
+function* peakScan(
+  audio: PcmS16Audio,
+  points: number,
+  sliceBytes: number,
+): Generator<void, number[], void> {
   if (!Number.isInteger(points) || points < 1 || points > MAX_WAVEFORM_POINTS)
     throw new RangeError('Invalid waveform point count.');
   const frameBytes = audio.channels * 2;
@@ -157,6 +171,11 @@ export function computePeaks(audio: PcmS16Audio, points: number): number[] {
     audio.bytes.byteOffset + audio.dataOffset,
     frames * frameBytes,
   );
+  // Samples are two bytes wide, so every slice boundary stays sample aligned.
+  const slice = Number.isFinite(sliceBytes)
+    ? Math.max(2, Math.floor(sliceBytes / 2) * 2)
+    : Number.POSITIVE_INFINITY;
+  let budget = slice;
   const peaks: number[] = [];
   for (let point = 0; point < points; point += 1) {
     const start = Math.min(frames - 1, Math.floor((point * frames) / points));
@@ -165,13 +184,65 @@ export function computePeaks(audio: PcmS16Audio, points: number): number[] {
       Math.min(frames, Math.floor(((point + 1) * frames) / points)),
     );
     let peak = 0;
-    for (let byte = start * frameBytes; byte < end * frameBytes; byte += 2) {
-      const sample = Math.abs(view.getInt16(byte, true));
-      if (sample > peak) peak = sample;
+    let byte = start * frameBytes;
+    const stop = end * frameBytes;
+    while (byte < stop) {
+      const chunkStart = byte;
+      const chunkEnd = Math.min(stop, byte + budget);
+      for (; byte < chunkEnd; byte += 2) {
+        const sample = Math.abs(view.getInt16(byte, true));
+        if (sample > peak) peak = sample;
+      }
+      budget -= chunkEnd - chunkStart;
+      if (budget <= 0) {
+        yield;
+        budget = slice;
+      }
     }
     peaks.push(Math.round(Math.min(1, peak / 32767) * 1000) / 1000);
   }
   return peaks;
+}
+
+/** Peak absolute amplitude (0..1) per point across all channels. */
+export function computePeaks(audio: PcmS16Audio, points: number): number[] {
+  const scan = peakScan(audio, points, Number.POSITIVE_INFINITY);
+  for (;;) {
+    const step = scan.next();
+    if (step.done) return step.value;
+  }
+}
+
+export interface AsyncPeakOptions {
+  /** Bytes scanned between yields; defaults to WAVEFORM_SLICE_BYTES. */
+  sliceBytes?: number;
+  /** Hands control back to the event loop; defaults to setImmediate. */
+  yieldControl?: () => Promise<void>;
+}
+
+const yieldToEventLoop = () =>
+  new Promise<void>((resolve) => setImmediate(resolve));
+
+/**
+ * Same result as `computePeaks`, computed in slices that yield to the event
+ * loop so a large recording never blocks other requests for long.
+ */
+export async function computePeaksAsync(
+  audio: PcmS16Audio,
+  points: number,
+  options: AsyncPeakOptions = {},
+): Promise<number[]> {
+  const scan = peakScan(
+    audio,
+    points,
+    options.sliceBytes ?? WAVEFORM_SLICE_BYTES,
+  );
+  const yieldControl = options.yieldControl ?? yieldToEventLoop;
+  for (;;) {
+    const step = scan.next();
+    if (step.done) return step.value;
+    await yieldControl();
+  }
 }
 
 export function pcmDurationMs(audio: PcmS16Audio): number {
@@ -189,6 +260,21 @@ export function waveformFromRecording(
   if (!audio) return undefined;
   return {
     peaks: computePeaks(audio, points),
+    durationMs: pcmDurationMs(audio),
+  };
+}
+
+/** Asynchronous `waveformFromRecording` that yields while scanning samples. */
+export async function waveformFromRecordingAsync(
+  bytes: Uint8Array,
+  contentType: string,
+  points: number = DEFAULT_WAVEFORM_POINTS,
+  options: AsyncPeakOptions = {},
+): Promise<WaveformPeaks | undefined> {
+  const audio = decodePcmS16(bytes, contentType);
+  if (!audio) return undefined;
+  return {
+    peaks: await computePeaksAsync(audio, points, options),
     durationMs: pcmDurationMs(audio),
   };
 }

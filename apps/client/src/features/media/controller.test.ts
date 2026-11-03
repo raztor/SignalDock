@@ -44,6 +44,7 @@ function fixture(
     published = 0,
     disconnected = 0;
   let state: MediaUiState | undefined;
+  let emitted = 0;
   const mic = {
     stop: () => {
       stopped++;
@@ -74,6 +75,7 @@ function fixture(
     port,
     onState: (value) => {
       state = value;
+      emitted++;
     },
     ...(options.control ? { control: options.control } : {}),
     request: async <T>(
@@ -127,6 +129,9 @@ function fixture(
     },
     get state() {
       return state;
+    },
+    get emitted() {
+      return emitted;
     },
     changeServer: () => {
       session = {
@@ -348,6 +353,17 @@ describe('status messages and control leases', () => {
     });
     await f.controller.dispose();
     expect(f.state?.message).toBe('Media context closed.');
+  });
+  it('does not emit a new state when stopTransmit runs while idle', async () => {
+    const f = fixture();
+    await f.controller.listen();
+    const before = f.state;
+    const count = f.emitted;
+    await f.controller.stopTransmit('Transmission interrupted.');
+    await stopActiveTransmit('Navigation changed.');
+    expect(f.emitted).toBe(count);
+    expect(f.state).toBe(before);
+    await f.controller.dispose();
   });
   it('still reports the reason when an active transmission stops', async () => {
     const f = fixture();

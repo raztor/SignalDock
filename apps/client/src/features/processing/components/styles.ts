@@ -87,6 +87,13 @@ export const useProcessingStyles = createStyles((c) => ({
   },
   inputReadOnly: { backgroundColor: c.surfaceElevated },
   multiline: { minHeight: 120, textAlignVertical: 'top' },
+  /** Advanced JSON editor text; matches the radio setup wizard's editor. */
+  json: {
+    minHeight: 200,
+    fontFamily: type.frequency.fontFamily,
+    fontSize: 13,
+    lineHeight: 19,
+  },
   mono: {
     ...type.caption,
     color: c.textPrimary,
@@ -132,25 +139,6 @@ export const useProcessingStyles = createStyles((c) => ({
   },
   reviewLabel: { ...type.caption, color: c.textSecondary, width: 110 },
   reviewValue: { ...type.body, color: c.textPrimary, flex: 1, minWidth: 160 },
-  switchTrack: {
-    width: 52,
-    height: 32,
-    borderRadius: 16,
-    padding: 3,
-    borderWidth: 1,
-    borderColor: c.inputBorder,
-    backgroundColor: c.surfaceElevated,
-    justifyContent: 'center',
-  },
-  switchTrackOn: { backgroundColor: c.primary, borderColor: c.primary },
-  switchThumb: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: c.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   onAir: {
     flexDirection: 'row',
     alignItems: 'center',

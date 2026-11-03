@@ -5,6 +5,7 @@ import {
   space,
   type,
   useReducedMotion,
+  useScreenActive,
   useTheme,
   type Colors,
 } from '@signaldock/ui';
@@ -106,6 +107,14 @@ export function usePushToTalk(): PushToTalk {
     },
     [stopTransmit],
   );
+  // The same when its screen is hidden but kept mounted (section change).
+  const screenActive = useScreenActive();
+  useEffect(() => {
+    if (screenActive || !holding.current) return;
+    keyboard.current?.dispose();
+    holding.current = false;
+    stopTransmit('Push to talk closed.');
+  }, [screenActive, stopTransmit]);
 
   const pressIn = useCallback(() => {
     if (presentationRef.current.phase !== 'ready') return;

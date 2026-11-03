@@ -2,11 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { wav } from '../src/capture.js';
 import {
   computePeaks,
+  computePeaksAsync,
   decodePcmS16,
   parseRawPcm,
   parseWav,
   pcmDurationMs,
   waveformFromRecording,
+  waveformFromRecordingAsync,
 } from '../src/waveform.js';
 
 function pcm(samples: readonly number[]): Uint8Array {
@@ -131,5 +133,62 @@ describe('waveform peak extraction', () => {
     expect(
       waveformFromRecording(data, 'audio/x-pcm;rate=8000;channels=2', 1),
     ).toEqual({ peaks: [0.25], durationMs: 500 });
+  });
+});
+
+describe('asynchronous waveform peak extraction', () => {
+  // Deterministic pseudo-random stereo samples covering the full range.
+  const samples = Array.from(
+    { length: 6002 },
+    (_, index) => ((index * 7919 + 13) % 65536) - 32768,
+  );
+  const stereo = parseWav(wav([pcm(samples)], 8000, 2))!;
+
+  it('matches the synchronous peaks for any slice size', async () => {
+    for (const points of [1, 7, 64, 512])
+      for (const sliceBytes of [1, 2, 6, 1000, 4096, Infinity]) {
+        const expected = computePeaks(stereo, points);
+        expect(
+          await computePeaksAsync(stereo, points, {
+            sliceBytes,
+            yieldControl: async () => {},
+          }),
+        ).toEqual(expected);
+      }
+  });
+
+  it('yields to the event loop between slices', async () => {
+    let yields = 0;
+    const peaks = await computePeaksAsync(stereo, 4, {
+      sliceBytes: 1024,
+      yieldControl: async () => {
+        yields += 1;
+      },
+    });
+    expect(peaks).toEqual(computePeaks(stereo, 4));
+    // 12 004 sample bytes in 1 KiB slices.
+    expect(yields).toBe(Math.floor(12004 / 1024));
+    let ticks = 0;
+    const timer = setInterval(() => (ticks += 1), 0);
+    try {
+      const big = parseWav(wav([pcm(new Array(400_000).fill(1000))], 8000, 1))!;
+      await computePeaksAsync(big, 64, { sliceBytes: 4096 });
+    } finally {
+      clearInterval(timer);
+    }
+    // The default setImmediate yield lets timers run during the scan.
+    expect(ticks).toBeGreaterThan(0);
+  });
+
+  it('rejects invalid point counts and decodes by content type', async () => {
+    await expect(computePeaksAsync(stereo, 0)).rejects.toThrow(RangeError);
+    await expect(computePeaksAsync(stereo, 513)).rejects.toThrow(RangeError);
+    const data = pcm(new Array(8000).fill(8192));
+    expect(
+      await waveformFromRecordingAsync(data, 'audio/pcm; rate=8000', 2),
+    ).toEqual(waveformFromRecording(data, 'audio/pcm; rate=8000', 2));
+    expect(
+      await waveformFromRecordingAsync(new Uint8Array([1, 2, 3]), 'audio/wav'),
+    ).toBeUndefined();
   });
 });

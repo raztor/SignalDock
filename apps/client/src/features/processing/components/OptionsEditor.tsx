@@ -20,7 +20,7 @@ type Mode = 'form' | 'json';
 export interface OptionsEditorProps {
   /** Accessible name and heading, e.g. "Connection options". */
   label: string;
-  /** Undefined → only Advanced JSON is offered. */
+  /** Undefined → the Form option is shown disabled and Advanced JSON is used. */
   schema: FormSchema | undefined;
   value: Record<string, unknown>;
   onChange(value: Record<string, unknown>): void;
@@ -89,22 +89,27 @@ export function OptionsEditor({
         <Text accessibilityRole="header" style={styles.label}>
           {label}
         </Text>
-        {schema ? (
-          <SegmentedControl<Mode>
-            size="compact"
-            accessibilityLabel={`${label} editor`}
-            value={effectiveMode}
-            disabled={disabled}
-            onChange={(next) => {
-              if (next === 'json') setText(formatJson(value));
-              setMode(next);
-            }}
-            options={[
-              { value: 'form', label: 'Form' },
-              { value: 'json', label: 'Advanced JSON' },
-            ]}
-          />
-        ) : null}
+        <SegmentedControl<Mode>
+          size="compact"
+          accessibilityLabel={`${label} editor`}
+          value={effectiveMode}
+          disabled={disabled}
+          onChange={(next) => {
+            if (next === 'json') setText(formatJson(value));
+            setMode(next);
+          }}
+          options={[
+            {
+              value: 'form',
+              label: 'Form',
+              disabled: !schema,
+              accessibilityLabel: schema
+                ? 'Form'
+                : 'Form (this provider does not describe its settings)',
+            },
+            { value: 'json', label: 'Advanced JSON' },
+          ]}
+        />
       </View>
       {effectiveMode === 'form' && schema ? (
         empty && Object.keys(value).length === 0 ? (
@@ -120,15 +125,15 @@ export function OptionsEditor({
         )
       ) : (
         <View style={styles.field}>
-          {!schema ? (
-            <Text style={styles.caption}>
-              This provider does not describe these settings. Enter them as a
-              JSON object.
-            </Text>
-          ) : null}
+          <Text style={styles.caption}>
+            {schema
+              ? 'Edit these settings as a JSON object.'
+              : 'This provider does not describe these settings. Enter them as a JSON object.'}{' '}
+            Never put API keys, tokens or passwords here.
+          </Text>
           <TextInput
             accessibilityLabel={`${label} (JSON)`}
-            style={[styles.input, styles.multiline, styles.mono]}
+            style={[styles.input, styles.multiline, styles.json]}
             autoCapitalize="none"
             autoCorrect={false}
             spellCheck={false}

@@ -14,7 +14,9 @@ import {
   Platform,
   ScrollView,
   TextInput as NativeTextInput,
+  useWindowDimensions,
   View,
+  type ScrollViewInstance,
   type StyleProp,
   type TextInputKeyPressEvent,
   type ViewStyle,
@@ -26,6 +28,11 @@ import {
   removeChip,
 } from './chip-input-model';
 import { Icon, type IconName } from './icons';
+import {
+  nextEnabled,
+  revealOffset,
+  type SegmentLayout,
+} from './segmented-model';
 import { Pressable, Text, TextInput } from './primitives';
 import {
   canStepNumber,
@@ -96,27 +103,15 @@ export interface SegmentedControlProps<T extends string> {
   size?: 'regular' | 'compact';
 }
 
-/**
- * Index of the next enabled option from `from` in `direction` (wrapping), or
- * undefined when none is enabled.
- */
-function nextEnabled(
-  enabled: readonly boolean[],
-  from: number,
-  direction: 1 | -1,
-): number | undefined {
-  const count = enabled.length;
-  for (let step = 1; step <= count; step += 1) {
-    const index = (((from + direction * step) % count) + count) % count;
-    if (enabled[index]) return index;
-  }
-  return undefined;
-}
+/** Below this window width options use tighter padding to stay on one line. */
+const SEGMENTED_NARROW = 480;
 
 /**
- * Single choice among a few options, with radio-group semantics. Wraps when
- * narrow. Web follows the ARIA radio group pattern: one Tab stop (the checked
- * option, or the first enabled one) and arrow keys move and select.
+ * Single choice among a few options, with radio-group semantics. Stays on one
+ * line: narrow windows tighten the padding and, if the options still do not
+ * fit, the row scrolls horizontally and keeps the checked option in view.
+ * Web follows the ARIA radio group pattern: one Tab stop (the checked option,
+ * or the first enabled one) and arrow keys move and select.
  */
 export function SegmentedControl<T extends string>({
   options,
@@ -127,9 +122,15 @@ export function SegmentedControl<T extends string>({
   size = 'regular',
 }: SegmentedControlProps<T>) {
   const { colors } = useTheme();
+  const { width: windowWidth } = useWindowDimensions();
   const compact = size === 'compact';
+  const tight = compact || windowWidth < SEGMENTED_NARROW;
   const web = Platform.OS === 'web';
   const nodes = useRef<({ focus?: () => void } | null)[]>([]);
+  const scroller = useRef<ScrollViewInstance>(null);
+  const segments = useRef<(SegmentLayout | undefined)[]>([]);
+  const scrollX = useRef(0);
+  const viewport = useRef(0);
   const enabled = options.map(
     (option) => !disabled && option.disabled !== true,
   );
@@ -138,6 +139,22 @@ export function SegmentedControl<T extends string>({
     checkedIndex >= 0 && enabled[checkedIndex]
       ? checkedIndex
       : enabled.indexOf(true);
+  /** Scrolls the row (when it overflows) so option `index` is fully visible. */
+  const reveal = (index: number) => {
+    const segment = segments.current[index];
+    if (!segment) return;
+    const x = revealOffset(
+      segment,
+      scrollX.current,
+      viewport.current,
+      space.lg,
+    );
+    if (x !== undefined) scroller.current?.scrollTo({ x, animated: false });
+  };
+  useEffect(() => {
+    if (checkedIndex >= 0) reveal(checkedIndex);
+    // `reveal` reads refs only; re-run when the checked option changes.
+  }, [checkedIndex]);
   const onKeyDown = (event: {
     nativeEvent: { key: string };
     preventDefault(): void;
@@ -156,66 +173,88 @@ export function SegmentedControl<T extends string>({
     if (next === undefined || !option) return;
     event.preventDefault();
     nodes.current[next]?.focus?.();
+    reveal(next);
     if (option.value !== value) onChange(option.value);
   };
   return (
-    <View
-      accessibilityRole="radiogroup"
-      accessibilityLabel={accessibilityLabel}
-      {...(web ? { onKeyDown } : {})}
+    <ScrollView
+      ref={scroller}
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      keyboardShouldPersistTaps="handled"
+      scrollEventThrottle={32}
+      onScroll={(event) => {
+        scrollX.current = event.nativeEvent.contentOffset.x;
+      }}
+      onLayout={(event) => {
+        viewport.current = event.nativeEvent.layout.width;
+        if (checkedIndex >= 0) reveal(checkedIndex);
+      }}
       style={{
-        flexDirection: 'row',
-        flexWrap: 'wrap',
+        flexGrow: 0,
         alignSelf: 'flex-start',
         maxWidth: '100%',
-        gap: 2,
-        padding: 2,
         borderWidth: 1,
         borderColor: colors.inputBorder,
         borderRadius: radius.md,
         backgroundColor: colors.surface,
       }}
+      contentContainerStyle={{ flexGrow: 0 }}
     >
-      {options.map((option, index) => {
-        const selected = option.value === value;
-        const inactive = disabled || option.disabled === true;
-        return (
-          <Pressable
-            key={option.value}
-            ref={(node: { focus?: () => void } | null) => {
-              nodes.current[index] = node;
-            }}
-            {...(web ? { tabIndex: index === tabStop ? 0 : -1 } : {})}
-            accessibilityRole="radio"
-            accessibilityLabel={option.accessibilityLabel ?? option.label}
-            accessibilityState={{ checked: selected }}
-            disabled={inactive}
-            hitSlop={compact ? denseHitSlop : undefined}
-            onPress={() => {
-              if (!selected) onChange(option.value);
-            }}
-            style={{
-              minHeight: compact ? 32 : layout.touch - 6,
-              paddingHorizontal: compact ? space.sm + 2 : space.md,
-              alignItems: 'center',
-              borderRadius: radius.md - 2,
-              backgroundColor: selected ? colors.primary : 'transparent',
-            }}
-          >
-            <Text
-              numberOfLines={1}
-              style={[
-                type.label,
-                compact && { fontSize: 13, lineHeight: 18 },
-                { color: selected ? colors.onPrimary : colors.textPrimary },
-              ]}
+      <View
+        accessibilityRole="radiogroup"
+        accessibilityLabel={accessibilityLabel}
+        {...(web ? { onKeyDown } : {})}
+        style={{ flexDirection: 'row', gap: 2, padding: 2 }}
+      >
+        {options.map((option, index) => {
+          const selected = option.value === value;
+          const inactive = disabled || option.disabled === true;
+          return (
+            <Pressable
+              key={option.value}
+              ref={(node: { focus?: () => void } | null) => {
+                nodes.current[index] = node;
+              }}
+              {...(web ? { tabIndex: index === tabStop ? 0 : -1 } : {})}
+              accessibilityRole="radio"
+              accessibilityLabel={option.accessibilityLabel ?? option.label}
+              accessibilityState={{ checked: selected }}
+              disabled={inactive}
+              hitSlop={compact ? denseHitSlop : undefined}
+              onLayout={(event) => {
+                const { x, width } = event.nativeEvent.layout;
+                segments.current[index] = { x, width };
+                if (index === checkedIndex) reveal(index);
+              }}
+              onFocus={() => reveal(index)}
+              onPress={() => {
+                if (!selected) onChange(option.value);
+              }}
+              style={{
+                minHeight: compact ? 32 : layout.touch - 6,
+                paddingHorizontal: tight ? space.sm + 2 : space.md,
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderRadius: radius.md - 2,
+                backgroundColor: selected ? colors.primary : 'transparent',
+              }}
             >
-              {option.label}
-            </Text>
-          </Pressable>
-        );
-      })}
-    </View>
+              <Text
+                numberOfLines={1}
+                style={[
+                  type.label,
+                  tight && { fontSize: 13, lineHeight: 18 },
+                  { color: selected ? colors.onPrimary : colors.textPrimary },
+                ]}
+              >
+                {option.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+    </ScrollView>
   );
 }
 

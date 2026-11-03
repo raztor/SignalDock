@@ -80,9 +80,15 @@ export function BootstrapScreen({
           accessibilityLabel="Setup token"
           value={setupToken}
           onChangeText={setSetupToken}
+          // A one-time secret: keep secure entry but never offer saved
+          // passwords or remember it.
           secureTextEntry
+          autoComplete="off"
+          textContentType="none"
+          importantForAutofill="no"
           autoCapitalize="none"
           autoCorrect={false}
+          spellCheck={false}
           style={styles.input}
         />
         <Text style={styles.label}>Administrator username</Text>

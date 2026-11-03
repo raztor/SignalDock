@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Client } from 'pg';
 import Fastify, { type FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   CommunicationWaveformSchema,
   HistoryActivitySchema,
@@ -414,6 +414,49 @@ describe.skipIf(!url)('history review aggregates with PostgreSQL 18', () => {
         peaks: [],
         durationMs: 1500,
       });
+    }
+  });
+
+  it('reads and decodes a recording once for concurrent waveform requests', async () => {
+    const shared = await ingest(
+      radioId,
+      '2026-11-03T11:30:00.000Z',
+      '2026-11-03T11:30:02.000Z',
+      { bytes: wav([tone(16000, 8192)], 8000, 1), contentType: 'audio/wav' },
+    );
+    const reads = vi.spyOn(history, 'readRecording');
+    try {
+      const responses = await Promise.all(
+        Array.from({ length: 6 }, () =>
+          app.inject({
+            url: `/api/v1/communications/${shared.id}/waveform?points=16`,
+            headers,
+          }),
+        ),
+      );
+      expect(reads).toHaveBeenCalledTimes(1);
+      const bodies = responses.map((response) => {
+        expect(response.statusCode).toBe(200);
+        return CommunicationWaveformSchema.parse(response.json());
+      });
+      for (const body of bodies)
+        expect(body).toMatchObject({
+          communicationId: shared.id,
+          durationMs: 2000,
+          peaks: new Array(16).fill(0.25),
+        });
+      // A request without playback permission never joins the shared decode.
+      expect(
+        (
+          await app.inject({
+            url: `/api/v1/communications/${hiddenId}/waveform?points=16`,
+            headers,
+          })
+        ).statusCode,
+      ).toBe(403);
+      expect(reads).toHaveBeenCalledTimes(1);
+    } finally {
+      reads.mockRestore();
     }
   });
 

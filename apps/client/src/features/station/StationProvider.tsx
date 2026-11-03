@@ -26,14 +26,23 @@ import {
 import { Platform } from 'react-native';
 import { operationId } from '../radios/radio-input';
 import {
+  controlPresentation,
   formatFrequency,
   formatRange,
   formatTuning,
   isInRanges,
+  memoriesFetchKey,
+  mergeRadioList,
+  mergeRadioSnapshot,
+  preserveIdentity,
+  sameLease,
   sameTuning,
+  withOwnLease,
+  type ControlPresentation,
+  type ControlState,
 } from './station-model';
 
-export type ControlState = 'mine' | 'other' | 'available' | 'unavailable';
+export type { ControlState };
 export type StationOperationResult =
   { ok: true; message: string } | { ok: false; error: string };
 
@@ -45,14 +54,24 @@ export interface StationContextValue {
   loaded: boolean;
   /** Radio list error (cleared by the next successful refresh). */
   error: string;
+  /**
+   * The last radio list refresh failed or timed out, so `radios` (and
+   * `selected`) may be stale. Live audio treats the radio as unavailable.
+   */
+  listStale: boolean;
   selected: RadioView | undefined;
   /** True while the station event stream is connected (web only). */
   liveUpdates: boolean;
-  /** Asks the workspace to select a radio. Selection never retunes it. */
-  selectRadio(radioId: string): void;
+  /**
+   * Asks the workspace to select a radio. Selection never retunes it.
+   * Resolves false when the workspace skipped the request (busy).
+   */
+  selectRadio(radioId: string): Promise<boolean>;
   refresh(): void;
 
   lease: ControlLease | null;
+  /** Who holds control of the selected radio (label, tone and icon). */
+  control: ControlPresentation;
   controlState: ControlState;
   controlOwnerLabel: string;
   /** The account has `radio.control` for the selected radio. */
@@ -87,8 +106,11 @@ export interface StationContextValue {
 export interface StationProviderProps {
   session: ClientSession;
   radioId?: string;
-  /** Workspace radio selection (it stops media before switching). */
-  onSelectRadio?: (radioId: string) => void;
+  /**
+   * Workspace radio selection (it stops media before switching). Resolves
+   * false when the request was skipped.
+   */
+  onSelectRadio?: (radioId: string) => Promise<boolean>;
   children: ReactNode;
 }
 
@@ -118,6 +140,8 @@ const STREAM_BACKOFF_MAX_MS = 30_000;
 const STREAM_UNSUPPORTED = 'This client cannot stream station events.';
 /** How many recent own grant IDs are remembered. */
 const OWN_GRANTS_MAX = 16;
+/** Shared empty list, so clearing memories does not change identity. */
+const NO_MEMORIES: RadioMemory[] = [];
 
 /**
  * Owns the radio list, live updates, the selected radio's control lease and
@@ -142,9 +166,10 @@ export function StationProvider({
   const [radios, setRadios] = useState<RadioView[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState('');
+  const [listStale, setListStale] = useState(false);
   const [liveUpdates, setLiveUpdates] = useState(false);
   const [lease, setLease] = useState<ControlLease | null>(null);
-  const [memories, setMemories] = useState<RadioMemory[]>([]);
+  const [memories, setMemories] = useState<RadioMemory[]>(NO_MEMORIES);
   const [memoriesLoaded, setMemoriesLoaded] = useState(false);
   const [memoriesError, setMemoriesError] = useState('');
   const [busy, setBusyState] = useState(false);
@@ -189,19 +214,12 @@ export function StationProvider({
       setLease(value);
       if (value) noteControlGrant(value.grantId);
       // Keep the radio's control view in step with our own lease.
-      if (value)
-        setRadios((previous) =>
-          previous.map((radio) =>
-            radio.radioId === value.radioId
-              ? { ...radio, control: value }
-              : radio,
-          ),
-        );
+      if (value) setRadios((previous) => withOwnLease(previous, value));
     },
     [noteControlGrant],
   );
   const applySnapshot = useCallback((snapshot: RadioSnapshot) => {
-    setRadios((previous) => mergeSnapshot(previous, snapshot));
+    setRadios((previous) => mergeRadioSnapshot(previous, snapshot));
     const held = leaseRef.current;
     if (
       held &&
@@ -223,6 +241,7 @@ export function StationProvider({
     setRadios([]);
     setLoaded(false);
     setError('');
+    setListStale(false);
     setLiveUpdates(false);
     let loading = false;
     let queued = false;
@@ -248,9 +267,13 @@ export function StationProvider({
         });
         if (!current()) return;
         const parsed = parseRadioList(result);
-        setRadios((previous) => mergeList(previous, parsed.radios));
+        const ownGrant = leaseRef.current?.grantId;
+        setRadios((previous) =>
+          mergeRadioList(previous, parsed.radios, ownGrant),
+        );
         setLoaded(true);
         setError(parsed.error);
+        setListStale(false);
         const held = leaseRef.current;
         if (held && held.grantId === leaseAtStart) {
           const radio = parsed.radios.find(
@@ -265,12 +288,15 @@ export function StationProvider({
           }
         }
       } catch (failure) {
-        if (current())
+        if (current()) {
           setError(
             request.signal.aborted
               ? 'The station did not respond in time.'
               : message(failure, 'Station radios are unavailable.'),
           );
+          // The kept list may no longer match the radios: fail safe.
+          setListStale(true);
+        }
       } finally {
         request.done();
         loading = false;
@@ -425,9 +451,12 @@ export function StationProvider({
           )
             return;
           const renewed = ControlLeaseSchema.safeParse(value);
-          if (renewed.success && renewed.data.radioId === held.radioId)
-            rememberLease(renewed.data);
-          else {
+          if (renewed.success && renewed.data.radioId === held.radioId) {
+            // A plain renewal only moves `expiresAt`, which nothing renders:
+            // keep it out of React state so consumers do not re-render.
+            if (sameLease(renewed.data, held)) leaseRef.current = renewed.data;
+            else rememberLease(renewed.data);
+          } else {
             leaseRef.current = null;
             setLease(null);
             setOperationError('The server returned an invalid control lease.');
@@ -482,17 +511,17 @@ export function StationProvider({
   const memoriesReadable = Boolean(
     selected?.descriptor?.capabilities.memories?.read,
   );
-  const generation = selected?.snapshot?.generation;
-  const revision = selected?.snapshot?.revision;
+  // Only what can change the list refetches it (not TX or connection revisions).
+  const memoriesKey = memoriesFetchKey(selected?.snapshot);
   useEffect(() => {
-    setMemories([]);
+    setMemories(NO_MEMORIES);
     setMemoriesLoaded(false);
     setMemoriesError('');
   }, [sessionKey, radioId]);
   useEffect(() => {
     const controller = new AbortController();
     if (!radioId || !memoriesReadable) {
-      setMemories([]);
+      setMemories(NO_MEMORIES);
       setMemoriesLoaded(Boolean(radioId && selectedRef.current));
       return () => controller.abort();
     }
@@ -503,7 +532,7 @@ export function StationProvider({
         if (controller.signal.aborted) return;
         const parsed = RadioMemorySchema.array().safeParse(items);
         if (parsed.success) {
-          setMemories(parsed.data);
+          setMemories((previous) => preserveIdentity(previous, parsed.data));
           setMemoriesError('');
         } else
           setMemoriesError(
@@ -517,7 +546,7 @@ export function StationProvider({
         setMemoriesLoaded(true);
       });
     return () => controller.abort();
-  }, [sessionKey, radioId, memoriesReadable, generation, revision]);
+  }, [sessionKey, radioId, memoriesReadable, memoriesKey]);
 
   /* ---------------------------------------------------------------------- */
   /* Operations                                                             */
@@ -761,7 +790,8 @@ export function StationProvider({
   );
   const refresh = useCallback(() => refreshRef.current(), []);
   const selectRadio = useCallback(
-    (id: string) => onSelectRef.current?.(id),
+    (id: string): Promise<boolean> =>
+      onSelectRef.current?.(id) ?? Promise.resolve(false),
     [],
   );
   const clearOperationError = useCallback(() => setOperationError(''), []);
@@ -775,38 +805,19 @@ export function StationProvider({
     hasPermission(session, radioId, 'radio.control'),
   );
   const mine = Boolean(lease && selected && lease.radioId === selected.radioId);
-  const liveControl =
-    selected?.control &&
-    selected.control.expiresAt > Date.now() &&
-    selected.control.grantId !== lease?.grantId
-      ? selected.control
-      : null;
-  /** This client's own earlier lease, still held by the server. */
-  const ownPrevious = Boolean(
-    liveControl && ownControlGrants.includes(liveControl.grantId),
-  );
-  const heldByOther = ownPrevious ? null : liveControl;
-  const [controlState, controlOwnerLabel]: [ControlState, string] = !selected
-    ? ['unavailable', 'Select a radio.']
-    : mine
-      ? ['mine', 'You have control']
-      : heldByOther
-        ? [
-            'other',
-            heldByOther.ownerId === session.user.id
-              ? 'Controlled by another session'
-              : 'Controlled by another operator',
-          ]
-        : !canControl
-          ? [
-              'unavailable',
-              'You do not have control permission for this radio.',
-            ]
-          : !selected.enabled || selected.snapshot?.connection !== 'ready'
-            ? ['unavailable', 'The radio must be ready before taking control.']
-            : ownPrevious
-              ? ['available', 'Your previous lease is still active']
-              : ['available', 'Control available'];
+  const control = controlPresentation(selected, {
+    userId: session.user.id,
+    userEnabled: session.user.enabled,
+    leaseGrantId: mine ? lease?.grantId : undefined,
+    ownGrantIds: ownControlGrants,
+    radioPermissions: session.user.radioPermissions,
+    // Compared at render time; the list refreshes every few seconds.
+    now: Date.now(),
+  });
+  // Stable identity while the presentation is unchanged.
+  const controlRef = useRef(control);
+  if (!sameControl(controlRef.current, control)) controlRef.current = control;
+  const stableControl = controlRef.current;
   const editable = Boolean(
     mine &&
     lease?.generation === selected?.snapshot?.generation &&
@@ -822,13 +833,15 @@ export function StationProvider({
       radios,
       loaded,
       error,
+      listStale,
       selected,
       liveUpdates,
       selectRadio,
       refresh,
       lease,
-      controlState,
-      controlOwnerLabel,
+      control: stableControl,
+      controlState: stableControl.state,
+      controlOwnerLabel: stableControl.label,
       canControl,
       takeControl,
       releaseControl,
@@ -851,13 +864,13 @@ export function StationProvider({
       radios,
       loaded,
       error,
+      listStale,
       selected,
       liveUpdates,
       selectRadio,
       refresh,
       lease,
-      controlState,
-      controlOwnerLabel,
+      stableControl,
       canControl,
       takeControl,
       releaseControl,
@@ -934,39 +947,13 @@ function parseRadioList(value: unknown): {
       : '',
   };
 }
-function isNewer(next: RadioSnapshot, previous: RadioSnapshot | null): boolean {
+function sameControl(a: ControlPresentation, b: ControlPresentation) {
   return (
-    !previous ||
-    previous.generation !== next.generation ||
-    next.revision >= previous.revision
+    a.state === b.state &&
+    a.label === b.label &&
+    a.tone === b.tone &&
+    a.icon === b.icon
   );
-}
-function mergeSnapshot(
-  radios: RadioView[],
-  snapshot: RadioSnapshot,
-): RadioView[] {
-  let changed = false;
-  const next = radios.map((radio) => {
-    if (
-      radio.radioId !== snapshot.radioId ||
-      !isNewer(snapshot, radio.snapshot)
-    )
-      return radio;
-    changed = true;
-    return { ...radio, snapshot };
-  });
-  return changed ? next : radios;
-}
-/** Keeps a live snapshot that is newer than the one in a list response. */
-function mergeList(previous: RadioView[], incoming: RadioView[]): RadioView[] {
-  return incoming.map((radio) => {
-    const known = previous.find(
-      (item) => item.radioId === radio.radioId,
-    )?.snapshot;
-    return known && radio.snapshot && !isNewer(radio.snapshot, known)
-      ? { ...radio, snapshot: known }
-      : radio;
-  });
 }
 /** An abort signal that follows `parent` and, with `ms`, also times out. */
 function childSignal(parent: AbortSignal, ms?: number) {

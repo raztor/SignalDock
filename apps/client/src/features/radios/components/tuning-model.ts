@@ -3,7 +3,7 @@
  * band bar, tuning panel and faceplate). Plain TypeScript so it can be unit
  * tested in node; every frequency is an integer number of Hz.
  */
-import type { RadioSnapshot, RadioView, Tuning } from '@signaldock/contracts';
+import type { RadioSnapshot, Tuning } from '@signaldock/contracts';
 import {
   formatFrequency,
   formatMegahertzShort,
@@ -582,54 +582,4 @@ export function applyState(input: {
   if (pending && sameTuning(pending, tuning))
     return result('Already requested · waiting for radio confirmation.');
   return result(input.blockReason);
-}
-
-/* -------------------------------------------------------------------------- */
-/* Faceplate                                                                  */
-/* -------------------------------------------------------------------------- */
-
-export interface ControlChip {
-  label: string;
-  tone: 'primary' | 'warning' | 'neutral';
-}
-/**
- * Who holds control of a radio, for the faceplate chip. Undefined when there
- * is nothing useful to say (radio not ready, or the account cannot control it
- * and nobody holds it).
- */
-export function controlChip(
-  radio: Pick<RadioView, 'radioId' | 'enabled' | 'control' | 'snapshot'>,
-  viewer: {
-    userId: string;
-    /** Grant id of the lease this client holds, if it is for this radio. */
-    leaseGrantId?: string;
-    /** Recent grant ids this client obtained (an orphaned lease of its own). */
-    ownGrantIds?: readonly string[];
-    radioPermissions: readonly {
-      radioId: string;
-      permissions: readonly string[];
-    }[];
-    now: number;
-  },
-): ControlChip | undefined {
-  const control = radio.control;
-  if (
-    viewer.leaseGrantId &&
-    (!control || control.grantId === viewer.leaseGrantId)
-  )
-    return { label: 'You have control', tone: 'primary' };
-  if (control && control.expiresAt > viewer.now)
-    return viewer.ownGrantIds?.includes(control.grantId)
-      ? { label: 'Your previous lease is still active', tone: 'neutral' }
-      : control.ownerId === viewer.userId
-        ? { label: 'Controlled by another session', tone: 'warning' }
-        : { label: 'Controlled by another operator', tone: 'warning' };
-  const permitted = viewer.radioPermissions.some(
-    (entry) =>
-      entry.radioId === radio.radioId &&
-      entry.permissions.includes('radio.control'),
-  );
-  if (permitted && radio.enabled && radio.snapshot?.connection === 'ready')
-    return { label: 'Control available', tone: 'neutral' };
-  return undefined;
 }

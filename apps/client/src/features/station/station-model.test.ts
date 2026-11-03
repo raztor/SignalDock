@@ -7,6 +7,7 @@ import {
   clampToRanges,
   confidencePresentation,
   connectionPresentation,
+  controlPresentation,
   formatFrequency,
   formatMegahertzShort,
   formatOffset,
@@ -15,16 +16,24 @@ import {
   frequencyParts,
   groupMemoriesByBand,
   isInRanges,
+  memoriesFetchKey,
+  mergeRadioList,
+  mergeRadioSnapshot,
   nearestRange,
   offsetOf,
   offsetPresets,
   parseFrequencyInput,
+  preserveIdentity,
+  sameLease,
   sameTuning,
   snapToStep,
   stepFrequency,
+  structurallyEqual,
   tuningWithOffset,
+  txPillTone,
   txPresentation,
   verificationLabel,
+  withOwnLease,
 } from './station-model';
 
 const vhf = { minHz: 136_000_000, maxHz: 174_000_000 };
@@ -460,5 +469,334 @@ describe('memories', () => {
     expect(activeMemory(items, { selectedMemoryId: 'C' })).toBeUndefined();
     expect(activeMemory(items, {})).toBeUndefined();
     expect(activeMemory(items, null)).toBeUndefined();
+  });
+});
+
+describe('txPillTone', () => {
+  it('fills on-air states and never draws unknown TX like idle', () => {
+    expect(txPillTone(txPresentation('transmitting'))).toBe('on-air');
+    expect(txPillTone(txPresentation('stop_unconfirmed'))).toBe('on-air');
+    expect(txPillTone(txPresentation('preparing'))).toBe('caution');
+    expect(txPillTone(txPresentation('unknown'))).toBe('caution');
+    expect(txPillTone(txPresentation(undefined))).toBe('caution');
+    expect(txPillTone(txPresentation('idle'))).toBe('neutral');
+  });
+});
+
+describe('controlPresentation', () => {
+  const radio: Pick<RadioView, 'radioId' | 'enabled' | 'control' | 'snapshot'> =
+    {
+      radioId: 'radio-1',
+      enabled: true,
+      control: null,
+      snapshot: {
+        radioId: 'radio-1',
+        generation: 'gen-1',
+        revision: 1,
+        connection: 'ready',
+        tuningConfidence: 'confirmed',
+        txState: 'idle',
+      },
+    };
+  const viewer = {
+    userId: 'user-1',
+    userEnabled: true,
+    radioPermissions: [
+      { radioId: 'radio-1', permissions: ['radio.listen', 'radio.control'] },
+    ],
+    now: 1_000,
+  };
+  const lease = {
+    grantId: 'grant-1',
+    radioId: 'radio-1',
+    ownerId: 'user-1',
+    sessionId: 'session-1',
+    generation: 'gen-1',
+    fencing: 1,
+    expiresAt: 5_000,
+  };
+
+  it('reports who holds control with one icon mapping', () => {
+    expect(controlPresentation(radio, viewer)).toEqual({
+      state: 'available',
+      label: 'Control available',
+      tone: 'neutral',
+      icon: 'user',
+    });
+    expect(
+      controlPresentation(
+        { ...radio, control: lease },
+        { ...viewer, leaseGrantId: 'grant-1' },
+      ),
+    ).toEqual({
+      state: 'mine',
+      label: 'You have control',
+      tone: 'primary',
+      icon: 'lock',
+    });
+    expect(controlPresentation({ ...radio, control: lease }, viewer)).toEqual({
+      state: 'other',
+      label: 'Controlled by another session',
+      tone: 'warning',
+      icon: 'lock',
+    });
+    expect(
+      controlPresentation(
+        { ...radio, control: { ...lease, ownerId: 'user-2' } },
+        viewer,
+      ),
+    ).toMatchObject({
+      state: 'other',
+      label: 'Controlled by another operator',
+    });
+  });
+
+  it('keeps our own lease even when the list has not caught up', () => {
+    expect(
+      controlPresentation(
+        { ...radio, snapshot: null },
+        {
+          ...viewer,
+          leaseGrantId: 'grant-1',
+        },
+      ).state,
+    ).toBe('mine');
+  });
+
+  it("shows this client's orphaned lease as its own, not another session's", () => {
+    expect(
+      controlPresentation(
+        { ...radio, control: lease },
+        { ...viewer, ownGrantIds: ['grant-0', 'grant-1'] },
+      ),
+    ).toMatchObject({
+      state: 'available',
+      label: 'Your previous lease is still active',
+    });
+    expect(
+      controlPresentation(
+        { ...radio, control: { ...lease, grantId: 'grant-9' } },
+        { ...viewer, ownGrantIds: ['grant-1'] },
+      ),
+    ).toMatchObject({ state: 'other', label: 'Controlled by another session' });
+  });
+
+  it('puts readiness before an orphaned lease, like the ownership row', () => {
+    expect(
+      controlPresentation(
+        { ...radio, control: lease, enabled: false },
+        { ...viewer, ownGrantIds: ['grant-1'] },
+      ),
+    ).toMatchObject({
+      state: 'unavailable',
+      label: 'The radio must be ready before taking control.',
+    });
+  });
+
+  it('ignores expired leases and explains why control is impossible', () => {
+    expect(
+      controlPresentation(
+        { ...radio, control: { ...lease, expiresAt: 500 } },
+        viewer,
+      ).state,
+    ).toBe('available');
+    expect(
+      controlPresentation(radio, { ...viewer, radioPermissions: [] }),
+    ).toMatchObject({
+      state: 'unavailable',
+      label: 'You do not have control permission for this radio.',
+    });
+    expect(
+      controlPresentation(radio, { ...viewer, userEnabled: false }).state,
+    ).toBe('unavailable');
+    expect(
+      controlPresentation({ ...radio, snapshot: null }, viewer).state,
+    ).toBe('unavailable');
+    expect(controlPresentation(undefined, viewer)).toMatchObject({
+      state: 'unavailable',
+      label: 'Select a radio.',
+    });
+  });
+});
+
+describe('preserveIdentity', () => {
+  it('returns the previous value when the data is the same', () => {
+    const previous = { a: 1, b: [{ c: 'x' }, { c: 'y' }], d: null };
+    const next = { a: 1, b: [{ c: 'x' }, { c: 'y' }], d: null };
+    expect(preserveIdentity(previous, next)).toBe(previous);
+    expect(structurallyEqual(previous, next)).toBe(true);
+  });
+  it('reuses unchanged branches of a changed value', () => {
+    const previous = { a: 1, list: [{ c: 'x' }, { c: 'y' }], meta: { k: 1 } };
+    const merged = preserveIdentity(previous, {
+      a: 2,
+      list: [{ c: 'x' }, { c: 'z' }],
+      meta: { k: 1 },
+    });
+    expect(merged).toEqual({
+      a: 2,
+      list: [{ c: 'x' }, { c: 'z' }],
+      meta: { k: 1 },
+    });
+    expect(merged).not.toBe(previous);
+    expect(merged.meta).toBe(previous.meta);
+    expect(merged.list).not.toBe(previous.list);
+    expect(merged.list[0]).toBe(previous.list[0]);
+  });
+  it('treats added, removed and undefined keys as changes', () => {
+    expect(structurallyEqual({ a: 1 }, { a: 1, b: undefined })).toBe(false);
+    expect(structurallyEqual({ a: 1, b: 2 }, { a: 1 })).toBe(false);
+    expect(structurallyEqual([1, 2], [1, 2, 3])).toBe(false);
+    expect(structurallyEqual([1], { 0: 1 })).toBe(false);
+    expect(structurallyEqual(Number.NaN, Number.NaN)).toBe(true);
+  });
+});
+
+describe('radio list merging', () => {
+  const snapshot = (revision: number, generation = 'gen-1') => ({
+    radioId: 'radio-1',
+    generation,
+    revision,
+    connection: 'ready' as const,
+    tuningConfidence: 'confirmed' as const,
+    txState: 'idle' as const,
+    observedTuning: { rxHz: 146_520_000, mode: 'FM' as const },
+  });
+  const radio = (patch: Partial<RadioView> = {}): RadioView => ({
+    radioId: 'radio-1',
+    displayName: 'Base',
+    driverId: 'sim',
+    resourceGroupIds: [],
+    enabled: true,
+    descriptor: {
+      capabilities: {
+        tuning: {
+          writable: true,
+          ranges: [{ minHz: 136_000_000, maxHz: 174_000_000 }],
+          modes: ['FM'],
+        },
+      },
+    } as unknown as RadioView['descriptor'],
+    snapshot: snapshot(3),
+    control: null,
+    health: { state: 'connected' },
+    ...patch,
+  });
+  const lease = {
+    grantId: 'grant-1',
+    radioId: 'radio-1',
+    ownerId: 'user-1',
+    sessionId: 'session-1',
+    generation: 'gen-1',
+    fencing: 1,
+    expiresAt: 5_000,
+  };
+
+  it('returns the previous list when a poll changes nothing', () => {
+    const previous = [radio(), radio({ radioId: 'radio-2' })];
+    const incoming = [radio(), radio({ radioId: 'radio-2' })];
+    expect(mergeRadioList(previous, incoming)).toBe(previous);
+  });
+  it('keeps unchanged radios and descriptors when one radio changes', () => {
+    const previous = [radio(), radio({ radioId: 'radio-2' })];
+    const merged = mergeRadioList(previous, [
+      radio({ snapshot: snapshot(4) }),
+      radio({ radioId: 'radio-2' }),
+    ]);
+    expect(merged).not.toBe(previous);
+    expect(merged[1]).toBe(previous[1]);
+    expect(merged[0]!.snapshot?.revision).toBe(4);
+    expect(merged[0]!.descriptor).toBe(previous[0]!.descriptor);
+    expect(merged[0]!.snapshot?.observedTuning).toBe(
+      previous[0]!.snapshot?.observedTuning,
+    );
+  });
+  it('keeps a live snapshot newer than the response', () => {
+    const previous = [radio({ snapshot: snapshot(9) })];
+    const merged = mergeRadioList(previous, [radio({ snapshot: snapshot(5) })]);
+    expect(merged).toBe(previous);
+    // A new generation always replaces it.
+    const restarted = mergeRadioList(previous, [
+      radio({ snapshot: snapshot(1, 'gen-2') }),
+    ]);
+    expect(restarted[0]!.snapshot?.generation).toBe('gen-2');
+  });
+  it('drops removed radios and adds new ones', () => {
+    const previous = [radio(), radio({ radioId: 'radio-2' })];
+    const merged = mergeRadioList(previous, [radio({ radioId: 'radio-3' })]);
+    expect(merged.map((item) => item.radioId)).toEqual(['radio-3']);
+  });
+  it('applies live snapshots only when they change something', () => {
+    const previous = [radio()];
+    expect(mergeRadioSnapshot(previous, snapshot(3))).toBe(previous);
+    expect(mergeRadioSnapshot(previous, snapshot(2))).toBe(previous);
+    const next = mergeRadioSnapshot(previous, {
+      ...snapshot(4),
+      txState: 'transmitting',
+    });
+    expect(next[0]!.snapshot?.txState).toBe('transmitting');
+    expect(next[0]!.snapshot?.observedTuning).toBe(
+      previous[0]!.snapshot?.observedTuning,
+    );
+  });
+  it("ignores our own lease's renewals in a poll, never another operator's", () => {
+    const previous = [radio({ control: lease })];
+    const renewed = [radio({ control: { ...lease, expiresAt: 9_000 } })];
+    expect(mergeRadioList(previous, renewed, 'grant-1')).toBe(previous);
+    expect(mergeRadioList(previous, renewed)[0]!.control?.expiresAt).toBe(
+      9_000,
+    );
+    expect(
+      mergeRadioList(previous, renewed, 'grant-2')[0]!.control?.expiresAt,
+    ).toBe(9_000);
+    // A new grant always replaces it.
+    expect(
+      mergeRadioList(
+        previous,
+        [radio({ control: { ...lease, grantId: 'grant-1', fencing: 2 } })],
+        'grant-1',
+      )[0]!.control?.fencing,
+    ).toBe(2);
+  });
+  it('shows our lease once and ignores renewals of the same grant', () => {
+    const previous = [radio()];
+    const held = withOwnLease(previous, lease);
+    expect(held[0]!.control).toBe(lease);
+    expect(withOwnLease(held, { ...lease, expiresAt: 9_000 })).toBe(held);
+    expect(withOwnLease(held, { ...lease, grantId: 'grant-2' })).not.toBe(held);
+    expect(sameLease(lease, { ...lease, expiresAt: 9_000 })).toBe(true);
+    expect(sameLease(lease, { ...lease, fencing: 2 })).toBe(false);
+    expect(sameLease(lease, null)).toBe(false);
+  });
+});
+
+describe('memoriesFetchKey', () => {
+  const base = {
+    generation: 'gen-1',
+    observedTuning: { rxHz: 146_520_000, mode: 'FM' as const },
+  };
+  it('ignores tuning while no memory is selected', () => {
+    expect(memoriesFetchKey(base)).toBe(
+      memoriesFetchKey({
+        ...base,
+        observedTuning: { rxHz: 146_550_000, mode: 'FM' },
+      }),
+    );
+  });
+  it('changes with generation, selected memory and its tuning', () => {
+    const key = memoriesFetchKey({ ...base, selectedMemoryId: '1' });
+    expect(key).not.toBe(memoriesFetchKey(base));
+    expect(key).not.toBe(memoriesFetchKey({ ...base, selectedMemoryId: '2' }));
+    expect(key).not.toBe(
+      memoriesFetchKey({
+        ...base,
+        selectedMemoryId: '1',
+        observedTuning: { rxHz: 146_550_000, mode: 'FM' },
+      }),
+    );
+    expect(key).not.toBe(
+      memoriesFetchKey({ ...base, generation: 'gen-2', selectedMemoryId: '1' }),
+    );
+    expect(memoriesFetchKey(null)).toBe('');
   });
 });

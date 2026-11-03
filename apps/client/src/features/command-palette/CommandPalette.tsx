@@ -192,13 +192,21 @@ export function CommandPalette<S extends string>({
         case 'release-control':
           if (!sameRadio(action.radioId)) return show(changed);
           return show(operationToast(await current.releaseControl()));
-        case 'select-radio':
+        case 'select-radio': {
           // Selection goes through the workspace, which stops media first.
-          current.selectRadio(action.radioId);
-          return show({
-            message: `Selected ${action.radioName}. Its tuning was not changed.`,
-            tone: 'success',
-          });
+          const selected = await current.selectRadio(action.radioId);
+          return show(
+            selected
+              ? {
+                  message: `Selected ${action.radioName}. Its tuning was not changed.`,
+                  tone: 'success',
+                }
+              : {
+                  message: `Could not select ${action.radioName} right now. Nothing changed.`,
+                  tone: 'warning',
+                },
+          );
+        }
         case 'listen':
           if (!sameRadio(action.radioId)) return show(changed);
           mediaRef.current.listen();

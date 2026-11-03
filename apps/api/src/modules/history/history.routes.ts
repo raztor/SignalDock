@@ -21,15 +21,19 @@ import {
   activityWindow,
   bucketActivity,
   canonicalTimeZone,
-  waveformFromRecording,
+  waveformFromRecordingAsync,
 } from '@signaldock/history';
 import { requirePrincipal } from '../../shared/http/auth.js';
 import { LruCache } from './lru-cache.js';
+import { WaveformSummaries } from './waveform-summaries.js';
 
 /** Waveform summaries kept in memory, keyed by instance + recording + points. */
 export const WAVEFORM_CACHE_ENTRIES = 500;
-/** Larger recordings are not decoded for previews; peaks are reported empty. */
-export const MAX_WAVEFORM_SOURCE_BYTES = 64 * 1024 * 1024;
+/**
+ * Larger recordings are not decoded for previews; peaks are reported empty.
+ * 16 MB is about 17 minutes of 8 kHz mono or 87 s of 48 kHz stereo 16-bit PCM.
+ */
+export const MAX_WAVEFORM_SOURCE_BYTES = 16 * 1024 * 1024;
 type WaveformSummary = Pick<CommunicationWaveform, 'peaks' | 'durationMs'>;
 
 const parameters = z.strictObject({ id: IdSchema });
@@ -76,9 +80,10 @@ export async function registerHistoryRoutes(
 ): Promise<void> {
   const { auth, history } = options;
   const now = options.now ?? (() => new Date());
-  const waveforms =
+  const waveforms = new WaveformSummaries<WaveformSummary>(
     options.waveformCache ??
-    new LruCache<string, WaveformSummary>(WAVEFORM_CACHE_ENTRIES);
+      new LruCache<string, WaveformSummary>(WAVEFORM_CACHE_ENTRIES),
+  );
   const radios = async (principal: Principal, permission: Permission) => {
     const allowed: string[] = [];
     for (const grant of principal.radioPermissions) {
@@ -190,36 +195,37 @@ export async function registerHistoryRoutes(
       ),
     };
     let summary = fallback;
-    if (recording?.state === 'available') {
+    // Oversized recordings are never read, so they skip the decode queue.
+    if (
+      recording?.state === 'available' &&
+      recording.sizeBytes <= MAX_WAVEFORM_SOURCE_BYTES
+    ) {
+      // Authorization above always runs before the cache or a shared decode.
       const key = `${principal.instanceId}:${recording.id}:${points}`;
-      const cached = waveforms.get(key);
-      if (cached) summary = cached;
-      else {
-        if (recording.sizeBytes <= MAX_WAVEFORM_SOURCE_BYTES) {
-          try {
-            const file = await history.readRecording(
-              principal.instanceId,
-              recording.id,
-            );
-            summary =
-              waveformFromRecording(
-                file.bytes,
-                file.metadata.contentType,
-                points,
-              ) ?? fallback;
-          } catch (error) {
-            // A missing artifact or one that fails its integrity check is
-            // reported as empty peaks, like an undecodable recording.
-            if (
-              !(error instanceof SignalDockError) ||
-              !['NOT_FOUND', 'INTERNAL_ERROR'].includes(error.code)
-            )
-              throw error;
-            summary = fallback;
-          }
+      summary = await waveforms.load(key, async () => {
+        try {
+          const file = await history.readRecording(
+            principal.instanceId,
+            recording.id,
+          );
+          return (
+            (await waveformFromRecordingAsync(
+              file.bytes,
+              file.metadata.contentType,
+              points,
+            )) ?? fallback
+          );
+        } catch (error) {
+          // A missing artifact or one that fails its integrity check is
+          // reported as empty peaks, like an undecodable recording.
+          if (
+            !(error instanceof SignalDockError) ||
+            !['NOT_FOUND', 'INTERNAL_ERROR'].includes(error.code)
+          )
+            throw error;
+          return fallback;
         }
-        waveforms.set(key, summary);
-      }
+      });
     }
     reply.header('Cache-Control', 'no-store');
     return CommunicationWaveformSchema.parse({

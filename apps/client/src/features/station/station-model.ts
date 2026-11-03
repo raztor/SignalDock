@@ -131,6 +131,20 @@ export function txPresentation(state: TxState | undefined): TxPresentation {
   }
 }
 
+/**
+ * How a TX pill is drawn: `on-air` is filled with the error colour, `caution`
+ * (pending, stopping, unknown or unavailable state) is amber, `neutral` is
+ * only used for idle. Unknown TX state is never drawn like idle.
+ */
+export function txPillTone(
+  presentation: Pick<TxPresentation, 'tone' | 'onAir'>,
+): 'on-air' | 'caution' | 'neutral' {
+  if (presentation.onAir) return 'on-air';
+  return presentation.tone === 'ok' || presentation.tone === 'off'
+    ? 'neutral'
+    : 'caution';
+}
+
 export interface ConfidencePresentation {
   style: 'solid' | 'dotted' | 'none';
   label: string;
@@ -533,4 +547,293 @@ export function activeMemory(
   return id === undefined
     ? undefined
     : memories.find((memory) => memory.memoryId === id);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Control ownership                                                          */
+/* -------------------------------------------------------------------------- */
+
+export type ControlState = 'mine' | 'other' | 'available' | 'unavailable';
+export interface ControlPresentation {
+  state: ControlState;
+  label: string;
+  tone: 'primary' | 'warning' | 'neutral';
+  /** `lock` while a lease holds the radio (ours or another's), else `user`. */
+  icon: 'lock' | 'user';
+}
+export interface ControlViewer {
+  userId: string;
+  /** The account is enabled (disabled accounts cannot take control). */
+  userEnabled: boolean;
+  /** Grant id of the lease this client holds, when it is for this radio. */
+  leaseGrantId?: string | undefined;
+  /** Recent grant ids this client obtained (an orphaned lease of its own). */
+  ownGrantIds?: readonly string[];
+  radioPermissions: readonly {
+    radioId: string;
+    permissions: readonly string[];
+  }[];
+  now: number;
+}
+
+/**
+ * Who holds control of a radio. The single source for the station's control
+ * state, the faceplate chip, the strip badge and the ownership row, so every
+ * surface shows the same label, tone and icon.
+ */
+export function controlPresentation(
+  radio:
+    Pick<RadioView, 'radioId' | 'enabled' | 'control' | 'snapshot'> | undefined,
+  viewer: ControlViewer,
+): ControlPresentation {
+  if (!radio)
+    return {
+      state: 'unavailable',
+      label: 'Select a radio.',
+      tone: 'neutral',
+      icon: 'user',
+    };
+  if (viewer.leaseGrantId)
+    return {
+      state: 'mine',
+      label: 'You have control',
+      tone: 'primary',
+      icon: 'lock',
+    };
+  const live =
+    radio.control && radio.control.expiresAt > viewer.now
+      ? radio.control
+      : null;
+  const ownPrevious = Boolean(
+    live && viewer.ownGrantIds?.includes(live.grantId),
+  );
+  if (live && !ownPrevious)
+    return {
+      state: 'other',
+      label:
+        live.ownerId === viewer.userId
+          ? 'Controlled by another session'
+          : 'Controlled by another operator',
+      tone: 'warning',
+      icon: 'lock',
+    };
+  const permitted =
+    viewer.userEnabled &&
+    viewer.radioPermissions.some(
+      (entry) =>
+        entry.radioId === radio.radioId &&
+        entry.permissions.includes('radio.control'),
+    );
+  if (!permitted)
+    return {
+      state: 'unavailable',
+      label: 'You do not have control permission for this radio.',
+      tone: 'neutral',
+      icon: 'user',
+    };
+  if (!radio.enabled || radio.snapshot?.connection !== 'ready')
+    return {
+      state: 'unavailable',
+      label: 'The radio must be ready before taking control.',
+      tone: 'neutral',
+      icon: 'user',
+    };
+  return ownPrevious
+    ? {
+        state: 'available',
+        label: 'Your previous lease is still active',
+        tone: 'neutral',
+        icon: 'user',
+      }
+    : {
+        state: 'available',
+        label: 'Control available',
+        tone: 'neutral',
+        icon: 'user',
+      };
+}
+
+/* -------------------------------------------------------------------------- */
+/* Identity preservation                                                      */
+/* -------------------------------------------------------------------------- */
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (typeof value !== 'object' || value === null) return false;
+  const prototype = Object.getPrototypeOf(value) as unknown;
+  return prototype === Object.prototype || prototype === null;
+}
+
+/**
+ * `next`, reusing every part of `previous` that is structurally equal (plain
+ * objects, arrays and primitives). Returns `previous` itself when nothing
+ * changed, so React consumers keyed on identity do not re-render for a poll
+ * that returned the same data.
+ */
+export function preserveIdentity<T>(previous: unknown, next: T): T {
+  if (Object.is(previous, next)) return next;
+  if (Array.isArray(next)) {
+    if (!Array.isArray(previous)) return next;
+    let same = previous.length === next.length;
+    const merged = next.map((item: unknown, index) => {
+      const kept = preserveIdentity(previous[index], item);
+      if (!Object.is(kept, previous[index])) same = false;
+      return kept;
+    });
+    return (same ? previous : merged) as T;
+  }
+  if (isPlainObject(next)) {
+    if (!isPlainObject(previous)) return next;
+    const keys = Object.keys(next);
+    let same = keys.length === Object.keys(previous).length;
+    const merged: Record<string, unknown> = {};
+    for (const key of keys) {
+      const kept = preserveIdentity(previous[key], next[key]);
+      if (!(key in previous) || !Object.is(kept, previous[key])) same = false;
+      merged[key] = kept;
+    }
+    return (same ? previous : merged) as T;
+  }
+  return next;
+}
+/** True when both values hold the same plain data. */
+export function structurallyEqual(a: unknown, b: unknown): boolean {
+  return Object.is(preserveIdentity(a, b), a);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Radio list merging                                                         */
+/* -------------------------------------------------------------------------- */
+
+/** `next` is the same or a later state than `previous` (a new generation always wins). */
+export function isNewerSnapshot(
+  next: RadioSnapshot,
+  previous: RadioSnapshot | null | undefined,
+): boolean {
+  return (
+    !previous ||
+    previous.generation !== next.generation ||
+    next.revision >= previous.revision
+  );
+}
+/** Applies a live snapshot; returns `radios` itself when it changes nothing. */
+export function mergeRadioSnapshot(
+  radios: RadioView[],
+  snapshot: RadioSnapshot,
+): RadioView[] {
+  let changed = false;
+  const next = radios.map((radio) => {
+    if (
+      radio.radioId !== snapshot.radioId ||
+      !isNewerSnapshot(snapshot, radio.snapshot)
+    )
+      return radio;
+    const kept = preserveIdentity(radio.snapshot, snapshot);
+    if (kept === radio.snapshot) return radio;
+    changed = true;
+    return { ...radio, snapshot: kept };
+  });
+  return changed ? next : radios;
+}
+/**
+ * Merges a radio list response into the current list. A live snapshot newer
+ * than the response's is kept, and unchanged radios (and unchanged parts of
+ * changed radios) keep their identity. Returns `previous` itself when the
+ * response changes nothing.
+ *
+ * `ownGrantId` is the lease this client holds: its renewals only move
+ * `expiresAt`, which the client never relies on for its own lease, so they do
+ * not count as a change. Other operators' leases always take the response.
+ */
+export function mergeRadioList(
+  previous: RadioView[],
+  incoming: RadioView[],
+  ownGrantId?: string,
+): RadioView[] {
+  const known = new Map(previous.map((radio) => [radio.radioId, radio]));
+  const next = incoming.map((radio) => {
+    const current = known.get(radio.radioId);
+    if (!current) return radio;
+    const snapshot =
+      current.snapshot &&
+      radio.snapshot &&
+      !isNewerSnapshot(radio.snapshot, current.snapshot)
+        ? current.snapshot
+        : radio.snapshot;
+    const control =
+      ownGrantId !== undefined &&
+      radio.control?.grantId === ownGrantId &&
+      sameLease(current.control, radio.control)
+        ? current.control
+        : radio.control;
+    return preserveIdentity(current, { ...radio, snapshot, control });
+  });
+  return next.length === previous.length &&
+    next.every((radio, index) => radio === previous[index])
+    ? previous
+    : next;
+}
+/**
+ * Shows our own lease as the radio's control. Returns `radios` itself when the
+ * radio already shows this grant (a renewal only moves `expiresAt`, which the
+ * client never reads for its own lease).
+ */
+export function withOwnLease(
+  radios: RadioView[],
+  lease: NonNullable<RadioView['control']>,
+): RadioView[] {
+  let changed = false;
+  const next = radios.map((radio) => {
+    if (
+      radio.radioId !== lease.radioId ||
+      (radio.control?.grantId === lease.grantId &&
+        radio.control.generation === lease.generation &&
+        radio.control.fencing === lease.fencing)
+    )
+      return radio;
+    changed = true;
+    return { ...radio, control: lease };
+  });
+  return changed ? next : radios;
+}
+/** A renewal that keeps the same grant: nothing but `expiresAt` may differ. */
+export function sameLease(
+  a: NonNullable<RadioView['control']> | null | undefined,
+  b: NonNullable<RadioView['control']> | null | undefined,
+): boolean {
+  return Boolean(
+    a &&
+    b &&
+    a.grantId === b.grantId &&
+    a.radioId === b.radioId &&
+    a.generation === b.generation &&
+    a.fencing === b.fencing,
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Memory list refresh                                                        */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * What can change the memory list as seen from a snapshot: a radio restart
+ * (new generation), the selected memory, and the tuning while a memory is
+ * selected (some drivers edit the active channel in place). TX and
+ * connection-only revisions do not refetch the list.
+ */
+export function memoriesFetchKey(
+  snapshot:
+    | Pick<RadioSnapshot, 'generation' | 'selectedMemoryId' | 'observedTuning'>
+    | null
+    | undefined,
+): string {
+  if (!snapshot) return '';
+  const memoryId = snapshot.selectedMemoryId;
+  const tuning = snapshot.observedTuning;
+  return [
+    snapshot.generation,
+    memoryId ?? '',
+    memoryId !== undefined && tuning
+      ? `${tuning.rxHz}/${tuning.txHz ?? ''}/${tuning.mode}`
+      : '',
+  ].join('|');
 }

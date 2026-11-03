@@ -67,13 +67,15 @@ function TuningPanelBody({ radio }: { radio: RadioView }) {
   const toast = useToast();
   const snapshot = radio.snapshot;
   const capabilities = radio.descriptor?.capabilities;
-  const ranges = useMemo(
-    () => capabilities?.tuning.ranges ?? [],
-    [capabilities?.tuning.ranges],
-  );
+  // Keyed on content, not identity: a poll that returns the same ranges must
+  // not re-seed the draft below.
+  const rangesKey = JSON.stringify(capabilities?.tuning.ranges ?? []);
+  const modesKey = JSON.stringify(capabilities?.tuning.modes ?? []);
+  // The factories read the current capabilities whenever a key changes.
+  const ranges = useMemo(() => capabilities?.tuning.ranges ?? [], [rangesKey]);
   const modes = useMemo<readonly TuningMode[]>(
     () => capabilities?.tuning.modes ?? [],
-    [capabilities?.tuning.modes],
+    [modesKey],
   );
   const writable = capabilities?.tuning.writable === true;
   const txAudio = capabilities?.txAudio === true;

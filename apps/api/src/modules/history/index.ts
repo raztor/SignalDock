@@ -6,6 +6,10 @@ export {
 } from './history.routes.js';
 export { LruCache } from './lru-cache.js';
 export {
+  WaveformSummaries,
+  MAX_CONCURRENT_WAVEFORM_DECODES,
+} from './waveform-summaries.js';
+export {
   HistoryService,
   historyMigrations,
   HistoryCaptureRecorder,

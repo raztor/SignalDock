@@ -266,8 +266,13 @@ function Workspace({
   };
   usePaletteShortcut(palette, setPalette);
   const shortcut = paletteShortcutLabel();
-  const selectRadio = async (id: string) => {
-    if (id === radioId || busy) return;
+  /**
+   * Resolves true when `id` is the selected radio afterwards, false when the
+   * request was skipped because another navigation is running.
+   */
+  const selectRadio = async (id: string): Promise<boolean> => {
+    if (id === radioId) return true;
+    if (busy) return false;
     setBusy(true);
     try {
       await stopActiveMedia('Selected radio changed.');
@@ -275,6 +280,7 @@ function Workspace({
     } finally {
       setBusy(false);
     }
+    return true;
   };
   const props = {
     session,
@@ -360,9 +366,7 @@ function Workspace({
     <StationProvider
       session={session}
       {...(radioId ? { radioId } : {})}
-      onSelectRadio={(id) => {
-        void selectRadio(id);
-      }}
+      onSelectRadio={selectRadio}
     >
       <MediaProvider mediaAvailable={mediaAvailable}>
         <View style={styles.workspace}>
@@ -461,7 +465,9 @@ function Workspace({
               </ScrollView>
             )}
             <View style={[styles.content, more && styles.hidden]}>
-              {radiosVisible && (
+              {/* Kept mounted like other sections so returning to Radios does
+                  not reload its admin data. */}
+              <FeatureView active={radiosVisible}>
                 <View style={styles.radioContent}>
                   <RadioDashboardScreen
                     {...(sections.includes('Administration')
@@ -473,7 +479,7 @@ function Workspace({
                       : {})}
                   />
                 </View>
-              )}
+              </FeatureView>
               {visited.has('History') && (
                 <FeatureView active={section === 'History' && !more}>
                   <HistoryScreen {...props} />
@@ -493,7 +499,9 @@ function Workspace({
                 <NotificationsScreen
                   {...props}
                   onSelectRadio={(id) => {
-                    void selectRadio(id).then(() => navigate('Radios'));
+                    void selectRadio(id).then((selected) =>
+                      selected ? navigate('Radios') : false,
+                    );
                   }}
                 />
               </FeatureView>

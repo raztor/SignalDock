@@ -15,6 +15,7 @@ import {
   View,
 } from 'react-native';
 import { Icon, type IconName } from './icons';
+import { toastPlacement, type ToastInsets } from './toast-model';
 import { Pressable, Text } from './primitives';
 import { useTheme } from './theme';
 import { layout, radius, space, type } from './tokens';
@@ -38,12 +39,7 @@ export interface ToastApi {
   dismiss: (id: string) => void;
 }
 
-export interface ToastInsets {
-  top?: number;
-  bottom?: number;
-  left?: number;
-  right?: number;
-}
+export type { ToastInsets } from './toast-model';
 
 export const TOAST_LIMIT = 3;
 export const TOAST_DURATION_MS = 4000;
@@ -77,10 +73,11 @@ const tonePrefix: Record<ToastTone, string> = {
 };
 
 /**
- * Hosts a polite live region with up to three toasts: bottom on compact
- * layouts, bottom-right on wide ones. Pass `insets` (for example from
- * `useSafeAreaInsets()` plus the tab bar height) to keep toasts clear of
- * system UI.
+ * Hosts a polite live region with up to three toasts: full width at the
+ * bottom on compact layouts, centred at the bottom on wide ones so they do
+ * not cover the primary actions screens place at the bottom-right. Pass
+ * `insets` (for example from `useSafeAreaInsets()` plus the tab bar height,
+ * or a sidebar width as `left`) to keep toasts clear of system UI.
  */
 export function ToastProvider({
   children,
@@ -156,7 +153,7 @@ export function ToastProvider({
     [dismiss],
   );
   const api = useMemo(() => ({ show, dismiss }), [show, dismiss]);
-  const wide = width >= layout.compact;
+  const placement = toastPlacement(width >= layout.compact, space.lg, insets);
   return (
     <ToastContext.Provider value={api}>
       <View style={{ flex: 1 }}>
@@ -168,13 +165,11 @@ export function ToastProvider({
           aria-live="polite"
           style={{
             position: 'absolute',
-            bottom: space.lg + (insets?.bottom ?? 0),
-            right: space.lg + (insets?.right ?? 0),
-            left: wide ? undefined : space.lg + (insets?.left ?? 0),
-            width: wide ? 380 : undefined,
-            maxWidth: wide ? '90%' : undefined,
+            bottom: placement.bottom,
+            left: placement.left,
+            right: placement.right,
             gap: space.sm,
-            alignItems: 'stretch',
+            alignItems: placement.alignItems,
           }}
         >
           {toasts.map((toast) => {
@@ -191,6 +186,8 @@ export function ToastProvider({
               <View
                 key={toast.id}
                 style={{
+                  width: placement.toastWidth,
+                  maxWidth: '100%',
                   flexDirection: 'row',
                   alignItems: 'center',
                   gap: space.sm,
