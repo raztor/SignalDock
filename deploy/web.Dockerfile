@@ -8,7 +8,8 @@ ARG WEB_BASE_PATH=
 ARG API_BASE_PATH=
 ENV SIGNALDOCK_WEB_BASE_PATH=$WEB_BASE_PATH
 ENV EXPO_PUBLIC_SIGNALDOCK_API_BASE_PATH=$API_BASE_PATH
-RUN npm ci --ignore-scripts && npm run export:web
+RUN --mount=type=cache,id=signaldock-npm,target=/root/.npm,sharing=locked \
+    npm ci --ignore-scripts --prefer-offline && npm run export:web
 
 FROM nginxinc/nginx-unprivileged:1.30.6-alpine
 ARG WEB_BASE_PATH=

@@ -15,6 +15,8 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml up --build -d
 
 The API and worker share the database and `/data` volume, including station identity, provider credential keyring, and recordings. They must represent the same station. Each station has scoped queue and outbox consumption. The worker does not open radios. Do not run competing radio-owning API processes for one station.
 
+BuildKit shares an npm download cache between the API and web builds. Installs still use `npm ci` and verify the lockfile; cached packages reduce repeated downloads on small hosts and survive interrupted builds. Image revision labels do not invalidate the operating-system package installation layer.
+
 ## HTTPS and prefixes
 
 Publish one HTTPS origin for both the web UI and API. For example, configure Pangolin or another TLS reverse proxy with public hostname `signaldock.raztor.cl` and one HTTP destination, `http://10.0.4.103:8080`. The destination must be reachable from that proxy. Forward all paths without stripping prefixes; no separate public API port or backend subdomain is needed. The web container routes API requests to the private Compose service and serves the remaining paths as the web application.
