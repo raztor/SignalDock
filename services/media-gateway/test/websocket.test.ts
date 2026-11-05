@@ -356,7 +356,7 @@ describe('authorized PCM WebSocket bridge', () => {
       session = await f.session('transmit', tx.grant.txGrantId);
     await f.media.openWebSocket(session.id, session.token, socket);
     socket.receive(encodePcmSocketFrame(f.frame()));
-    await vi.advanceTimersByTimeAsync(260);
+    await vi.advanceTimersByTimeAsync(1260);
     socket.receive(encodePcmSocketFrame(f.frame(1)));
     await vi.advanceTimersByTimeAsync(0);
     expect(socket.code).toBe(1008);
@@ -367,9 +367,27 @@ describe('authorized PCM WebSocket bridge', () => {
         reason: 'clock',
         sequence: 1,
         expectedSequence: 1,
-        lagMs: 240,
+        lagMs: 1240,
       },
     });
+  });
+  it('tolerates a public HTTPS stall without extending authorization or queueing a burst', async () => {
+    vi.useFakeTimers();
+    const f = fixture(),
+      socket = new Socket();
+    const tx = await f.start(),
+      session = await f.session('transmit', tx.grant.txGrantId);
+    await f.media.openWebSocket(session.id, session.token, socket);
+    socket.receive(encodePcmSocketFrame(f.frame()));
+    await vi.advanceTimersByTimeAsync(460);
+    socket.receive(encodePcmSocketFrame(f.frame(1)));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(f.write).toHaveBeenCalledTimes(2);
+    expect(socket.readyState).toBe(1);
+    expect(f.supervisor.get(tx.grant.txGrantId).grant.expiresAt).toBe(
+      tx.grant.expiresAt,
+    );
+    expect(f.errors).not.toHaveBeenCalled();
   });
   it('disconnects a slow RX socket without blocking another listener', async () => {
     const f = fixture(),

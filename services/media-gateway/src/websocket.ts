@@ -306,7 +306,7 @@ export class WebSocketRadioBridge implements MediaBridgePort {
           packet.sequence !== peer.nextSequence ||
           packet.mediaTimeUs !== expectedTime ||
           lag < -200 ||
-          lag > 200
+          lag > 1000
         )
           throw new PcmStreamError({
             reason:
@@ -326,7 +326,7 @@ export class WebSocketRadioBridge implements MediaBridgePort {
         if (peer.closed) return;
         const currentLag =
           performance.now() - peer.audioStartedAt - expectedTime / 1000;
-        if (currentLag > 200)
+        if (currentLag > 1000)
           throw new PcmStreamError({
             reason: 'clock',
             sequence: packet.sequence,
