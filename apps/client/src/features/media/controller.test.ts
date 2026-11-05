@@ -22,7 +22,11 @@ function deferred<T>() {
   return { promise, resolve };
 }
 function fixture(
-  options: { level?: () => number; control?: MediaControlLink } = {},
+  options: {
+    level?: () => number;
+    control?: MediaControlLink;
+    finish?: () => Promise<void>;
+  } = {},
 ) {
   const radioId = crypto.randomUUID(),
     instanceId = crypto.randomUUID(),
@@ -66,6 +70,8 @@ function fixture(
       };
       if (options.level && admitted.mode === 'listen')
         connection.level = options.level;
+      if (options.finish && admitted.mode === 'transmit')
+        connection.finish = options.finish;
       return connection;
     },
   };
@@ -338,6 +344,41 @@ describe('workspace-level media helpers', () => {
   });
 });
 describe('status messages and control leases', () => {
+  it('stops capture immediately and waits for ordered audio completion on normal release', async () => {
+    const done = deferred<void>();
+    const f = fixture({ finish: () => done.promise });
+    f.microphone.resolve(f.mic);
+    f.tx.resolve({ grant: f.grant, state: 'granted' });
+    await f.controller.startTransmit();
+    const stopping = f.controller.stopTransmit();
+    expect(f.stopped).toBe(1);
+    expect(f.disconnected).toBe(0);
+    expect(f.state?.finishing).toBe(true);
+    expect(f.calls.some((call) => call.method === 'DELETE')).toBe(false);
+    done.resolve();
+    await stopping;
+    expect(f.disconnected).toBe(1);
+    expect(f.state).toMatchObject({
+      transmitting: false,
+      finishing: false,
+      message: 'Released.',
+    });
+    await f.controller.dispose();
+  });
+  it('interrupts a pending normal finish immediately on navigation or loss of access', async () => {
+    const done = deferred<void>();
+    const f = fixture({ finish: () => done.promise });
+    f.microphone.resolve(f.mic);
+    f.tx.resolve({ grant: f.grant, state: 'granted' });
+    await f.controller.startTransmit();
+    const finishing = f.controller.stopTransmit();
+    await f.controller.stopTransmit('Transmission interrupted.');
+    expect(f.disconnected).toBe(1);
+    done.resolve();
+    await finishing;
+    expect(f.state?.message).toBe('Transmission interrupted.');
+    await f.controller.dispose();
+  });
   it('keeps the previous message when stopTransmit runs while idle', async () => {
     const f = fixture();
     await f.controller.listen();

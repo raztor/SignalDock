@@ -13,6 +13,7 @@ export function mediaAccess(input: {
   user: PublicUser;
   radioId: string;
   activeTx?: boolean;
+  finishingTx?: boolean;
   now?: number;
   radioError?: string | undefined;
 }): MediaAccess {
@@ -67,10 +68,13 @@ export function mediaAccess(input: {
               ? 'Confirm the radio frequency before transmitting.'
               : txState !== 'idle' &&
                   !(
-                    input.activeTx &&
-                    ['preparing', 'tx_unconfirmed', 'transmitting'].includes(
-                      txState ?? '',
-                    )
+                    (input.activeTx &&
+                      ['preparing', 'tx_unconfirmed', 'transmitting'].includes(
+                        txState ?? '',
+                      )) ||
+                    (input.activeTx &&
+                      input.finishingTx &&
+                      txState === 'stopping')
                   )
                 ? 'The radio is transmitting or its carrier state is uncertain.'
                 : '');

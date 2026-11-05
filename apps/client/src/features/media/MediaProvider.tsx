@@ -114,6 +114,7 @@ export function MediaProvider({
     user: session.user,
     radioId: radioId ?? '',
     activeTx: active,
+    finishingTx: state.finishing === true,
     radioError: radioError || undefined,
   });
   const accessRef = useRef(access);

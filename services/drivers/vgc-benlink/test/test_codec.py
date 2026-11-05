@@ -1,4 +1,6 @@
 import math
+import asyncio
+import time
 import shutil
 import struct
 import unittest
@@ -9,6 +11,23 @@ from vgc_benlink.model import DriverError
 
 @unittest.skipUnless(shutil.which("ffmpeg"), "FFmpeg is required for real codec validation")
 class CodecTests(unittest.IsolatedAsyncioTestCase):
+    async def test_live_pcm_emits_audio_promptly_before_input_eof(self):
+        emitted = []
+        async def pcm(*args): pass
+        async def sbc(data, samples): emitted.append(time.monotonic())
+        codec = FfmpegCodec("ffmpeg", pcm, sbc)
+        started = time.monotonic()
+        try:
+            for index in range(50):
+                await codec.write_pcm(bytes(1280))
+                await asyncio.sleep(max(0, started + (index + 1) * .02 - time.monotonic()))
+            self.assertTrue(emitted, "A live stream must emit before EOF.")
+            self.assertLess(emitted[0] - started, .4)
+            self.assertGreaterEqual(len(emitted), 45)
+            await codec.finish_encoder()
+        finally:
+            await codec.close()
+
     async def test_synthetic_pcm_encodes_and_decodes_through_real_streaming_pipes(self):
         sbc = []
         pcm = []

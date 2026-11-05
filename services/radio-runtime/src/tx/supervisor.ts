@@ -269,6 +269,8 @@ export class TxSupervisor {
     sessionId: string,
   ): Promise<TxStatus> {
     const tx = this.require(txGrantId, ownerId, sessionId);
+    if (tx.state === 'stopping' && tx.reason === 'stream_complete')
+      return this.status(tx); // Finishing never extends the authorization deadline.
     if (
       !['granted', 'transmitting', 'tx_unconfirmed'].includes(tx.state) ||
       this.expired(tx)
@@ -406,7 +408,7 @@ export class TxSupervisor {
           this.timeoutMs,
         )
           .then((observation) => {
-            if (!tx.controller.signal.aborted) {
+            if (!tx.controller.signal.aborted && !tx.stopPromise) {
               tx.state =
                 observation.state === 'transmitting' &&
                 observation.physicallyConfirmed
@@ -416,7 +418,7 @@ export class TxSupervisor {
             }
           })
           .catch(() => {
-            if (!tx.controller.signal.aborted) {
+            if (!tx.controller.signal.aborted && !tx.stopPromise) {
               tx.state = 'tx_unconfirmed';
               this.notify(tx);
             }
@@ -438,8 +440,14 @@ export class TxSupervisor {
   stop(txGrantId: string, reason = 'released'): Promise<TxStatus> {
     const tx = this.require(txGrantId);
     if (tx.state === 'idle') return Promise.resolve(this.status(tx));
-    if (tx.stopPromise) return tx.stopPromise;
-    tx.controller.abort(new Error(reason));
+    if (tx.stopPromise) {
+      if (tx.reason === 'stream_complete' && reason !== 'stream_complete') {
+        tx.controller.abort(new Error(reason));
+        tx.reason = reason;
+      }
+      return tx.stopPromise;
+    }
+    if (reason !== 'stream_complete') tx.controller.abort(new Error(reason));
     tx.state = 'stopping';
     tx.reason = reason;
     this.notify(tx);
@@ -460,6 +468,7 @@ export class TxSupervisor {
       } catch {
         /* A failed link cannot establish physical carrier release. */
       }
+      tx.controller.abort(new Error(reason));
       tx.state = confirmed ? 'idle' : 'stop_unconfirmed';
       this.options.runtime.releaseTransmission(
         tx.grant.radioId,

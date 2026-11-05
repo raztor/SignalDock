@@ -189,6 +189,44 @@ function fixture() {
 }
 
 describe('authorized PCM WebSocket bridge', () => {
+  it('drains ordered microphone EOF and acknowledges only a confirmed stop', async () => {
+    const f = fixture(),
+      socket = new Socket();
+    const tx = await f.start(),
+      session = await f.session('transmit', tx.grant.txGrantId);
+    await f.media.openWebSocket(session.id, session.token, socket);
+    for (let index = 0; index < 3; index++)
+      socket.receive(encodePcmSocketFrame(f.frame(index)));
+    socket.receive(new TextEncoder().encode('{"type":"end"}'), false);
+    await vi.waitFor(() => expect(socket.code).toBe(1000));
+    expect(f.write).toHaveBeenCalledTimes(3);
+    expect(socket.sent).toContain('{"type":"ended"}');
+    expect(f.supervisor.get(tx.grant.txGrantId).state).toBe('idle');
+  });
+  it('rejects additional microphone input after ordered EOF', async () => {
+    const f = fixture(),
+      socket = new Socket();
+    const tx = await f.start(),
+      session = await f.session('transmit', tx.grant.txGrantId);
+    await f.media.openWebSocket(session.id, session.token, socket);
+    socket.receive(encodePcmSocketFrame(f.frame()));
+    socket.receive(new TextEncoder().encode('{"type":"end"}'), false);
+    socket.receive(encodePcmSocketFrame(f.frame(1)));
+    expect(socket.code).toBe(1008);
+    expect(socket.sent).not.toContain('{"type":"ended"}');
+  });
+  it('does not acknowledge completion when physical stop is uncertain', async () => {
+    const f = fixture(),
+      socket = new Socket();
+    const tx = await f.start(),
+      session = await f.session('transmit', tx.grant.txGrantId);
+    f.end.mockResolvedValue({ state: 'idle', physicallyConfirmed: false });
+    await f.media.openWebSocket(session.id, session.token, socket);
+    socket.receive(new TextEncoder().encode('{"type":"end"}'), false);
+    await vi.waitFor(() => expect(socket.code).toBe(1011));
+    expect(socket.sent).not.toContain('{"type":"ended"}');
+    expect(f.supervisor.get(tx.grant.txGrantId).state).toBe('stop_unconfirmed');
+  });
   it('keeps a quiet channel alive through HTTPS and closes an unresponsive socket', async () => {
     vi.useFakeTimers();
     const f = fixture();

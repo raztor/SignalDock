@@ -680,7 +680,13 @@ class VgcDriver:
                     await self._run_tx_io(self.transport.write(audio_end()), 1)
                     await self._run_tx_io(self.transport.disarm(), 1)
                     if tx.audio_sent:
-                        await asyncio.sleep(self.config.drain_seconds)
+                        deadline = time.monotonic() + self.config.drain_seconds
+                        while time.monotonic() < deadline:
+                            async with self._control_lock:
+                                drained = await asyncio.wait_for(self.control.observe(), 5)
+                            if drained.tx_active is False:
+                                break
+                            await asyncio.sleep(min(.05, max(0, deadline - time.monotonic())))
                 await self._close_audio()
                 async with self._control_lock:
                     observation = await asyncio.wait_for(self.control.observe(), 5)

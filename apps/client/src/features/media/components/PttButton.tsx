@@ -32,6 +32,7 @@ export interface PushToTalk {
   pressIn(): void;
   /** Wire to `onPressOut` and `onBlur`: stops this press (pending or transmitting). */
   pressOut(): void;
+  cancel(): void;
   /**
    * Web: wire to `onKeyDown`. Tracks a Space/Enter press so its `keyup` stops
    * TX even when focus has left the button before the key is released.
@@ -59,6 +60,7 @@ export function usePushToTalk(): PushToTalk {
   const wasActive = useRef(active);
   const presentation = pttPresentation({
     pending: media.state.pending,
+    finishing: media.state.finishing === true,
     transmitting: media.state.transmitting,
     canTransmit: media.access.canTransmit,
     transmitReason: media.access.transmitReason,
@@ -149,7 +151,12 @@ export function usePushToTalk(): PushToTalk {
     keyboard.current.keyDown(event);
   }, []);
 
-  return { presentation, pressIn, pressOut, keyDown };
+  const cancel = useCallback(() => {
+    holding.current = false;
+    endedWhileHolding.current = false;
+    stopTransmit('Transmission interrupted.');
+  }, [stopTransmit]);
+  return { presentation, pressIn, pressOut, cancel, keyDown };
 }
 
 interface ButtonPalette {
@@ -230,7 +237,13 @@ export interface PttButtonProps {
  */
 export function PttButton({ size = 'hero', showStatus }: PttButtonProps) {
   const { colors } = useTheme();
-  const { presentation: ptt, pressIn, pressOut, keyDown } = usePushToTalk();
+  const {
+    presentation: ptt,
+    pressIn,
+    pressOut,
+    cancel,
+    keyDown,
+  } = usePushToTalk();
   const dims = sizes[size];
   const hero = size === 'hero';
   const withStatus = showStatus ?? hero;
@@ -308,7 +321,7 @@ export function PttButton({ size = 'hero', showStatus }: PttButtonProps) {
           hitSlop={(dims.outer - dims.button) / 2}
           onPressIn={pressIn}
           onPressOut={pressOut}
-          onBlur={pressOut}
+          onBlur={cancel}
           {...(Platform.OS === 'web'
             ? {
                 onContextMenu: (event: { preventDefault(): void }) =>

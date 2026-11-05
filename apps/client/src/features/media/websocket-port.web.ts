@@ -29,6 +29,7 @@ export async function connectPcmWebSocket(
   socket.binaryType = 'arraybuffer';
   let closing = false;
   let interrupted = false;
+  let completed = false;
   let context: AudioContext | undefined;
   let source: MediaStreamAudioSourceNode | undefined;
   let worklet: AudioWorkletNode | undefined;
@@ -68,7 +69,7 @@ export async function connectPcmWebSocket(
     if (context && context.state !== 'closed') await context.close();
   };
   const interrupt = () => {
-    if (!closing && !interrupted && !signal.aborted) {
+    if (!closing && !completed && !interrupted && !signal.aborted) {
       interrupted = true;
       onInterrupted();
     }
@@ -216,6 +217,52 @@ export async function connectPcmWebSocket(
       });
     return {
       disconnect,
+      ...(session.mode === 'transmit'
+        ? {
+            finish: async () => {
+              stopCapture();
+              if (
+                closing ||
+                signal.aborted ||
+                socket.readyState !== WebSocket.OPEN
+              )
+                throw new Error('Audio completion cancelled.');
+              await new Promise<void>((resolve, reject) => {
+                const timer = setTimeout(
+                  () => done(new Error('Audio completion timed out.')),
+                  4000,
+                );
+                const ended = (event: MessageEvent) => {
+                  if (typeof event.data !== 'string') return;
+                  try {
+                    if (JSON.parse(event.data).type === 'ended') {
+                      completed = true;
+                      done();
+                    }
+                  } catch {
+                    done(new Error('Invalid audio completion.'));
+                  }
+                };
+                const failed = () =>
+                  done(new Error('Audio completion interrupted.'));
+                const done = (error?: Error) => {
+                  clearTimeout(timer);
+                  socket.removeEventListener('message', ended);
+                  socket.removeEventListener('close', failed);
+                  socket.removeEventListener('error', failed);
+                  signal.removeEventListener('abort', failed);
+                  if (error) reject(error);
+                  else resolve();
+                };
+                socket.addEventListener('message', ended);
+                socket.addEventListener('close', failed);
+                socket.addEventListener('error', failed);
+                signal.addEventListener('abort', failed, { once: true });
+                socket.send('{"type":"end"}');
+              });
+            },
+          }
+        : {}),
       ...(session.mode === 'listen'
         ? { level: () => (performance.now() - lastAudioAt < 200 ? level : 0) }
         : {}),

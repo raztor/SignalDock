@@ -104,7 +104,10 @@ beforeEach(() => {
   vi.stubGlobal('AudioWorkletNode', FakeWorklet);
   vi.stubGlobal('MediaStream', class {});
 });
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.useRealTimers();
+});
 function session(mode: MediaSession['mode']): MediaSession {
   return {
     id: crypto.randomUUID(),
@@ -120,6 +123,51 @@ function session(mode: MediaSession['mode']): MediaSession {
   };
 }
 describe('browser PCM socket', () => {
+  it('ends microphone input before waiting for the server completion acknowledgement', async () => {
+    const interrupted = vi.fn();
+    const connection = await connectPcmWebSocket(
+      session('transmit'),
+      interrupted,
+      new AbortController().signal,
+    );
+    await connection.publish({
+      stop: () => undefined,
+      track: { mediaStreamTrack: { readyState: 'live' } },
+    } as never);
+    const receive = worklets[0]!.port.onmessage!;
+    const finishing = connection.finish!();
+    receive(new MessageEvent('message', { data: new ArrayBuffer(1280) }));
+    expect(sockets[0]!.sent).toEqual(['{"type":"end"}']);
+    sockets[0]!.dispatchEvent(
+      new MessageEvent('message', { data: '{"type":"ended"}' }),
+    );
+    sockets[0]!.close();
+    await finishing;
+    expect(interrupted).not.toHaveBeenCalled();
+  });
+  it('cancels a pending completion on abort', async () => {
+    const abort = new AbortController();
+    const connection = await connectPcmWebSocket(
+      session('transmit'),
+      vi.fn(),
+      abort.signal,
+    );
+    const finishing = connection.finish!();
+    abort.abort();
+    await expect(finishing).rejects.toThrow('interrupted');
+  });
+  it('bounds an unacknowledged completion instead of retaining TX indefinitely', async () => {
+    vi.useFakeTimers();
+    const connection = await connectPcmWebSocket(
+      session('transmit'),
+      vi.fn(),
+      new AbortController().signal,
+    );
+    const finishing = expect(connection.finish!()).rejects.toThrow('timed out');
+    await vi.advanceTimersByTimeAsync(4000);
+    await finishing;
+    await connection.disconnect();
+  });
   it('registers the ready handler before awaiting audio activation and plays little-endian PCM', async () => {
     let activate!: () => void;
     resume = new Promise<void>((resolve) => {

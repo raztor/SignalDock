@@ -67,6 +67,8 @@ interface Peer {
   heartbeat?: ReturnType<typeof setInterval>;
   awaitingPong?: boolean;
   abort: AbortController;
+  inputEnded?: boolean;
+  finishing?: boolean;
 }
 
 export class PcmStreamError extends SignalDockError {
@@ -276,6 +278,21 @@ export class WebSocketRadioBridge implements MediaBridgePort {
     }
     socket.onMessage((bytes, binary) => {
       if (peer.closed) return;
+      if (
+        session.mode === 'transmit' &&
+        !binary &&
+        Buffer.from(bytes).toString('utf8') === '{"type":"end"}'
+      ) {
+        if (!peer.inputEnded) {
+          peer.inputEnded = true;
+          if (!peer.draining) this.track(this.finish(peer));
+        }
+        return;
+      }
+      if (peer.inputEnded) {
+        this.end(peer, 1008, 'Microphone input already ended');
+        return;
+      }
       if (session.mode !== 'transmit' || !binary) {
         this.end(peer, 1008, 'Invalid audio stream');
         return;
@@ -383,6 +400,45 @@ export class WebSocketRadioBridge implements MediaBridgePort {
       }
     } finally {
       peer.draining = false;
+      if (peer.inputEnded && !peer.closed) this.track(this.finish(peer));
+    }
+  }
+
+  private async finish(peer: Peer): Promise<void> {
+    if (
+      peer.closed ||
+      peer.finishing ||
+      peer.draining ||
+      peer.queue.length ||
+      !peer.grantId
+    )
+      return;
+    peer.finishing = true;
+    try {
+      const result = await bounded(
+        this.options.stopTx(peer.grantId, 'stream_complete'),
+        undefined,
+        2500,
+      );
+      if (
+        !result ||
+        typeof result !== 'object' ||
+        !('state' in result) ||
+        result.state !== 'idle'
+      )
+        throw new SignalDockError(
+          'RADIO_STATE_UNCERTAIN',
+          'The radio did not confirm the completed audio stop.',
+        );
+      if (!peer.closed) {
+        peer.socket.send(JSON.stringify({ type: 'ended' }));
+        this.end(peer, 1000, 'Audio complete');
+      }
+    } catch (error) {
+      if (!peer.closed) {
+        this.report(peer.session.radioId, error);
+        this.end(peer, 1011, 'Audio finish failed');
+      }
     }
   }
 

@@ -29,6 +29,7 @@ export type PttPhase =
 export type PttTone = 'primary' | 'warning' | 'error' | 'neutral';
 
 export interface PttInput {
+  finishing?: boolean;
   /** Local media state from `useRadioMedia().state`. */
   pending: boolean;
   transmitting: boolean;
@@ -141,6 +142,22 @@ export function pttPresentation(input: PttInput): PttPresentation {
     const left = secondsLeft(input.txStartedAt, input.now, limitMs);
     const seconds = `${left} s left`;
     const spoken = `${left} ${left === 1 ? 'second' : 'seconds'} left`;
+    if (input.finishing)
+      return {
+        phase: 'stopping',
+        tone: 'warning',
+        label: 'Finishing',
+        detail: seconds,
+        status: 'Finishing captured audio…',
+        reason: '',
+        active: true,
+        pressable: true,
+        carrierConfirmed: radio === 'transmitting',
+        showRing: true,
+        ringFraction: fraction,
+        secondsLeft: left,
+        accessibilityValue: 'Finishing captured audio.',
+      };
     if (input.transmitting) {
       const carrierConfirmed = radio === 'transmitting';
       return {
