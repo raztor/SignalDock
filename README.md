@@ -10,15 +10,16 @@ The browser path has been tested with a physical VGC VR-N7500 on macOS, includin
 
 ## Repository structure
 
-| Area | Location |
-|---|---|
-| Web/mobile frontend | [apps/client](apps/client/README.md) |
-| Backend API and domain modules | [apps/api](apps/api/README.md) |
-| Background worker and optional push relay | [apps](apps/README.md) |
-| Shared contracts, SDKs, and presentation | [packages](packages/README.md) |
-| Radio runtime and hardware/provider integrations | [services](services/README.md) |
-| Generation, checks, development, and maintenance | [scripts](scripts/README.md) |
-| Docker and deployment | [deploy](deploy/README.md) |
+| Area                                             | Location                                       |
+| ------------------------------------------------ | ---------------------------------------------- |
+| Web/mobile frontend                              | [apps/client](apps/client/README.md)           |
+| Backend API and domain modules                   | [apps/api](apps/api/README.md)                 |
+| Background worker and optional push relay        | [apps](apps/README.md)                         |
+| Shared contracts, SDKs, and presentation         | [packages](packages/README.md)                 |
+| Radio runtime and hardware/provider integrations | [services](services/README.md)                 |
+| Generation, checks, development, and maintenance | [scripts](scripts/README.md)                   |
+| Docker and deployment                            | [deploy](deploy/README.md)                     |
+| Linux radio connection and Bluetooth setup       | [Linux radio setup](docs/linux-radio-setup.md) |
 
 The [full folder/module map](docs/architecture/repository-layout.md) describes dependency and ownership boundaries.
 
