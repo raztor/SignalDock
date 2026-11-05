@@ -52,6 +52,25 @@ class Connection:
 
 
 class ControlTests(unittest.IsolatedAsyncioTestCase):
+    async def test_classic_control_uses_its_explicit_channel_without_ble_discovery(self):
+        connection = Connection()
+        with patch("vgc_benlink.control.resolve_ble_device", AsyncMock()) as resolve, patch(
+            "benlink.command.CommandConnection.new_rfcomm", return_value=connection
+        ) as create:
+            control = BenlinkControl(DriverConfig(RADIO, "ble", "classic", control_transport="rfcomm", control_channel=4))
+            self.assertFalse((await control.connect()).tx_active)
+            self.assertFalse((await control.observe()).tx_active)
+            await control.disconnect()
+        resolve.assert_not_awaited()
+        create.assert_called_once_with("classic", channel=4)
+        self.assertFalse(connection.is_connected())
+
+    async def test_invalid_control_transport_and_channel_are_rejected_offline(self):
+        for settings in ({"control_transport":"other"}, {"control_transport":[]}, {"control_channel":True}, {"control_channel":0},
+            {"control_transport":"rfcomm", "control_channel":2}):
+            with self.subTest(settings=settings), self.assertRaises(DriverError):
+                DriverConfig(RADIO, "ble", "classic", **settings)
+
     async def test_new_connection_uses_resolved_bluez_device(self):
         connection = Connection()
         device = object()

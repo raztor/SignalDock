@@ -20,6 +20,7 @@ CONFIG_FIELDS = {
     "audioChannel": "audio_channel", "workingMemoryId": "working_memory", "allowExperimentalTx": "allow_experimental_tx",
     "maxTxSeconds": "max_tx_seconds", "idleTxSeconds": "idle_tx_seconds", "audioOpenTimeout": "audio_open_timeout",
     "drainSeconds": "drain_seconds", "ffmpeg": "ffmpeg",
+    "controlTransport": "control_transport", "controlChannel": "control_channel",
 }
 
 

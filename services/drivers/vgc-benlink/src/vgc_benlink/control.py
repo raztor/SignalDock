@@ -45,7 +45,10 @@ class BenlinkControl:
     async def connect(self) -> ControlObservation:
         if self.connection is None:
             from benlink.command import CommandConnection
-            self.connection = CommandConnection.new_ble(await resolve_ble_device(self.config.ble_address))
+            if self.config.control_transport == "rfcomm":
+                self.connection = CommandConnection.new_rfcomm(self.config.classic_address, channel=self.config.control_channel)
+            else:
+                self.connection = CommandConnection.new_ble(await resolve_ble_device(self.config.ble_address))
         await self.connection.connect()
         try:
             self._original_region = None
