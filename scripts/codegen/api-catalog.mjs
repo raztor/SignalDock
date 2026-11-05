@@ -113,6 +113,17 @@ export async function implementedPaths() {
                 'Authenticated bounded station events; reconnect and fetch current snapshots after interruption.',
               content: { 'text/event-stream': { schema: { type: 'string' } } },
             };
+          if (route.endsWith('/media/socket/{id}')) {
+            operation.security = [{ mediaTicket: [] }];
+            operation['x-websocket-protocol'] = 'signaldock.pcm.v1';
+            operation.responses = {
+              101: {
+                description:
+                  'WebSocket upgrade. Requires an allowed Origin and a single-use media enrollment ticket in Sec-WebSocket-Protocol. PCM is mono s16le at 32000 Hz; invalid or expired enrollment closes with policy code 1008.',
+              },
+              default: operation.responses.default,
+            };
+          }
           paths[route] ??= {};
           if (paths[route][method])
             throw new Error(`Duplicate API operation ${method} ${route}`);

@@ -39,6 +39,8 @@ class DriverConfig:
     audio_open_timeout: float = 10.0
     drain_seconds: float = 1.5
     ffmpeg: str = "ffmpeg"
+    control_transport: Literal["ble", "rfcomm"] = "ble"
+    control_channel: int | Literal["auto"] = "auto"
 
     def __post_init__(self):
         if not all(isinstance(value, str) and value for value in (self.radio_id, self.ble_address, self.classic_address, self.ffmpeg)):
@@ -51,6 +53,12 @@ class DriverConfig:
             raise DriverError("INVALID_ARGUMENT", "Explicit BLE and Classic addresses are required.")
         if type(self.audio_channel) is not int or not 1 <= self.audio_channel <= 30:
             raise DriverError("INVALID_ARGUMENT", "audio_channel must be in 1..30.")
+        if not isinstance(self.control_transport, str) or self.control_transport not in {"ble", "rfcomm"}:
+            raise DriverError("INVALID_ARGUMENT", "control_transport must be ble or rfcomm.")
+        if self.control_channel != "auto" and (type(self.control_channel) is not int or not 1 <= self.control_channel <= 30):
+            raise DriverError("INVALID_ARGUMENT", "control_channel must be auto or in 1..30.")
+        if self.control_transport == "rfcomm" and self.control_channel == self.audio_channel:
+            raise DriverError("INVALID_ARGUMENT", "Control and audio require separate RFCOMM channels.")
         if self.working_memory is not None and (type(self.working_memory) is not int or not 0 <= self.working_memory <= 255):
             raise DriverError("INVALID_ARGUMENT", "working_memory must be in 0..255.")
         if type(self.allow_experimental_tx) is not bool:

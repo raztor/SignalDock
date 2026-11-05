@@ -58,6 +58,18 @@ function fixture() {
   return { radio, user, radioId, mediaAvailable: true };
 }
 describe('media feature availability', () => {
+  it('allows the existing finish phase without treating an uncertain stop as usable', () => {
+    const f = fixture();
+    f.radio.snapshot!.txState = 'stopping';
+    expect(mediaAccess({ ...f, activeTx: true }).canTransmit).toBe(false);
+    expect(
+      mediaAccess({ ...f, activeTx: true, finishingTx: true }).canTransmit,
+    ).toBe(true);
+    f.radio.snapshot!.txState = 'stop_unconfirmed';
+    expect(
+      mediaAccess({ ...f, activeTx: true, finishingTx: true }).canTransmit,
+    ).toBe(false);
+  });
   it('disables live audio when the server has no media service', () => {
     const f = fixture();
     const access = mediaAccess({ ...f, mediaAvailable: false });

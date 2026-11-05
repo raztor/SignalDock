@@ -110,6 +110,83 @@ function fixture(autoWatchdog = false) {
     },
   };
 }
+describe('ordered transmission completion', () => {
+  it('does not let a late carrier observation overwrite a finishing stop', async () => {
+    const f = fixture();
+    let observed!: (value: {
+      state: 'transmitting';
+      physicallyConfirmed: boolean;
+    }) => void;
+    let finish!: () => void;
+    f.driver.observe = () =>
+      new Promise((resolve) => {
+        observed = resolve;
+      });
+    f.driver.end = async () => {
+      await new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+      return { state: 'idle', physicallyConfirmed: true };
+    };
+    const tx = await f.start();
+    await f.supervisor.push(tx.grant.txGrantId, f.frame());
+    const ending = f.supervisor.stop(tx.grant.txGrantId, 'stream_complete');
+    observed({ state: 'transmitting', physicallyConfirmed: true });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(f.supervisor.get(tx.grant.txGrantId).state).toBe('stopping');
+    finish();
+    await ending;
+    await f.supervisor.close();
+  });
+  it('keeps EOF alive until physical idle, without extending a finishing deadline', async () => {
+    const f = fixture();
+    let signal!: AbortSignal, finish!: () => void;
+    f.driver.prepare = async (_grant, _format, value) => {
+      signal = value;
+    };
+    f.driver.end = async () => {
+      await new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+      return { state: 'idle', physicallyConfirmed: true };
+    };
+    const tx = await f.start();
+    const ending = f.supervisor.stop(tx.grant.txGrantId, 'stream_complete');
+    expect(signal.aborted).toBe(false);
+    f.advance(100);
+    const renewed = await f.supervisor.renew(
+      tx.grant.txGrantId,
+      f.ownerId,
+      f.sessionId,
+    );
+    expect(renewed.grant.expiresAt).toBe(tx.grant.expiresAt);
+    finish();
+    expect((await ending).state).toBe('idle');
+    expect(signal.aborted).toBe(true);
+    await f.supervisor.close();
+  });
+  it('aborts graceful completion immediately on revoked control', async () => {
+    const f = fixture();
+    let signal!: AbortSignal, finish!: () => void;
+    f.driver.prepare = async (_grant, _format, value) => {
+      signal = value;
+    };
+    f.driver.end = async () => {
+      await new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+      return { state: 'idle', physicallyConfirmed: true };
+    };
+    const tx = await f.start();
+    const ending = f.supervisor.stop(tx.grant.txGrantId, 'stream_complete');
+    const revoked = f.supervisor.stop(tx.grant.txGrantId, 'session_revoked');
+    expect(signal.aborted).toBe(true);
+    finish();
+    await Promise.all([ending, revoked]);
+    await f.supervisor.close();
+  });
+});
 
 describe('local TX supervisor', () => {
   it('prepares without claiming physical TX and requires observed state after audio', async () => {

@@ -19,6 +19,18 @@
       "radioId": { "type": "string", "format": "uuid" },
       "bleAddress": { "type": "string", "minLength": 1 },
       "classicAddress": { "type": "string", "minLength": 1 },
+      "controlTransport": {
+        "type": "string",
+        "enum": ["ble", "rfcomm"],
+        "default": "ble"
+      },
+      "controlChannel": {
+        "oneOf": [
+          { "type": "integer", "minimum": 1, "maximum": 30 },
+          { "type": "string", "const": "auto" }
+        ],
+        "default": "auto"
+      },
       "audioChannel": {
         "type": "integer",
         "minimum": 1,

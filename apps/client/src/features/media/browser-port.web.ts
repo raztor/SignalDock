@@ -6,6 +6,7 @@ import {
   type LocalAudioTrack,
 } from 'livekit-client';
 import type { MediaSession } from '@signaldock/contracts';
+import { connectPcmWebSocket } from './websocket-port.web';
 import type {
   BrowserMediaPort,
   MediaConnection,
@@ -14,6 +15,7 @@ import type {
 
 interface BrowserMicrophone extends Microphone {
   track: LocalAudioTrack;
+  onStop(listener: () => void): void;
 }
 
 /**
@@ -104,13 +106,28 @@ export const browserMediaPort: BrowserMediaPort = {
     track.mediaStreamTrack.addEventListener('mute', onInterrupted, {
       once: true,
     });
-    return { track, stop: () => track.stop() } as BrowserMicrophone;
+    const stopped = new Set<() => void>();
+    return {
+      track,
+      onStop: (listener) => stopped.add(listener),
+      stop: () => {
+        for (const listener of stopped) {
+          try {
+            listener();
+          } catch {}
+        }
+        stopped.clear();
+        track.stop();
+      },
+    } as BrowserMicrophone;
   },
   async connect(
     session: MediaSession,
     onInterrupted,
     signal,
   ): Promise<MediaConnection> {
+    if (session.transport === 'websocket')
+      return connectPcmWebSocket(session, onInterrupted, signal);
     const room = new Room({ adaptiveStream: false, dynacast: false });
     const audio = new Set<HTMLMediaElement>();
     const meter = createLevelMeter();

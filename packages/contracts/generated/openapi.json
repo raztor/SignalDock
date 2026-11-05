@@ -1151,6 +1151,44 @@
         }
       }
     },
+    "/api/v1/media/socket/{id}": {
+      "get": {
+        "operationId": "get_api_v1_media_socket_id",
+        "security": [
+          {
+            "mediaTicket": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "x-validation-source": "apps/api/src/modules/media/media.routes.ts",
+        "responses": {
+          "101": {
+            "description": "WebSocket upgrade. Requires an allowed Origin and a single-use media enrollment ticket in Sec-WebSocket-Protocol. PCM is mono s16le at 32000 Hz; invalid or expired enrollment closes with policy code 1008."
+          },
+          "default": {
+            "description": "Typed SignalDock API error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        },
+        "x-websocket-protocol": "signaldock.pcm.v1"
+      }
+    },
     "/api/v1/notification-preferences": {
       "get": {
         "operationId": "get_api_v1_notification_preferences",
@@ -2814,6 +2852,12 @@
       "bearerAuth": {
         "type": "http",
         "scheme": "bearer"
+      },
+      "mediaTicket": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "Sec-WebSocket-Protocol",
+        "description": "signaldock.pcm.v1, ticket.<single-use token from the authenticated media session API>. This is not a login credential."
       }
     },
     "schemas": {
@@ -4646,6 +4690,13 @@
             "enum": [
               "listen",
               "transmit"
+            ]
+          },
+          "transport": {
+            "type": "string",
+            "enum": [
+              "livekit",
+              "websocket"
             ]
           }
         },

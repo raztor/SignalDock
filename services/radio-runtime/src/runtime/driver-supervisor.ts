@@ -40,6 +40,9 @@ export class DriverSupervisor {
     while (!signal.aborted) {
       const driver = this.runtime.getDriver(radioId);
       try {
+        // A degraded stream must cross a confirmed disconnect boundary before
+        // reconnecting. Never reset an uncertain physical TX by replaying Connect.
+        if (failures) await this.runtime.disconnect(radioId);
         if (driver.getSnapshot().connection !== 'ready' || failures)
           await this.runtime.connect(radioId);
         this.failures.delete(radioId);
@@ -48,9 +51,24 @@ export class DriverSupervisor {
           for await (const snapshot of driver.watchSnapshots(signal)) {
             if (signal.aborted) break;
             this.runtime.observeSnapshot(snapshot);
+            if (snapshot.connection !== 'ready')
+              throw new SignalDockError(
+                'RADIO_UNAVAILABLE',
+                'The driver lost its hardware connection.',
+              );
           }
+          if (!signal.aborted)
+            throw new SignalDockError(
+              'RADIO_UNAVAILABLE',
+              'The driver snapshot stream ended.',
+            );
         } else {
-          await this.runtime.reconcile(radioId);
+          const snapshot = await this.runtime.reconcile(radioId);
+          if (snapshot.connection !== 'ready')
+            throw new SignalDockError(
+              'RADIO_UNAVAILABLE',
+              'The driver is not synchronized.',
+            );
         }
       } catch (error) {
         if (signal.aborted) break;

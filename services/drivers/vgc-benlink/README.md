@@ -1,6 +1,6 @@
 # VGC / benlink radio module
 
-This module owns the experimental VGC implementation of SignalDock's private Radio Driver API. The Python service uses benlink for BLE control and Bluetooth Classic framing, continuous FFmpeg SBC conversion, and platform-specific audio transport. It supports memories, tuning/readback, streamed RX/TX, and locally supervised audio-coupled PTT. Existing physical validation tools are preserved separately.
+This module owns the experimental VGC implementation of SignalDock's private Radio Driver API. The Python service uses benlink for BLE or persistent Bluetooth Classic control, Bluetooth Classic audio framing, continuous FFmpeg SBC conversion, and platform-specific audio transport. It supports memories, tuning/readback, streamed RX/TX, and locally supervised audio-coupled PTT. Existing physical validation tools are preserved separately.
 
 ## Credits
 

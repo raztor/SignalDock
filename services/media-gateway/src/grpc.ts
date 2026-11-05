@@ -128,6 +128,7 @@ export function createGrpcTxDriver(client: WireRadioAudioClient): TxDriverPort {
     {
       queue: BoundedAudioQueue<wire.TxAudioRequest>;
       pending: Promise<wire.TransmissionState>;
+      frames: number;
       error?: unknown;
     }
   >();
@@ -188,8 +189,9 @@ export function createGrpcTxDriver(client: WireRadioAudioClient): TxDriverPort {
       const stream: {
         queue: BoundedAudioQueue<wire.TxAudioRequest>;
         pending: Promise<wire.TransmissionState>;
+        frames: number;
         error?: unknown;
-      } = { queue, pending };
+      } = { queue, pending, frames: 0 };
       streams.set(grant.txGrantId, stream);
       void pending.then(
         (result) => {
@@ -238,6 +240,7 @@ export function createGrpcTxDriver(client: WireRadioAudioClient): TxDriverPort {
           },
         }),
       );
+      stream.frames++;
     },
     async renew(grant, signal) {
       const result = await client.renewTransmission(
@@ -254,9 +257,21 @@ export function createGrpcTxDriver(client: WireRadioAudioClient): TxDriverPort {
     },
     async end(grant, reason) {
       const stream = streams.get(grant.txGrantId);
-      stream?.queue.close();
+      if (reason === 'stream_complete') stream?.queue.finish();
+      else stream?.queue.close();
+      let completionError: unknown;
       try {
-        return observation(
+        if (reason === 'stream_complete' && stream) {
+          try {
+            // Ordered stream EOF lets the driver flush its final codec frames
+            // and confirm physical idle before acknowledging normal release.
+            return observation(grant, await stream.pending);
+          } catch (error) {
+            // An empty/failed source still needs an explicit physical stop.
+            if (stream.frames) completionError = error;
+          }
+        }
+        const stopped = observation(
           grant,
           await client.endTransmission(
             create(wire.EndTransmissionRequestSchema, {
@@ -268,6 +283,8 @@ export function createGrpcTxDriver(client: WireRadioAudioClient): TxDriverPort {
             }),
           ),
         );
+        if (completionError) throw completionError;
+        return stopped;
       } finally {
         streams.delete(grant.txGrantId);
       }

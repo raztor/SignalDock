@@ -80,7 +80,7 @@ class FfmpegCodec:
 
     async def write_pcm(self, pcm: bytes):
         if self.encoder is None:
-            self.encoder = await asyncio.create_subprocess_exec(self.executable, "-v", "error", "-f", "s16le", "-ar", "32000", "-ac", "1",
+            self.encoder = await asyncio.create_subprocess_exec(self.executable, "-v", "error", "-probesize", "32", "-analyzeduration", "0", "-f", "s16le", "-ar", "32000", "-ac", "1",
                 "-i", "pipe:0", "-c:a", "sbc", "-global_quality", "1888", "-sbc_delay", "0.0075", "-f", "sbc", "-flush_packets", "1", "pipe:1",
                 stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
             self.encode_task = asyncio.create_task(self._encode_output(self.encoder))

@@ -60,6 +60,14 @@ export class BoundedAudioQueue<T> implements AsyncIterable<T> {
     this.waiter?.({ value: undefined, done: true });
     this.waiter = undefined;
   }
+  /** Ordered source EOF; abort/close still discards all queued items. */
+  finish(): void {
+    this.finished = true;
+    if (!this.items.length) {
+      this.waiter?.({ value: undefined, done: true });
+      this.waiter = undefined;
+    }
+  }
   [Symbol.asyncIterator](): AsyncIterator<T> {
     return {
       next: () => {

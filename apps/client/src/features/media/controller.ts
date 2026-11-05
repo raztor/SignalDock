@@ -19,6 +19,8 @@ export interface Microphone {
 export interface MediaConnection {
   disconnect(): Promise<void>;
   publish(microphone: Microphone): Promise<void>;
+  /** Ordered normal release; interruption still disconnects immediately. */
+  finish?(): Promise<void>;
   /** Received audio level in 0..1, when the port can measure it (web only). */
   level?(): number;
 }
@@ -34,6 +36,7 @@ export interface MediaUiState {
   listening: boolean;
   transmitting: boolean;
   pending: boolean;
+  finishing?: boolean;
   message: string;
 }
 /**
@@ -106,6 +109,7 @@ export class RadioMediaController {
   private heartbeat: ReturnType<typeof setInterval> | undefined;
   private listenerRenewal: ReturnType<typeof setInterval> | undefined;
   private renewing = false;
+  private finishing: Promise<void> | undefined;
   private txAbort: AbortController | undefined;
   private listenAbort: AbortController | undefined;
   /** Control lease this controller created for the current transmission. */
@@ -313,7 +317,7 @@ export class RadioMediaController {
             ),
           )
           .then((status) => {
-            if (this.current(epoch))
+            if (this.current(epoch) && !this.finishing)
               this.update({
                 message:
                   status.state === 'transmitting'
@@ -382,6 +386,33 @@ export class RadioMediaController {
     }
   }
   stopTransmit(reason = TX_RELEASED_MESSAGE): Promise<void> {
+    if (reason === TX_RELEASED_MESSAGE && this.finishing) return this.finishing;
+    if (
+      reason === TX_RELEASED_MESSAGE &&
+      this.state.transmitting &&
+      this.txConnection?.finish
+    ) {
+      const epoch = this.txEpoch;
+      const connection = this.txConnection;
+      this.microphone?.stop();
+      this.microphone = undefined;
+      this.update({ finishing: true, message: 'Finishing captured audio…' });
+      const work = (async () => {
+        let message = reason;
+        try {
+          await connection.finish!();
+        } catch {
+          message = 'Audio completion interrupted; transmission stopped.';
+        }
+        if (this.current(epoch)) await this.stopImmediately(message);
+      })();
+      this.finishing = work;
+      return work;
+    }
+    return this.stopImmediately(reason);
+  }
+  private stopImmediately(reason: string): Promise<void> {
+    this.finishing = undefined;
     // Idle calls (blur, navigation, unmount) must not hide an earlier message.
     const wasActive =
       this.state.pending ||
@@ -414,6 +445,7 @@ export class RadioMediaController {
     this.update({
       transmitting: false,
       pending: false,
+      ...(this.state.finishing ? { finishing: false } : {}),
       ...(wasActive ? { message: reason } : {}),
     });
     const releasing = Promise.all([

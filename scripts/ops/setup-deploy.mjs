@@ -17,6 +17,7 @@ try {
       'WEB_PORT=8080',
       'SIGNALDOCK_RELAY_URL=',
       'SIGNALDOCK_DRIVER_CREDENTIALS_FILE=',
+      'SIGNALDOCK_MEDIA_TRANSPORT=',
       'LIVEKIT_URL=',
       'LIVEKIT_INTERNAL_URL=ws://livekit:7880',
       `LIVEKIT_API_KEY=${randomBytes(12).toString('hex')}`,

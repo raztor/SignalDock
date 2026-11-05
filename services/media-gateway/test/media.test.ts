@@ -17,6 +17,69 @@ import {
 import { decodePreparedAudio, preparedPcmFrames } from '../src/decode-audio.js';
 
 describe('media boundary', () => {
+  it('retains queued driver frames for normal source EOF and confirms its physical stop', async () => {
+    const grant = {
+      radioId: crypto.randomUUID(),
+      generation: crypto.randomUUID(),
+      txGrantId: crypto.randomUUID(),
+      fencing: 1,
+      tuningRevision: 1,
+      expiresAt: Date.now() + 1500,
+      maxUntil: Date.now() + 30000,
+    } as import('@signaldock/contracts').TxGrant;
+    const state = {
+      radioId: grant.radioId,
+      generation: grant.generation,
+      txGrantId: grant.txGrantId,
+      state: 'idle',
+      physicallyConfirmed: true,
+    };
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const consumed: number[] = [];
+    const endTransmission = vi.fn(async () => state);
+    const client = {
+      prepareTransmission: async () => state,
+      pushTxAudio: async (
+        frames: AsyncIterable<{ frame?: { sequence: bigint } }>,
+      ) => {
+        await gate;
+        for await (const frame of frames)
+          consumed.push(Number(frame.frame!.sequence));
+        return state;
+      },
+      endTransmission,
+    } as unknown as WireRadioAudioClient;
+    const adapter = createGrpcTxDriver(client);
+    const signal = new AbortController().signal;
+    await adapter.prepare(
+      grant,
+      { encoding: 'pcm_s16le', sampleRateHz: 32000, channels: 1 },
+      signal,
+    );
+    for (let sequence = 0; sequence < 3; sequence++)
+      await adapter.write(
+        grant,
+        {
+          streamId: 'fixture',
+          sequence,
+          mediaTimeUs: sequence * 20000,
+          tuningRevision: 1,
+          format: { encoding: 'pcm_s16le', sampleRateHz: 32000, channels: 1 },
+          data: new Uint8Array(1280),
+          attributionConfidence: 'confirmed',
+          discontinuity: false,
+        },
+        signal,
+      );
+    const ending = adapter.end(grant, 'stream_complete');
+    release();
+    expect(await ending).toEqual({ state: 'idle', physicallyConfirmed: true });
+    expect(consumed).toEqual([0, 1, 2]);
+    expect(endTransmission).not.toHaveBeenCalled();
+  });
   it('keeps public browser credentials separate from internal Node and room-service traffic', async () => {
     let route = '';
     const server = createServer((request, response) => {

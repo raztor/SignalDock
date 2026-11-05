@@ -1,6 +1,6 @@
 # Build from the repository root. Hardware/BlueZ access is configured by the host.
 FROM python:3.13.18-slim-bookworm
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg git \
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg git bluez \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY services/drivers/vgc-benlink /app/driver

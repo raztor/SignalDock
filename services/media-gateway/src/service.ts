@@ -19,6 +19,13 @@ import {
   type MediaFrameContext,
   type TuningContextResolver,
 } from './livekit.js';
+import { timingSafeEqual } from 'node:crypto';
+import type {
+  MediaBridgeOptions,
+  MediaBridgePort,
+  MediaCredentials,
+  MediaSocket,
+} from './bridge-port.js';
 import { decodePreparedAudio, preparedPcmFrames } from './decode-audio.js';
 
 interface EnrolledSession {
@@ -26,15 +33,31 @@ interface EnrolledSession {
   principal: Principal;
   accessToken: string;
   txGrantId?: string;
+  socketClaimed?: boolean;
 }
 export interface RadioAudioSource {
   generation: string;
   format: AudioFormat;
   frames(signal: AbortSignal): AsyncIterable<PcmAudioFrame>;
 }
+type MediaOptions = {
+  instanceId: string;
+  auth: AuthenticationPort;
+  supervisor: TxSupervisor;
+  rxSource: (radioId: string) => RadioAudioSource;
+  onFrame?: (frame: PcmAudioFrame, context: MediaFrameContext) => void;
+  onError?: (radioId: string, error: unknown) => void;
+  resolveTuning?: TuningContextResolver;
+} & (
+  | { credentials: LiveKitCredentials; bridgeFactory?: undefined }
+  | {
+      credentials: MediaCredentials;
+      bridgeFactory: (options: MediaBridgeOptions) => MediaBridgePort;
+    }
+);
 
 export class MediaService {
-  readonly bridge: LiveKitRadioBridge;
+  readonly bridge: MediaBridgePort;
   private readonly sessions = new Map<string, EnrolledSession>();
   private readonly timer: ReturnType<typeof setInterval>;
   private checking = false;
@@ -46,21 +69,9 @@ export class MediaService {
     string,
     { controller: AbortController; sessionId: string }
   >();
-  constructor(
-    private readonly options: {
-      instanceId: string;
-      auth: AuthenticationPort;
-      credentials: LiveKitCredentials;
-      supervisor: TxSupervisor;
-      rxSource: (radioId: string) => RadioAudioSource;
-      onFrame?: (frame: PcmAudioFrame, context: MediaFrameContext) => void;
-      onError?: (radioId: string, error: unknown) => void;
-      resolveTuning?: TuningContextResolver;
-    },
-  ) {
-    this.bridge = new LiveKitRadioBridge({
+  constructor(private readonly options: MediaOptions) {
+    const bridgeOptions: MediaBridgeOptions = {
       instanceId: options.instanceId,
-      credentials: options.credentials,
       listenerIdentities: (radioId) =>
         this.closed
           ? []
@@ -83,11 +94,64 @@ export class MediaService {
       ...(options.resolveTuning
         ? { resolveTuning: options.resolveTuning }
         : {}),
-    });
+    };
+    this.bridge = options.bridgeFactory
+      ? options.bridgeFactory(bridgeOptions)
+      : new LiveKitRadioBridge({
+          ...bridgeOptions,
+          credentials: options.credentials,
+        });
     this.timer = setInterval(() => {
       void this.revalidate();
     }, 2000);
     this.timer.unref?.();
+  }
+
+  get socketEnabled(): boolean {
+    return Boolean(this.bridge.openSocket);
+  }
+
+  /** Single-use short-lived enrollment ticket, never a login or refresh credential. */
+  async openWebSocket(
+    id: string,
+    ticket: string,
+    socket: MediaSocket,
+  ): Promise<void> {
+    const entry = this.sessions.get(id);
+    if (
+      !this.bridge.openSocket ||
+      !entry ||
+      entry.session.transport !== 'websocket' ||
+      entry.socketClaimed ||
+      Date.parse(entry.session.expiresAt) <= Date.now() ||
+      !/^[A-Za-z0-9_-]{43}$/.test(ticket) ||
+      ticket.length !== entry.session.token.length ||
+      !timingSafeEqual(Buffer.from(ticket), Buffer.from(entry.session.token))
+    )
+      throw new SignalDockError(
+        'UNAUTHORIZED',
+        'A fresh audio enrollment ticket is required.',
+      );
+    entry.socketClaimed = true;
+    const epoch = this.sessionEpochs.get(entry.principal.sessionId) ?? 0;
+    try {
+      await this.freshPrincipal(
+        entry.accessToken,
+        entry.principal,
+        entry.session.radioId,
+        entry.session.mode,
+      );
+      this.assertAdmission(entry.principal, epoch);
+      if (this.sessions.get(id) !== entry || socket.readyState !== 1)
+        throw new SignalDockError(
+          'UNAUTHORIZED',
+          'Audio enrollment ended during connection.',
+        );
+      this.bridge.openSocket(entry.session, socket);
+    } catch (error) {
+      if (this.sessions.get(id) === entry) await this.remove(entry);
+      throw error;
+    }
   }
 
   async createSession(
@@ -551,6 +615,11 @@ export class MediaService {
   }
   private async remove(entry: EnrolledSession): Promise<void> {
     this.sessions.delete(entry.session.id);
+    try {
+      this.bridge.disconnectParticipant?.(entry.session.participantIdentity);
+    } catch (error) {
+      this.reportError(entry.session.radioId, error);
+    }
     try {
       this.bridge.updateListeners(entry.session.radioId);
     } catch (error) {

@@ -4,6 +4,7 @@ import { randomBytes } from 'node:crypto';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { request as httpRequest } from 'node:http';
 
 if (process.env.CI !== 'true')
   throw new Error('Compose acceptance runs only in a disposable CI runner.');
@@ -93,6 +94,10 @@ try {
     .replace(/^SIGNALDOCK_BASE_PATH=.*$/m, 'SIGNALDOCK_BASE_PATH=/backend')
     .replace(/^WEB_BASE_PATH=.*$/m, 'WEB_BASE_PATH=/station')
     .replace(
+      /^SIGNALDOCK_MEDIA_TRANSPORT=.*$/m,
+      'SIGNALDOCK_MEDIA_TRANSPORT=websocket',
+    )
+    .replace(
       /^SIGNALDOCK_ALLOWED_ORIGINS=.*$/m,
       'SIGNALDOCK_ALLOWED_ORIGINS=http://127.0.0.1:8080',
     )
@@ -113,6 +118,52 @@ try {
     'web',
   ]);
   await waitForApi();
+  // Exercise a real upgrade through the bundled proxy, including a distinct API prefix.
+  // A deliberately nonexistent enrollment is then closed without receiving audio.
+  await new Promise((resolve, reject) => {
+    const request = httpRequest(
+      `http://127.0.0.1:8080/backend/api/v1/media/socket/${crypto.randomUUID()}`,
+      {
+        headers: {
+          Connection: 'Upgrade',
+          Upgrade: 'websocket',
+          'Sec-WebSocket-Version': '13',
+          'Sec-WebSocket-Key': randomBytes(16).toString('base64'),
+          'Sec-WebSocket-Protocol':
+            'signaldock.pcm.v1, ticket.' + 'x'.repeat(43),
+          Origin: 'http://127.0.0.1:8080',
+        },
+      },
+    );
+    request.setTimeout(10000, () =>
+      request.destroy(new Error('WebSocket proxy upgrade timed out.')),
+    );
+    request.on('error', reject);
+    request.on('response', (response) => {
+      response.resume();
+      reject(
+        new Error(
+          'Proxy did not upgrade the audio socket: ' + response.statusCode,
+        ),
+      );
+    });
+    request.on('upgrade', (response, socket) => {
+      socket.on('error', () => undefined);
+      try {
+        assert.equal(response.statusCode, 101);
+        assert.equal(
+          response.headers['sec-websocket-protocol'],
+          'signaldock.pcm.v1',
+        );
+        socket.destroy();
+        resolve();
+      } catch (error) {
+        socket.destroy();
+        reject(error);
+      }
+    });
+    request.end();
+  });
   const apiContainer = docker([...compose, 'ps', '--quiet', 'api'])
     .toString()
     .trim();

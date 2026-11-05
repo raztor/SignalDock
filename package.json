@@ -40,10 +40,12 @@
   "devDependencies": {
     "@bufbuild/protoc-gen-es": "2.16.0",
     "@types/node": "24.19.2",
+    "@types/ws": "8.18.2",
     "@typescript/native": "npm:typescript@7.0.2",
     "json-schema-to-typescript": "16.0.0",
     "prettier": "3.9.10",
     "typescript": "npm:@typescript/typescript6@6.0.2",
-    "vitest": "5.0.5"
+    "vitest": "5.0.5",
+    "ws": "8.22.1"
   }
 }

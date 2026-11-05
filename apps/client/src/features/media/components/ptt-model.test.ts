@@ -18,6 +18,21 @@ const base: PttInput = {
   radioTxState: 'idle',
   now: 1_000_000,
 };
+it('shows ordered completion as finishing until the radio acknowledges idle', () => {
+  expect(
+    pttPresentation({
+      ...base,
+      transmitting: true,
+      finishing: true,
+      radioTxState: 'stopping',
+    }),
+  ).toMatchObject({
+    phase: 'stopping',
+    label: 'Finishing',
+    active: true,
+    carrierConfirmed: false,
+  });
+});
 
 describe('remainingFraction', () => {
   it('is full at the press and empty at the limit', () => {
