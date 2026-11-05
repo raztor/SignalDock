@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { loadInstanceIdentity } from './modules/instance/identity-store.js';
 import { buildServer } from './app/create-server.js';
 import { createStation, loadDriverCredentials } from './app/station.js';
+import { normalizeBasePath } from './app/base-path.js';
 
 const port = Number(process.env['PORT'] ?? 3000);
 if (!Number.isInteger(port) || port < 1 || port > 65535)
@@ -26,6 +27,24 @@ const common = {
 const connectionString = process.env['DATABASE_URL'];
 const mediaUrl = process.env['LIVEKIT_URL'];
 const cookieOrigin = process.env['SIGNALDOCK_COOKIE_ORIGIN'];
+const mediaTransport =
+  process.env['SIGNALDOCK_MEDIA_TRANSPORT'] ||
+  (mediaUrl ? 'livekit' : 'disabled');
+if (!['disabled', 'livekit', 'websocket'].includes(mediaTransport))
+  throw new Error(
+    'SIGNALDOCK_MEDIA_TRANSPORT must be disabled, livekit or websocket.',
+  );
+if (mediaTransport === 'websocket' && !cookieOrigin)
+  throw new Error('WebSocket audio requires SIGNALDOCK_COOKIE_ORIGIN.');
+const socketUrl =
+  mediaTransport === 'websocket'
+    ? new URL(
+        `${normalizeBasePath(common.basePath)}/api/v1/media/socket`,
+        cookieOrigin,
+      )
+    : undefined;
+if (socketUrl)
+  socketUrl.protocol = socketUrl.protocol === 'https:' ? 'wss:' : 'ws:';
 const station = connectionString
   ? await createStation({
       ...common,
@@ -44,7 +63,8 @@ const station = connectionString
       ...(cookieOrigin
         ? { cookieOrigin, secureCookies: !cookieOrigin.startsWith('http:') }
         : {}),
-      ...(mediaUrl
+      ...(socketUrl ? { websocketMediaUrl: socketUrl.href } : {}),
+      ...(mediaTransport === 'livekit' && mediaUrl
         ? {
             livekit: {
               serverUrl: mediaUrl,

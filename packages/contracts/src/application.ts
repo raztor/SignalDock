@@ -328,6 +328,7 @@ export const MediaSessionSchema = z.strictObject({
   token: z.string().min(1),
   expiresAt: timestamp,
   mode: z.enum(['listen', 'transmit']),
+  transport: z.enum(['livekit', 'websocket']).optional(),
 });
 export type MediaSession = z.infer<typeof MediaSessionSchema>;
 

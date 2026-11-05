@@ -45,7 +45,16 @@ const openapi = {
     },
   },
   components: {
-    securitySchemes: { bearerAuth: { type: 'http', scheme: 'bearer' } },
+    securitySchemes: {
+      bearerAuth: { type: 'http', scheme: 'bearer' },
+      mediaTicket: {
+        type: 'apiKey',
+        in: 'header',
+        name: 'Sec-WebSocket-Protocol',
+        description:
+          'signaldock.pcm.v1, ticket.<single-use token from the authenticated media session API>. This is not a login credential.',
+      },
+    },
     schemas,
   },
 };

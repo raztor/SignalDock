@@ -1,6 +1,12 @@
 # Live media and supervised transmission
 
-SignalDock uses self-hosted LiveKit through `services/media-gateway`. Public clients receive the application media-session contract; private radio RPC and vendor protocols remain on the server. Core listening and transmission require no cloud-processing account.
+SignalDock provides live audio through `services/media-gateway`, using the station's HTTPS WebSocket transport or self-hosted LiveKit. Public clients receive the application media-session contract; private radio RPC and vendor protocols remain on the server. Core listening and transmission require no cloud-processing account.
+
+The gateway also supports browser PCM audio over the station's own HTTPS WebSocket endpoint. `WebSocketCredentials` and `WebSocketRadioBridge` reuse `MediaService` enrollment, authentication revalidation, recording and the same `TxSupervisor`; a socket cannot acquire control or start a transmission. `MediaSession.transport=websocket` selects the browser port, while an absent transport retains LiveKit compatibility. Deployment selects `SIGNALDOCK_MEDIA_TRANSPORT=websocket` and requires no extra public ports or SFU.
+
+The socket upgrades at `/api/v1/media/socket/:id` under the configured API base path. It requires an allowed browser Origin, `signaldock.pcm.v1` and a single-use 256-bit enrollment ticket in `Sec-WebSocket-Protocol`. The login access/refresh credentials never enter the socket URL. Admission reauthenticates the original login and permission, rejects ticket replay/concurrent claims, and closes on revocation, expiry or generation change. A transmitter additionally needs the matching live TX grant. Socket loss stops that grant without resuming it.
+
+After the JSON ready message, each binary packet has three little-endian Float64 safe nonnegative integers (sequence, media time in microseconds, tuning revision), followed by 1..640 mono s16le samples at 32000 Hz. Maximum payload is 1304 bytes. TX validates counters, revision, media time and bounded lead/lag, allows three queued packets, and serializes writes through the supervisor. RX disconnects slow listeners independently. The browser captures 20 ms chunks with a silent AudioWorklet, cuts capture synchronously at release, bounds playback latency, and never reconnects a microphone automatically. Raw PCM uses about 512 kbit/s per direction; TCP loss can increase latency.
 
 ## Composition
 

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { applicationSchemas, ControlLeaseSchema } from './application.js';
 export * from './application.js';
+export * from './pcm-websocket.js';
 
 export const API_PROTOCOL_VERSION = 1 as const;
 export const DRIVER_PROTOCOL_VERSION = 1 as const;

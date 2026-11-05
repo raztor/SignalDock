@@ -450,6 +450,7 @@ export interface MediaSession {
   token: string;
   expiresAt: string;
   mode: "listen" | "transmit";
+  transport?: "livekit" | "websocket";
 }
 
 export interface ApiError {

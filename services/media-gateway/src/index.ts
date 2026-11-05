@@ -17,3 +17,10 @@ export {
 } from './grpc.js';
 export { decodePreparedAudio, preparedPcmFrames } from './decode-audio.js';
 export { disposeMediaRuntime } from './runtime-disposal.js';
+export { WebSocketCredentials, WebSocketRadioBridge } from './websocket.js';
+export type {
+  MediaBridgePort,
+  MediaBridgeOptions,
+  MediaSocket,
+  MediaCredentials,
+} from './bridge-port.js';

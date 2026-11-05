@@ -1,5 +1,6 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
+import websocket from '@fastify/websocket';
 import { randomUUID } from 'node:crypto';
 import type { InstanceIdentity } from '../modules/instance/identity-store.js';
 import { registerInstanceRoutes } from '../modules/instance/instance.routes.js';
@@ -26,6 +27,14 @@ export async function buildServer(options: {
     requestTimeout: 10000,
   });
   const prefix = `${normalizeBasePath(options.basePath ?? '')}/api/v1`;
+  await app.register(websocket, {
+    options: {
+      maxPayload: 1304,
+      perMessageDeflate: false,
+      handleProtocols: (protocols) =>
+        protocols.has('signaldock.pcm.v1') ? 'signaldock.pcm.v1' : false,
+    },
+  });
   await app.register(cors, {
     origin: options.allowedOrigins ?? [],
     credentials: Boolean(options.cookieOrigin),

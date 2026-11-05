@@ -47,13 +47,19 @@ The standalone native client uses isolated bearer sessions and platform-protecte
 
 ## Live media
 
-Media remains disabled while `LIVEKIT_URL` is empty. To enable it, configure a reachable public `wss://` endpoint, then start the media profile:
+For browser audio through the same HTTPS origin as the web UI and API, set `SIGNALDOCK_MEDIA_TRANSPORT=websocket` in the private `deploy/.env`. Configure `SIGNALDOCK_COOKIE_ORIGIN` and the allowed origins to match the public HTTPS address. The backend derives its public WSS endpoint from that origin and API base path. The bundled proxy forwards the upgrade; Traefik only needs its existing HTTPS route to the web container. No additional public TCP/UDP ports, LiveKit service, keys or separate media hostname are needed.
+
+This mode carries mono PCM s16le at 32000 Hz, approximately 512 kbit/s per stream before transport overhead. Browser playback and microphone queues are bounded; a slow or interrupted connection closes and stops supervised TX. TCP packet loss can add latency compared with WebRTC. Listening and microphone enrollment still use the authenticated per-radio API, short single-use socket tickets, current permissions and the same TX supervisor. Tickets never appear in URLs. Native audio remains gated.
+
+To retain LiveKit/WebRTC instead, set `SIGNALDOCK_MEDIA_TRANSPORT=livekit`, configure a reachable public `wss://` endpoint in `LIVEKIT_URL`, then start the media profile:
 
 ```sh
 docker compose --env-file deploy/.env -f deploy/compose.yaml --profile media up --build -d
 ```
 
 `LIVEKIT_URL` is the client-visible address. `LIVEKIT_INTERNAL_URL` is the private server-to-server WebSocket address. The example uses `ws://livekit:7880` internally. Terminate TLS for the public endpoint and configure LiveKit's advertised address and RTC ports for the deployment network; an HTTPS proxy alone does not route RTC traffic. Review `livekit.yaml`, NAT/firewall routing, and TURN requirements before remote use. No cloud media account is required.
+
+Set `SIGNALDOCK_MEDIA_TRANSPORT=disabled` to disable audio. An empty setting retains compatibility: LiveKit is enabled only when `LIVEKIT_URL` is configured.
 
 Browser RX and microphone TX were accepted on the development Mac. Native device audio, physical Linux/Raspberry Pi transport, and RF disconnect/process-kill fault tests remain separate rollout gates. Transmission never resumes automatically after a restart.
 
@@ -73,6 +79,8 @@ services:
 Use `SIGNALDOCK_DRIVER_CREDENTIALS_FILE=/run/signaldock/driver-credentials.json`, and reference `/run/signaldock/vgc.token` inside that map. Add `-f /absolute/private/compose.override.yaml` after `-f deploy/compose.yaml` when starting the deployment. Preserve the existing private `/data` volume. Never mount these files or sockets into the web service or publish them through a static/public volume. Align file/socket permissions with the unprivileged API user. Back up these additional private mounts separately; the station archive contains `/data` only.
 
 The development Mac's Bluetooth helper runs natively, outside Docker. The Linux image does not establish physical Linux hardware acceptance. Do not expose the private driver RPC publicly or grant the web container access to Bluetooth.
+
+On an AppArmor host, [the VGC container profile](apparmor/signaldock-vgc) permits only Unix/Bluetooth networking, the required BlueZ D-Bus traffic and normal container stop signals. Install it in `/etc/apparmor.d/signaldock-vgc`, load it with `apparmor_parser -r`, and select `apparmor:signaldock-vgc` in the private driver Compose override. Keep `cap_drop: [ALL]`, `no-new-privileges`, a read-only root filesystem, host networking for RFCOMM, and the read-only host system D-Bus socket mount. The profile must be loaded before the container starts. Docker's `runc` stop signals are explicitly allowed so the driver can cleanly disconnect and remove its socket on restart.
 
 ## Optional push relay
 

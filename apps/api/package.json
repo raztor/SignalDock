@@ -9,21 +9,22 @@
     "start": "node dist/main.js"
   },
   "dependencies": {
-    "zod": "4.6.7",
-    "@signaldock/contracts": "*",
-    "fastify": "5.12.7",
     "@fastify/cors": "11.3.1",
+    "@fastify/websocket": "11.3.7",
     "@node-rs/argon2": "2.2.2",
-    "@signaldock/database": "*",
-    "@signaldock/radio-runtime": "*",
-    "@signaldock/radio-driver-sdk": "*",
-    "@signaldock/media-gateway": "*",
-    "@signaldock/history": "*",
     "@signaldock/artifact-storage": "*",
+    "@signaldock/contracts": "*",
+    "@signaldock/database": "*",
+    "@signaldock/digital-decoders": "*",
+    "@signaldock/history": "*",
     "@signaldock/job-queue": "*",
+    "@signaldock/media-gateway": "*",
+    "@signaldock/notification-sdk": "*",
     "@signaldock/processing-connectors": "*",
     "@signaldock/processing-tasks": "*",
-    "@signaldock/digital-decoders": "*",
-    "@signaldock/notification-sdk": "*"
+    "@signaldock/radio-driver-sdk": "*",
+    "@signaldock/radio-runtime": "*",
+    "fastify": "5.12.7",
+    "zod": "4.6.7"
   }
 }

@@ -1,0 +1,20 @@
+#include <tunables/global>
+profile signaldock-vgc flags=(attach_disconnected,mediate_deleted) {
+  # Container root filesystem is read-only; only its private runtime is writable.
+  file,
+  network unix,
+  network bluetooth,
+  signal (receive) peer=unconfined,
+  signal (receive) peer=runc,
+  signal (send,receive) peer=signaldock-vgc,
+  dbus (send) bus=system peer=(name=org.freedesktop.DBus),
+  dbus (send,receive) bus=system peer=(name=org.bluez),
+  dbus (receive) bus=system peer=(name=org.freedesktop.DBus),
+  dbus (receive) bus=system path=/org/bluez{,/**},
+  dbus (receive) bus=system path=/ interface=org.freedesktop.DBus.ObjectManager,
+  deny mount,
+  deny /proc/sys/** wklx,
+  deny /proc/sysrq-trigger rwklx,
+  deny /proc/{kcore,mem,kmem} rwklx,
+  deny /sys/** wklx,
+}

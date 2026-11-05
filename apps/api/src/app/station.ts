@@ -20,6 +20,8 @@ import { GrpcRadioDriver } from '@signaldock/radio-driver-sdk';
 import { TxSupervisor, type TxDriverPort } from '@signaldock/radio-runtime/tx';
 import {
   LiveKitCredentials,
+  WebSocketCredentials,
+  WebSocketRadioBridge,
   MediaService,
   createGrpcTxDriver,
   grpcRxFrames,
@@ -67,6 +69,7 @@ export interface StationOptions {
   secureCookies?: boolean;
   logger?: boolean;
   livekit?: LiveKitConfiguration;
+  websocketMediaUrl?: string;
   driverCredentials?: ReadonlyMap<string, string>;
   startJobs?: boolean;
   queueSchema?: string;
@@ -232,7 +235,7 @@ export async function createStation(options: StationOptions) {
         );
       return driver;
     };
-    if (options.livekit) {
+    if (options.livekit || options.websocketMediaUrl) {
       supervisor = new TxSupervisor({
         runtime,
         onState: (status) => {
@@ -289,7 +292,13 @@ export async function createStation(options: StationOptions) {
       media = new MediaService({
         instanceId,
         auth,
-        credentials: new LiveKitCredentials(options.livekit),
+        ...(options.websocketMediaUrl
+          ? {
+              credentials: new WebSocketCredentials(options.websocketMediaUrl),
+              bridgeFactory: (bridgeOptions) =>
+                new WebSocketRadioBridge(bridgeOptions),
+            }
+          : { credentials: new LiveKitCredentials(options.livekit!) }),
         supervisor: tx,
         rxSource: (radioId) => {
           const driver = audioDriver(radioId);
@@ -405,7 +414,11 @@ export async function createStation(options: StationOptions) {
         });
         registerRadioRoutes(app, { prefix, auth, service: stationRadios });
         if (stationMedia)
-          registerMediaRoutes(app, prefix, { auth, media: stationMedia });
+          registerMediaRoutes(app, prefix, {
+            auth,
+            media: stationMedia,
+            allowedOrigins: options.allowedOrigins ?? [],
+          });
         await app.register(
           async (scope) => registerHistoryRoutes(scope, { auth, history }),
           { prefix },
