@@ -56,6 +56,12 @@ await call('auth/bootstrap', undefined, 'POST', {
 });
 if (process.env.SIGNALDOCK_CONTAINER_TEST_WEB_URL) {
   const web = new URL(process.env.SIGNALDOCK_CONTAINER_TEST_WEB_URL);
+  const directory = await fetch(new URL(web.pathname.replace(/\/$/, ''), web), {
+    redirect: 'manual',
+    headers: { 'X-Forwarded-Proto': 'https' },
+  });
+  assert.equal(directory.status, 301);
+  assert.equal(directory.headers.get('location'), web.pathname);
   const page = await fetch(web);
   assert.equal(page.status, 200);
   const html = await page.text();
