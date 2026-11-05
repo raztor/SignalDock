@@ -54,6 +54,100 @@ await call('auth/bootstrap', undefined, 'POST', {
   username: 'container-admin',
   password,
 });
+if (process.env.SIGNALDOCK_CONTAINER_TEST_WEB_URL) {
+  const web = new URL(process.env.SIGNALDOCK_CONTAINER_TEST_WEB_URL);
+  const page = await fetch(web);
+  assert.equal(page.status, 200);
+  const html = await page.text();
+  const script = html.match(/src="([^"]+\.js)"/)?.[1];
+  assert(
+    script?.startsWith(web.pathname),
+    'Web assets must retain their prefix.',
+  );
+  const asset = await fetch(new URL(script, web));
+  assert(asset.ok && /javascript/.test(asset.headers.get('content-type')));
+  const missing = await fetch(new URL('not-a-route', base));
+  assert.equal(missing.status, 404);
+  assert.equal((await missing.json()).code, 'NOT_FOUND');
+  const origin = new URL(base).origin;
+  const cookieRequest = (path, body, headers = {}) =>
+    fetch(new URL(path, base), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Origin: origin,
+        ...headers,
+      },
+      body: JSON.stringify(body),
+    });
+  const credentials = {
+    username: 'container-admin',
+    password,
+    sessionMode: 'cookie',
+  };
+  const denied = await cookieRequest('auth/login', credentials, {
+    Origin: 'https://other.example',
+  });
+  assert.equal(denied.status, 403);
+  const login = await cookieRequest('auth/login', credentials);
+  assert.equal(login.status, 200);
+  const tokens = await login.json();
+  assert(!('refreshToken' in tokens));
+  const cookies = login.headers.getSetCookie();
+  assert(
+    cookies.some(
+      (value) =>
+        value.includes('; HttpOnly') &&
+        value.includes('Path=/backend/api/v1/auth'),
+    ),
+  );
+  const cookieHeader = cookies.map((value) => value.split(';')[0]).join('; ');
+  const noCsrf = await cookieRequest(
+    'auth/refresh',
+    {},
+    { Cookie: cookieHeader },
+  );
+  assert.equal(noCsrf.status, 403);
+  const refreshed = await cookieRequest(
+    'auth/refresh',
+    {},
+    {
+      Cookie: cookieHeader,
+      'X-CSRF-Token': tokens.csrfToken,
+    },
+  );
+  assert.equal(refreshed.status, 200);
+  const renewed = await refreshed.json();
+  assert(!('refreshToken' in renewed));
+  const events = await fetch(new URL('events', base), {
+    headers: { Authorization: `Bearer ${renewed.accessToken}` },
+    signal: AbortSignal.timeout(3000),
+  });
+  assert.equal(events.status, 200);
+  assert.match(events.headers.get('content-type'), /text\/event-stream/);
+  const reader = events.body.getReader();
+  try {
+    const first = await reader.read();
+    assert(new TextDecoder().decode(first.value).includes(': connected'));
+  } finally {
+    await reader.cancel();
+  }
+  const logout = await cookieRequest(
+    'auth/logout',
+    {},
+    {
+      Cookie: refreshed.headers
+        .getSetCookie()
+        .map((value) => value.split(';')[0])
+        .join('; '),
+      'X-CSRF-Token': renewed.csrfToken,
+    },
+  );
+  assert.equal(logout.status, 204);
+  console.log(
+    'Shared-origin web/API acceptance passed: distinct prefixes, assets, API errors, same-origin cookies, CSRF, refresh/logout and streamed events.',
+  );
+}
 const login = () =>
   call('auth/login', undefined, 'POST', {
     username: 'container-admin',

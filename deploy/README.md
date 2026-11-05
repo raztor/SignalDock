@@ -11,15 +11,37 @@ npm run setup:deploy
 docker compose --env-file deploy/.env -f deploy/compose.yaml up --build -d
 ```
 
-`deploy/.env` is created privately and never overwritten. Back it up securely. The web UI listens on `http://localhost:8080`; the API listens on `http://localhost:3000`. Both ports bind to loopback. Configure the API URL in the client. No account or radio is created automatically. Read the one-time bootstrap token from the API's private `/data` volume, complete administrator setup, then add users, radio configurations, and explicit radio grants. The token is consumed once; do not expose it in public logs.
+`deploy/.env` is created privately and never overwritten. Back it up securely. The web container serves the UI and proxies `/api/v1/` to the API at `http://localhost:8080`. The production web client defaults to that same origin. The API's separate diagnostic port remains at `http://localhost:3000`; both ports bind to loopback by default. Native clients and connections to other stations still accept an explicit server URL. No account or radio is created automatically. Read the one-time bootstrap token from the API's private `/data` volume, complete administrator setup, then add users, radio configurations, and explicit radio grants. The token is consumed once; do not expose it in public logs.
 
 The API and worker share the database and `/data` volume, including station identity, provider credential keyring, and recordings. They must represent the same station. Each station has scoped queue and outbox consumption. The worker does not open radios. Do not run competing radio-owning API processes for one station.
 
 ## HTTPS and prefixes
 
-Put the web UI and API behind an HTTPS reverse proxy. Set `SIGNALDOCK_ALLOWED_ORIGINS` to the exact public web origin. For a prefixed API, set `SIGNALDOCK_BASE_PATH` and preserve that path at the proxy. Set `WEB_BASE_PATH` before building a prefixed web export and rebuild the web image after changing it. These prefixes can differ: clients store the complete backend base URL.
+Publish one HTTPS origin for both the web UI and API. For example, configure Pangolin or another TLS reverse proxy with public hostname `signaldock.raztor.cl` and one HTTP destination, `http://10.0.4.103:8080`. The destination must be reachable from that proxy. Forward all paths without stripping prefixes; no separate public API port or backend subdomain is needed. The web container routes API requests to the private Compose service and serves the remaining paths as the web application.
 
-Set `SIGNALDOCK_COOKIE_ORIGIN` when using cookie-based session refresh behind a proxy. The standalone client uses isolated bearer sessions and platform-protected refresh-token storage. Never put backend credentials in a web build or URL.
+Configure these non-secret values in the private `deploy/.env`:
+
+```dotenv
+SIGNALDOCK_ALLOWED_ORIGINS=https://signaldock.raztor.cl
+SIGNALDOCK_COOKIE_ORIGIN=https://signaldock.raztor.cl
+WEB_BIND_ADDRESS=10.0.4.103
+WEB_PORT=8080
+```
+
+Leave `WEB_BIND_ADDRESS=127.0.0.1` when the TLS proxy runs on the same host. Use a reachable private interface when it runs on another machine. Set `SIGNALDOCK_COOKIE_ORIGIN` to the exact public origin: the same-origin web client uses HttpOnly refresh cookies with CSRF protection. DNS and a valid HTTPS certificate must be configured at the TLS proxy before using the public hostname. The client continues to reject HTTP station addresses outside loopback.
+
+The resulting routes are:
+
+- `https://signaldock.raztor.cl/`: web application and default station address.
+- `https://signaldock.raztor.cl/api/v1/server-info`: station discovery.
+- `https://signaldock.raztor.cl/api/v1/health`: API health.
+- `https://signaldock.raztor.cl/api/v1/events`: authenticated event stream.
+
+For a prefixed API, set `SIGNALDOCK_BASE_PATH`; for a prefixed web export, set `WEB_BASE_PATH`. Compose passes the API prefix to both the web proxy and the production client's default station address. These prefixes can differ, for example `SIGNALDOCK_BASE_PATH=/backend` and `WEB_BASE_PATH=/station`. Rebuild the web image after changing either prefix; changing only runtime environment variables does not rewrite the compiled client. The proxy preserves API paths, request bodies, authorization headers, cookies and unbuffered event streams. API errors remain API responses instead of the SPA fallback.
+
+The web container resolves the API's Docker DNS name during requests, so API container replacement does not require a web rebuild. The development Expo server and native client retain `http://localhost:3000` as their default; the web client can still connect to another independently hosted station.
+
+The standalone native client uses isolated bearer sessions and platform-protected refresh-token storage. Never put backend credentials in a web build or URL.
 
 ## Live media
 
@@ -76,6 +98,6 @@ Restore only into a fresh database and empty instance-data volume, with API and 
 
 ## Verification and distribution
 
-CI runs the full TypeScript/Python contract suites, real PostgreSQL jobs, web export, backup restoration, hardened API/worker containers, prefixed web assets, and a real LiveKit PCM round trip on Linux ARM64. These checks must pass on the published revision before claiming deployment acceptance. Docker is unavailable on the development Mac, so local checks alone do not establish container acceptance.
+CI runs the full TypeScript/Python contract suites, real PostgreSQL jobs, web export, backup restoration, hardened containers, and a real LiveKit PCM round trip on Linux ARM64. The disposable Compose acceptance runs the real station through the bundled web proxy with distinct web/API prefixes, JavaScript assets, same-origin cookie login/refresh/logout, CSRF rejection, JSON API errors, authenticated event streaming, and API restart recovery. These checks must pass on the published revision before claiming deployment acceptance. Docker is unavailable on the development Mac, so local checks alone do not establish container acceptance.
 
 `npm run check:licenses` emits a dependency license inventory under `.local/reports`. Review third-party notices and FFmpeg distribution obligations for released images. Later production gates include native iOS/Android audio and push, external-account onboarding, and physical Linux/Raspberry Pi operation.

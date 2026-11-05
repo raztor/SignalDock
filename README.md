@@ -33,7 +33,7 @@ npm run simulate
 
 Start PostgreSQL 18, or run the optional local runtime with `node packages/database/scripts/dev-postgres.mjs`. Set `DATABASE_URL` to that database and run `npm run dev:api`; run `npm run dev:client` in another terminal. Select `http://localhost:3000`, use the setup token from the private `.local/instance/station-secrets.json` file to create the administrator, and assign explicit radio permissions. With no database configured, the API intentionally serves discovery only.
 
-For containers, run `npm run setup:deploy`, then `docker compose --env-file deploy/.env -f deploy/compose.yaml up --build -d`. The web client is at `http://localhost:8080`; its backend URL is configurable. Configure the optional media service and radio driver separately using the [deployment guide](deploy/README.md). Do not commit the generated `.env`, identity, provider keys or recordings.
+For containers, run `npm run setup:deploy`, then `docker compose --env-file deploy/.env -f deploy/compose.yaml up --build -d`. The web container at `http://localhost:8080` serves both the client and `/api/v1/` through its bundled reverse proxy. Publish that single destination behind HTTPS; the production web client defaults to its own origin. Other station URLs remain configurable. See the [deployment guide](deploy/README.md) for one-domain hosting, optional media and the radio driver. Do not commit the generated `.env`, identity, provider keys or recordings.
 
 ## Product specification
 

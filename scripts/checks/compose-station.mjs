@@ -63,7 +63,7 @@ function sql(database, query) {
 async function waitForApi() {
   for (let attempt = 0; attempt < 60; attempt++) {
     try {
-      if ((await fetch('http://127.0.0.1:3000/station/api/v1/health')).ok)
+      if ((await fetch('http://127.0.0.1:8080/backend/api/v1/health')).ok)
         return;
     } catch {}
     await new Promise((resolve) => setTimeout(resolve, 250));
@@ -73,7 +73,7 @@ async function waitForApi() {
 try {
   await writeFile(
     override,
-    'services:\n  api:\n    image: signaldock-api:test\n  worker:\n    image: signaldock-api:test\n',
+    'services:\n  api:\n    image: signaldock-api:test\n  worker:\n    image: signaldock-api:test\n  web:\n    image: signaldock-web:test\n',
     { mode: 0o600 },
   );
   docker([
@@ -90,7 +90,16 @@ try {
   target.pathname = '/sd_actual_target';
   const active = original
     .replace(/^DATABASE_URL=.*$/m, 'DATABASE_URL=' + target.href)
-    .replace(/^SIGNALDOCK_BASE_PATH=.*$/m, 'SIGNALDOCK_BASE_PATH=/station');
+    .replace(/^SIGNALDOCK_BASE_PATH=.*$/m, 'SIGNALDOCK_BASE_PATH=/backend')
+    .replace(/^WEB_BASE_PATH=.*$/m, 'WEB_BASE_PATH=/station')
+    .replace(
+      /^SIGNALDOCK_ALLOWED_ORIGINS=.*$/m,
+      'SIGNALDOCK_ALLOWED_ORIGINS=http://127.0.0.1:8080',
+    )
+    .replace(
+      /^SIGNALDOCK_COOKIE_ORIGIN=.*$/m,
+      'SIGNALDOCK_COOKIE_ORIGIN=http://127.0.0.1:8080',
+    );
   await writeFile(privateEnv, active, { mode: 0o600 });
   docker([
     ...compose,
@@ -101,6 +110,7 @@ try {
     '90',
     'api',
     'worker',
+    'web',
   ]);
   await waitForApi();
   const apiContainer = docker([...compose, 'ps', '--quiet', 'api'])
@@ -108,7 +118,12 @@ try {
     .trim();
   assert(/^[a-f0-9]{12,64}$/.test(apiContainer));
   execFileSync(process.execPath, ['scripts/checks/container-station.mjs'], {
-    env: { ...env, SIGNALDOCK_CONTAINER_TEST_NAME: apiContainer },
+    env: {
+      ...env,
+      SIGNALDOCK_CONTAINER_TEST_NAME: apiContainer,
+      SIGNALDOCK_CONTAINER_TEST_URL: 'http://127.0.0.1:8080/backend/api/v1/',
+      SIGNALDOCK_CONTAINER_TEST_WEB_URL: 'http://127.0.0.1:8080/station/',
+    },
     stdio: 'inherit',
   });
   // A changed .env must not redirect backup away from the running station's database.
