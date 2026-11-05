@@ -130,6 +130,7 @@ function fixture() {
   });
   const feed = new Feed();
   const archive = vi.fn();
+  const errors = vi.fn();
   const media = new MediaService({
     instanceId: principal.instanceId,
     auth,
@@ -144,6 +145,7 @@ function fixture() {
       frames: (signal) => feed.frames(signal),
     }),
     onFrame: archive,
+    onError: errors,
   });
   cleanup.push(media);
   return {
@@ -155,6 +157,7 @@ function fixture() {
     write,
     end,
     archive,
+    errors,
     supervisor,
     deny: () => {
       denied = true;
@@ -300,7 +303,7 @@ describe('authorized PCM WebSocket bridge', () => {
     await f.media.openWebSocket(session.id, session.token, socket);
     socket.receive(encodePcmSocketFrame(f.frame()));
     await vi.waitFor(() => expect(f.write).toHaveBeenCalledOnce());
-    for (let index = 1; index <= 4; index++)
+    for (let index = 1; index <= 11; index++)
       socket.receive(encodePcmSocketFrame(f.frame(index)));
     expect(socket.readyState).toBe(3);
     expect(f.write).toHaveBeenCalledOnce();
@@ -313,6 +316,60 @@ describe('authorized PCM WebSocket bridge', () => {
       expect(f.supervisor.get(tx.grant.txGrantId).state).toBe('idle'),
     );
     expect(f.write).toHaveBeenCalledOnce();
+  });
+  it('paces a bounded TCP microphone batch instead of rejecting or bursting it', async () => {
+    const f = fixture(),
+      socket = new Socket();
+    const times: number[] = [];
+    f.write.mockImplementation(async () => {
+      times.push(performance.now());
+    });
+    const tx = await f.start(),
+      session = await f.session('transmit', tx.grant.txGrantId);
+    await f.media.openWebSocket(session.id, session.token, socket);
+    for (let index = 0; index < 8; index++)
+      socket.receive(encodePcmSocketFrame(f.frame(index)));
+    await vi.waitFor(() => expect(f.write).toHaveBeenCalledTimes(8));
+    expect(socket.readyState).toBe(1);
+    expect(times[7]! - times[0]!).toBeGreaterThanOrEqual(120);
+  });
+  it('drops buffered audio immediately when the socket closes during pacing', async () => {
+    vi.useFakeTimers();
+    const f = fixture(),
+      socket = new Socket();
+    const tx = await f.start(),
+      session = await f.session('transmit', tx.grant.txGrantId);
+    await f.media.openWebSocket(session.id, session.token, socket);
+    socket.receive(encodePcmSocketFrame(f.frame()));
+    socket.receive(encodePcmSocketFrame(f.frame(1)));
+    await vi.advanceTimersByTimeAsync(0);
+    socket.close(1000);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(f.supervisor.get(tx.grant.txGrantId).state).toBe('idle');
+    expect(f.write).toHaveBeenCalledOnce();
+  });
+  it('still rejects stale microphone audio with bounded numeric diagnostics', async () => {
+    vi.useFakeTimers();
+    const f = fixture(),
+      socket = new Socket();
+    const tx = await f.start(),
+      session = await f.session('transmit', tx.grant.txGrantId);
+    await f.media.openWebSocket(session.id, session.token, socket);
+    socket.receive(encodePcmSocketFrame(f.frame()));
+    await vi.advanceTimersByTimeAsync(260);
+    socket.receive(encodePcmSocketFrame(f.frame(1)));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(socket.code).toBe(1008);
+    expect(f.write).toHaveBeenCalledOnce();
+    expect(f.errors.mock.calls[0]?.[1]).toMatchObject({
+      code: 'INVALID_ARGUMENT',
+      diagnostic: {
+        reason: 'clock',
+        sequence: 1,
+        expectedSequence: 1,
+        lagMs: 240,
+      },
+    });
   });
   it('disconnects a slow RX socket without blocking another listener', async () => {
     const f = fixture(),

@@ -22,6 +22,7 @@ import {
   LiveKitCredentials,
   WebSocketCredentials,
   WebSocketRadioBridge,
+  PcmStreamError,
   MediaService,
   createGrpcTxDriver,
   grpcRxFrames,
@@ -324,8 +325,11 @@ export async function createStation(options: StationOptions) {
           capture.push(frame, input);
           coverage?.push(input);
         },
-        onError: (_radioId, error) =>
-          logFailure('Radio media unavailable', error),
+        onError: (_radioId, error) => {
+          logFailure('Radio media unavailable', error);
+          if (options.logger && error instanceof PcmStreamError)
+            console.error('Microphone stream rejected', error.diagnostic);
+        },
       });
       uninvalidate = runtime.onControlInvalidated(({ radioId, reason }) => {
         void tx.invalidateControl(radioId, reason);

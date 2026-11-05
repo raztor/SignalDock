@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { setTimeout as delay } from 'node:timers/promises';
 import {
   SignalDockError,
   PCM_WEBSOCKET_FORMAT,
@@ -64,6 +65,23 @@ interface Peer {
   audioStartedAt?: number;
   heartbeat?: ReturnType<typeof setInterval>;
   awaitingPong?: boolean;
+  abort: AbortController;
+}
+
+export class PcmStreamError extends SignalDockError {
+  constructor(
+    public readonly diagnostic: {
+      reason: 'sequence' | 'clock';
+      sequence: number;
+      expectedSequence: number;
+      lagMs: number;
+    },
+  ) {
+    super(
+      'INVALID_ARGUMENT',
+      'Microphone audio timing or sequence is invalid.',
+    );
+  }
 }
 interface Radio {
   generation: string;
@@ -230,6 +248,7 @@ export class WebSocketRadioBridge implements MediaBridgePort {
       draining: false,
       nextSequence: 0,
       samples: 0,
+      abort: new AbortController(),
       ...(grant ? { grantId: grant.txGrantId } : {}),
     };
     this.peers.set(session.participantIdentity, peer);
@@ -256,7 +275,7 @@ export class WebSocketRadioBridge implements MediaBridgePort {
     }
     socket.onMessage((bytes, binary) => {
       if (peer.closed) return;
-      if (session.mode !== 'transmit' || !binary || peer.queue.length >= 3) {
+      if (session.mode !== 'transmit' || !binary || peer.queue.length >= 10) {
         this.end(peer, 1008, 'Invalid audio stream');
         return;
       }
@@ -286,13 +305,34 @@ export class WebSocketRadioBridge implements MediaBridgePort {
         if (
           packet.sequence !== peer.nextSequence ||
           packet.mediaTimeUs !== expectedTime ||
-          lag < -100 ||
+          lag < -200 ||
           lag > 200
         )
-          throw new SignalDockError(
-            'INVALID_ARGUMENT',
-            'Microphone audio is stale, replayed or too far ahead.',
-          );
+          throw new PcmStreamError({
+            reason:
+              packet.sequence !== peer.nextSequence ||
+              packet.mediaTimeUs !== expectedTime
+                ? 'sequence'
+                : 'clock',
+            sequence: packet.sequence,
+            expectedSequence: peer.nextSequence,
+            lagMs: Math.round(lag),
+          });
+        // TCP can deliver several correctly captured frames in one batch.
+        // Pace that bounded jitter buffer before the private driver stream;
+        // never burst queued microphone audio into its real-time input.
+        if (lag < 0)
+          await delay(-lag, undefined, { signal: peer.abort.signal });
+        if (peer.closed) return;
+        const currentLag =
+          performance.now() - peer.audioStartedAt - expectedTime / 1000;
+        if (currentLag > 200)
+          throw new PcmStreamError({
+            reason: 'clock',
+            sequence: packet.sequence,
+            expectedSequence: peer.nextSequence,
+            lagMs: Math.round(currentLag),
+          });
         const grant = this.options.authorizeParticipant(
           peer.session.radioId,
           peer.session.participantIdentity,
@@ -317,8 +357,10 @@ export class WebSocketRadioBridge implements MediaBridgePort {
         peer.samples += packet.data.length / 2;
       }
     } catch (error) {
-      this.report(peer.session.radioId, error);
-      this.end(peer, 1008, 'Audio stream rejected');
+      if (!peer.closed) {
+        this.report(peer.session.radioId, error);
+        this.end(peer, 1008, 'Audio stream rejected');
+      }
     } finally {
       peer.draining = false;
     }
@@ -341,6 +383,7 @@ export class WebSocketRadioBridge implements MediaBridgePort {
   private end(peer: Peer, code = 1000, reason = 'Audio closed'): void {
     if (peer.closed) return;
     peer.closed = true;
+    peer.abort.abort();
     clearInterval(peer.heartbeat);
     peer.queue.length = 0;
     this.peers.delete(peer.session.participantIdentity);
