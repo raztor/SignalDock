@@ -1,4 +1,4 @@
-"""BLE control adapter. Device semantics remain inside the VGC module."""
+"""Bluetooth control adapter. Device semantics remain inside the VGC module."""
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Protocol
@@ -38,6 +38,7 @@ class BenlinkControl:
     def __init__(self, config: DriverConfig, connection=None, recovery_directory: Path | None = None):
         self.config = config
         self.connection = connection
+        self._owns_connection = connection is None
         self._original_region: int | None = None
         self.memory_count = 0
         self.journal = RecoveryJournal(recovery_directory) if recovery_directory else None
@@ -46,11 +47,16 @@ class BenlinkControl:
         if self.connection is None:
             from benlink.command import CommandConnection
             if self.config.control_transport == "rfcomm":
-                self.connection = CommandConnection.new_rfcomm(self.config.classic_address, channel=self.config.control_channel)
+                from .rfcomm_control import discover_serial_channel, new_serial_connection
+                channel = self.config.control_channel
+                if channel == "auto":
+                    channel = await discover_serial_channel(self.config.classic_address, self.config.audio_channel)
+                self.connection = new_serial_connection(self.config.classic_address, channel)
             else:
                 self.connection = CommandConnection.new_ble(await resolve_ble_device(self.config.ble_address))
-        await self.connection.connect()
         try:
+            if not self.connection.is_connected():
+                await self.connection.connect()
             self._original_region = None
             info = await self.connection.get_device_info()
             if info.vendor_id != 1 or info.product_id != 8:
@@ -66,8 +72,12 @@ class BenlinkControl:
             raise
 
     async def disconnect(self) -> None:
-        if self.connection is not None and self.connection.is_connected():
-            await self.connection.disconnect()
+        if self.connection is not None:
+            # Managed serial cleanup is idempotent even after its reader died.
+            if self.config.control_transport == "rfcomm" or self.connection.is_connected():
+                await self.connection.disconnect()
+            if self._owns_connection:
+                self.connection = None
 
     async def observe(self) -> ControlObservation:
         status = await self.connection.get_status()
