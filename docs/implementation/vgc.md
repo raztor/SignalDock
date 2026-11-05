@@ -2,6 +2,8 @@
 
 The `vgc-benlink` driver implements private Radio Driver API v1 for one explicitly configured VR-N7500 per process. Start separate processes/sockets for independent radios. The service opens hardware only after `Connect`; startup, help and offline configuration validation do not discover or connect to a radio. No vendor protocol is exposed through public product APIs.
 
+On Linux, the configured MAC is first resolved from the default BlueZ adapter (`hci0`) over the system D-Bus. A cached device is passed directly to Bleak, including when BlueZ already connected it and the radio stopped advertising. A device not yet known to BlueZ retains normal address-based discovery. This lookup never selects a radio by name. Docker deployments need the host system D-Bus socket, host networking for Bluetooth RFCOMM, and an AppArmor profile permitting calls to BlueZ, D-Bus match registration and BlueZ notifications. Both the Classic and LE bearers must be paired on dual-mode radios; a Classic bond alone does not establish BLE control. Use a private authenticated Unix socket with matching driver/API UIDs. Pairing and a successful model/status read do not validate browser audio: LiveKit and a physical receive test are separate requirements.
+
 ## Dependencies and startup
 
 Use Python 3.13+, FFmpeg with the SBC encoder/decoder, Bluetooth BLE and Classic RFCOMM, and the generated Python driver bindings from the same repository revision. The package declares grpcio and protobuf compatibility with those generated bindings and pins benlink to revision `c4b9d22112402ea193d376f412bc028d1778fdb4`.

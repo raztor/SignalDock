@@ -3,6 +3,7 @@ from pathlib import Path
 import tempfile
 from types import SimpleNamespace
 import unittest
+from unittest.mock import AsyncMock, patch
 
 from vgc_benlink.control import BenlinkControl
 from vgc_benlink.model import DriverConfig, DriverError, Tuning
@@ -51,6 +52,18 @@ class Connection:
 
 
 class ControlTests(unittest.IsolatedAsyncioTestCase):
+    async def test_new_connection_uses_resolved_bluez_device(self):
+        connection = Connection()
+        device = object()
+        with patch("vgc_benlink.control.resolve_ble_device", AsyncMock(return_value=device)) as resolve, patch(
+            "benlink.command.CommandConnection.new_ble", return_value=connection
+        ) as create:
+            control = BenlinkControl(DriverConfig(RADIO, "ble", "classic"))
+            self.assertFalse((await control.connect()).tx_active)
+        resolve.assert_awaited_once_with("ble")
+        create.assert_called_once_with(device)
+        self.assertEqual(control.memory_count, 32)
+
     async def test_tuning_uses_selection_readback_and_preserves_unrelated_memory_fields(self):
         connection = Connection()
         control = BenlinkControl(DriverConfig(RADIO, "ble", "classic", working_memory=9), connection)

@@ -6,6 +6,7 @@ from pathlib import Path
 
 from .model import DriverConfig, DriverError, Tuning, Memory
 from .recovery import RecoveryJournal
+from .ble_device import resolve_ble_device
 
 
 @dataclass(frozen=True)
@@ -44,7 +45,7 @@ class BenlinkControl:
     async def connect(self) -> ControlObservation:
         if self.connection is None:
             from benlink.command import CommandConnection
-            self.connection = CommandConnection.new_ble(self.config.ble_address)
+            self.connection = CommandConnection.new_ble(await resolve_ble_device(self.config.ble_address))
         await self.connection.connect()
         try:
             self._original_region = None
