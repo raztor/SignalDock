@@ -303,7 +303,7 @@ describe('authorized PCM WebSocket bridge', () => {
     await f.media.openWebSocket(session.id, session.token, socket);
     socket.receive(encodePcmSocketFrame(f.frame()));
     await vi.waitFor(() => expect(f.write).toHaveBeenCalledOnce());
-    for (let index = 1; index <= 11; index++)
+    for (let index = 1; index <= 51; index++)
       socket.receive(encodePcmSocketFrame(f.frame(index)));
     expect(socket.readyState).toBe(3);
     expect(f.write).toHaveBeenCalledOnce();
@@ -388,6 +388,29 @@ describe('authorized PCM WebSocket bridge', () => {
       tx.grant.expiresAt,
     );
     expect(f.errors).not.toHaveBeenCalled();
+  });
+  it('paces a half-second network batch without overflowing the private driver queue', async () => {
+    const f = fixture(),
+      socket = new Socket();
+    const times: number[] = [];
+    f.write.mockImplementation(async () => {
+      times.push(performance.now());
+    });
+    const tx = await f.start(),
+      session = await f.session('transmit', tx.grant.txGrantId);
+    await f.media.openWebSocket(session.id, session.token, socket);
+    socket.receive(encodePcmSocketFrame(f.frame()));
+    await new Promise((resolve) => setTimeout(resolve, 460));
+    for (let index = 1; index <= 24; index++)
+      socket.receive(encodePcmSocketFrame(f.frame(index)));
+    await vi.waitFor(() => expect(f.write).toHaveBeenCalledTimes(25), {
+      timeout: 1200,
+      interval: 10,
+    });
+    expect(socket.readyState).toBe(1);
+    expect(f.errors).not.toHaveBeenCalled();
+    for (let index = 3; index < times.length; index++)
+      expect(times[index]! - times[index - 1]!).toBeGreaterThanOrEqual(15);
   });
   it('disconnects a slow RX socket without blocking another listener', async () => {
     const f = fixture(),

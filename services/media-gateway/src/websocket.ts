@@ -63,6 +63,7 @@ interface Peer {
   nextSequence: number;
   samples: number;
   audioStartedAt?: number;
+  nextSendAt?: number;
   heartbeat?: ReturnType<typeof setInterval>;
   awaitingPong?: boolean;
   abort: AbortController;
@@ -275,8 +276,19 @@ export class WebSocketRadioBridge implements MediaBridgePort {
     }
     socket.onMessage((bytes, binary) => {
       if (peer.closed) return;
-      if (session.mode !== 'transmit' || !binary || peer.queue.length >= 10) {
+      if (session.mode !== 'transmit' || !binary) {
         this.end(peer, 1008, 'Invalid audio stream');
+        return;
+      }
+      if (peer.queue.length >= 50) {
+        this.report(
+          session.radioId,
+          new SignalDockError(
+            'CONTROL_BUSY',
+            'The microphone queue exceeded its one-second bound.',
+          ),
+        );
+        this.end(peer, 1013, 'Microphone queue exceeded');
         return;
       }
       peer.queue.push(bytes);
@@ -321,8 +333,15 @@ export class WebSocketRadioBridge implements MediaBridgePort {
         // TCP can deliver several correctly captured frames in one batch.
         // Pace that bounded jitter buffer before the private driver stream;
         // never burst queued microphone audio into its real-time input.
-        if (lag < 0)
-          await delay(-lag, undefined, { signal: peer.abort.signal });
+        const now = performance.now();
+        const durationMs = packet.data.length / 64;
+        // Preserve cadence after a network stall as well as during early
+        // batches. Catch up by at most one frame, never by the whole backlog.
+        peer.nextSendAt = Math.max(peer.nextSendAt ?? now, now - durationMs);
+        if (peer.nextSendAt > now)
+          await delay(peer.nextSendAt - now, undefined, {
+            signal: peer.abort.signal,
+          });
         if (peer.closed) return;
         const currentLag =
           performance.now() - peer.audioStartedAt - expectedTime / 1000;
@@ -353,6 +372,7 @@ export class WebSocketRadioBridge implements MediaBridgePort {
           attributionConfidence: 'confirmed',
           discontinuity: false,
         });
+        peer.nextSendAt += durationMs;
         peer.nextSequence++;
         peer.samples += packet.data.length / 2;
       }
