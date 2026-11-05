@@ -4,16 +4,14 @@ COPY package.json package-lock.json tsconfig*.json ./
 COPY packages ./packages
 COPY services ./services
 COPY apps ./apps
-RUN npm ci --ignore-scripts && npm run build
+RUN --mount=type=cache,id=signaldock-npm,target=/root/.npm,sharing=locked \
+    npm ci --ignore-scripts --prefer-offline && npm run build
 
 FROM build AS production-dependencies
-RUN npm ci --omit=dev --ignore-scripts --workspace=@signaldock/api
+RUN --mount=type=cache,id=signaldock-npm,target=/root/.npm,sharing=locked \
+    npm ci --omit=dev --ignore-scripts --prefer-offline --workspace=@signaldock/api
 
 FROM node:24.22.1-bookworm-slim AS runtime
-ARG VCS_REF=development
-LABEL org.opencontainers.image.source="https://github.com/raztor/SignalDock" \
-      org.opencontainers.image.licenses="AGPL-3.0-only" \
-      org.opencontainers.image.revision=$VCS_REF
 ENV NODE_ENV=production HOST=0.0.0.0 PORT=3000 SIGNALDOCK_DATA_DIR=/data
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg ca-certificates \
     && rm -rf /var/lib/apt/lists/*
@@ -28,4 +26,8 @@ RUN mkdir /data && chown node:node /data
 USER node
 EXPOSE 3000
 VOLUME ["/data"]
+ARG VCS_REF=development
+LABEL org.opencontainers.image.source="https://github.com/raztor/SignalDock" \
+      org.opencontainers.image.licenses="AGPL-3.0-only" \
+      org.opencontainers.image.revision=$VCS_REF
 CMD ["node", "apps/api/dist/main.js"]

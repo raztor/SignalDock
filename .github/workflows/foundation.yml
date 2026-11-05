@@ -79,13 +79,13 @@ jobs:
       - run: npm run setup:deploy
       - run: docker compose --env-file deploy/.env -f deploy/compose.yaml config --quiet
       - run: docker build --build-arg VCS_REF=${{ github.sha }} -f deploy/api.Dockerfile -t signaldock-api:test .
+      - run: docker build --build-arg WEB_BASE_PATH=/station --build-arg API_BASE_PATH=/backend -f deploy/web.Dockerfile -t signaldock-web:test .
       - run: node scripts/checks/compose-station.mjs
       - name: Build and smoke test Python driver image
         timeout-minutes: 15
         run: |
           docker build -f services/drivers/vgc-benlink/Dockerfile -t signaldock-vgc:test .
           docker run --rm --read-only --cap-drop=ALL --security-opt=no-new-privileges signaldock-vgc:test --help
-      - run: docker build --build-arg WEB_BASE_PATH=/station -f deploy/web.Dockerfile -t signaldock-web:test .
       - run: |
           docker run -d --name signaldock-web-test --read-only --cap-drop=ALL --security-opt=no-new-privileges \
             --tmpfs /tmp:rw,noexec,nosuid,size=32m --tmpfs /etc/nginx/conf.d:rw,noexec,nosuid,size=1m,uid=101,gid=101,mode=0755 \
