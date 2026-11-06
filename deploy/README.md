@@ -65,6 +65,8 @@ Browser RX and microphone TX were accepted on the development Mac. Native device
 
 ## VGC driver
 
+For a host-to-radio walkthrough, follow [Connect a radio on Linux](../docs/linux-radio-setup.md). It covers built-in/USB adapter selection, Classic and BLE pairing, private container permissions and mounts, registration, and separate hardware/audio checks, using Raspberry Pi as one Linux host example.
+
 See [the driver module](../services/drivers/vgc-benlink/README.md) for its Python image, configuration, private gRPC authentication, audio transport, and host requirements. The driver's endpoint and token reference are configured in a radio's private driver configuration. Set `SIGNALDOCK_DRIVER_CREDENTIALS_FILE` in `deploy/.env` to the **container** path of its private JSON reference-to-token-file map; Compose forwards it to the backend. Mount the map, referenced token files and driver socket directory using a private Compose override, for example:
 
 ```yaml

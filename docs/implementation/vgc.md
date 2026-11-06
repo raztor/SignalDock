@@ -68,6 +68,8 @@ On Mac the native helper also enforces renewal/absolute deadlines and parent EOF
 
 ## Linux deployment
 
+For the complete host, Bluetooth adapter, pairing, private Compose, and UI setup sequence, follow [Connect a radio on Linux](../linux-radio-setup.md). Raspberry Pi is the worked example; the host procedure also applies to other Linux computers with compatible adapters.
+
 ```sh
 docker build -f services/drivers/vgc-benlink/Dockerfile -t signaldock-vgc .
 ```
